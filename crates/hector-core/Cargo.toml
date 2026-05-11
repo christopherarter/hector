@@ -20,3 +20,5 @@ nix.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 insta.workspace = true
+assert_cmd.workspace = true
+serde_json.workspace = true
