@@ -23,6 +23,6 @@ fn runner_compiles_with_disable_map_path() {
     let cfg = "schema_version: 2\nrules:\n  no-debug:\n    description: \"x\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"true\"\n";
     let path = write_trusted(dir.path(), cfg);
     let engine = HectorEngine::load(&path).expect("load");
-    let verdict = engine.check(CheckInput::File { path: file.clone(), content: fs::read_to_string(&file).unwrap() });
+    let verdict = engine.check(CheckInput::File { path: file.clone(), content: fs::read_to_string(&file).unwrap() }).unwrap();
     assert_eq!(verdict.status, Status::Pass);
 }

@@ -19,7 +19,7 @@ fn passing_rule_yields_pass_verdict() {
     let cfg = "schema_version: 2\nrules:\n  noop:\n    description: \"x\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"true\"\n";
     let cfg_path = write_trusted_config(dir.path(), cfg);
     let engine = HectorEngine::load(&cfg_path).expect("load");
-    let verdict = engine.check(CheckInput::File { path: file.clone(), content: "clean\n".into() });
+    let verdict = engine.check(CheckInput::File { path: file.clone(), content: "clean\n".into() }).unwrap();
     assert_eq!(verdict.status, Status::Pass);
 }
 
@@ -31,7 +31,7 @@ fn failing_rule_yields_block_verdict() {
     let cfg = "schema_version: 2\nrules:\n  noforbidden:\n    description: \"x\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"grep -q forbidden {file} && exit 1 || exit 0\"\n";
     let cfg_path = write_trusted_config(dir.path(), cfg);
     let engine = HectorEngine::load(&cfg_path).expect("load");
-    let verdict = engine.check(CheckInput::File { path: file.clone(), content: "forbidden\n".into() });
+    let verdict = engine.check(CheckInput::File { path: file.clone(), content: "forbidden\n".into() }).unwrap();
     assert_eq!(verdict.status, Status::Block);
     assert_eq!(verdict.violations.len(), 1);
     assert_eq!(verdict.violations[0].rule_id, "noforbidden");
@@ -45,7 +45,7 @@ fn rule_outside_scope_does_not_fire() {
     let cfg = "schema_version: 2\nrules:\n  noforbidden:\n    description: \"x\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"grep -q forbidden {file} && exit 1 || exit 0\"\n";
     let cfg_path = write_trusted_config(dir.path(), cfg);
     let engine = HectorEngine::load(&cfg_path).expect("load");
-    let verdict = engine.check(CheckInput::File { path: file.clone(), content: "forbidden\n".into() });
+    let verdict = engine.check(CheckInput::File { path: file.clone(), content: "forbidden\n".into() }).unwrap();
     assert_eq!(verdict.status, Status::Pass);
 }
 

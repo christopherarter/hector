@@ -54,7 +54,7 @@ impl HectorEngine {
         Ok(Self { config, config_dir })
     }
 
-    pub fn check(&self, input: CheckInput) -> Verdict {
+    pub fn check(&self, input: CheckInput) -> Result<Verdict> {
         use crate::disable::DisableMap;
         let start = Instant::now();
         let (path, content, diff) = match input {
@@ -88,10 +88,22 @@ impl HectorEngine {
                     violations.push(v);
                 }
                 Ok(None) => passed.push(rule_id.clone()),
-                Err(_) => {}
+                Err(e) => {
+                    violations.push(Violation {
+                        rule_id: format!("{rule_id}__internal"),
+                        severity: crate::verdict::Severity::Error,
+                        engine: crate::verdict::Engine::Trust,
+                        file: path.display().to_string(),
+                        line: None,
+                        column: None,
+                        message: format!("{e:#}"),
+                        suggestion: None,
+                        context: None,
+                    });
+                }
             }
         }
 
-        Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64)
+        Ok(Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64))
     }
 }

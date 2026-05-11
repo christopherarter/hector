@@ -35,7 +35,7 @@ pub fn run(
         }
     };
 
-    let verdict = engine.check(input);
+    let verdict = engine.check(input)?;
     emit(&verdict, format)?;
     Ok(exit_code(&verdict))
 }
