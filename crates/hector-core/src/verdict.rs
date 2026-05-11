@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+
+pub const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verdict {
@@ -24,7 +25,7 @@ pub struct Violation {
     pub rule_id: String,
     pub severity: Severity,
     pub engine: Engine,
-    pub file: PathBuf,
+    pub file: String,
     pub line: Option<u32>,
     pub column: Option<u32>,
     pub message: String,
@@ -52,7 +53,7 @@ pub enum Engine {
 impl Verdict {
     pub fn pass() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             hector_version: env!("CARGO_PKG_VERSION").to_string(),
             status: Status::Pass,
             violations: vec![],
@@ -70,7 +71,7 @@ impl Verdict {
             Status::Warn
         };
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             hector_version: env!("CARGO_PKG_VERSION").to_string(),
             status,
             violations,

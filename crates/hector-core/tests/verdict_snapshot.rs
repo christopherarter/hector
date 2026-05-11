@@ -35,3 +35,24 @@ fn verdict_pass_with_no_violations() {
     };
     insta::assert_json_snapshot!(v);
 }
+
+#[test]
+fn verdict_warn_from_violations() {
+    let v = Verdict::from_violations(
+        vec![Violation {
+            rule_id: "no-debug".to_string(),
+            severity: Severity::Warning,
+            engine: Engine::Ast,
+            file: "src/lib.ts".to_string(),
+            line: None,
+            column: None,
+            message: "debugger statement left in code".to_string(),
+            suggestion: Some("remove debugger".to_string()),
+            context: None,
+        }],
+        vec![],
+        55,
+    );
+    assert_eq!(v.status, Status::Warn);
+    insta::assert_json_snapshot!(v);
+}
