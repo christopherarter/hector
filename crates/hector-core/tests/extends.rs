@@ -1,10 +1,16 @@
 use hector_core::config::parse_file_with_extends;
-use std::path::Path;
+use std::path::PathBuf;
+
+fn workspace_fixture(rel: &str) -> PathBuf {
+    // CARGO_MANIFEST_DIR is `crates/hector-core/`; fixtures live at workspace root.
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest.join("../..").join(rel)
+}
 
 #[test]
 fn extends_merges_rules() {
-    let path = Path::new("tests/fixtures/with_extends/child.hector.yml");
-    let cfg = parse_file_with_extends(path).expect("parse");
+    let path = workspace_fixture("tests/fixtures/with_extends/child.hector.yml");
+    let cfg = parse_file_with_extends(&path).expect("parse");
     assert!(cfg.rules.contains_key("base-rule"), "base rule inherited");
     assert!(cfg.rules.contains_key("child-rule"), "child rule present");
 }
