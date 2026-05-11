@@ -1,6 +1,8 @@
-//! LLM client trait + provider impls (anthropic at later tasks).
+//! LLM client trait + provider impls.
 
+pub mod anthropic;
 pub mod no_llm;
+pub mod prompt;
 
 use crate::config::Rule;
 use anyhow::Result;
@@ -26,4 +28,5 @@ pub trait LlmClient: Send + Sync {
     ) -> Result<Vec<RuleVerdict>>;
 }
 
+pub use anthropic::AnthropicClient;
 pub use no_llm::NoLlm;
