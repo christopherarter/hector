@@ -22,3 +22,5 @@ tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
 insta = { version = "1", features = ["yaml", "json"] }
+ast-grep-core = "0.42"
+ast-grep-language = "0.42"
