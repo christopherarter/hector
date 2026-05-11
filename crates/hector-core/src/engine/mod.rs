@@ -2,6 +2,7 @@
 
 pub mod ast;
 pub mod capability;
+pub mod context;
 pub mod script;
 
 use crate::config::Rule;
