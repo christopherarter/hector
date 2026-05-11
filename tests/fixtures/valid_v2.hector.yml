@@ -1,0 +1,28 @@
+schema_version: 2
+
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  api_key_env: ANTHROPIC_API_KEY
+
+trust:
+  fingerprint: "sha256:placeholder"
+
+rules:
+  no-console-log:
+    description: "No console.log in committed source."
+    engine: script
+    scope: ["src/**/*.ts"]
+    severity: error
+    script: "grep -nE 'console\\.log\\(' {file} && exit 1 || exit 0"
+    capabilities:
+      network: false
+      writes: cwd-only
+
+  no-as-any:
+    description: "No `as any` casts."
+    engine: ast
+    scope: "src/**/*.ts"
+    severity: error
+    pattern: "$EXPR as any"
+    language: ts
