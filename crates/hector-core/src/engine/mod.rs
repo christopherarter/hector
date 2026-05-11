@@ -5,6 +5,7 @@ pub mod capability;
 pub mod context;
 pub mod script;
 pub mod semantic;
+pub mod session;
 
 use crate::config::Rule;
 use crate::llm::LlmClient;

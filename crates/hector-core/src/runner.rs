@@ -57,17 +57,7 @@ impl HectorEngine {
         trust::verify(&raw)?;
         let config = parse_file_with_extends(config_path)?;
 
-        // Reject configs whose engines are not yet implemented by this binary.
-        for (rule_id, rule) in &config.rules {
-            match rule.engine {
-                EngineKind::Script | EngineKind::Ast | EngineKind::Semantic => {}
-                other => {
-                    return Err(anyhow::anyhow!(
-                        "rule `{rule_id}` uses engine `{other:?}` which is not implemented in this build (0.1a) — see specs/2026-05-11-hector-plan-and-0.1-design.md §10 phasing"
-                    ));
-                }
-            }
-        }
+        // All engines (Script, Ast, Semantic, Session) implemented as of 0.1b.
 
         // Validate every rule's scope by constructing the matcher up front.
         for (rule_id, rule) in &config.rules {
@@ -169,5 +159,37 @@ impl HectorEngine {
         }
 
         Ok(Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64))
+    }
+
+    pub fn check_session(&self, state: &crate::session_state::SessionState) -> Result<crate::verdict::Verdict> {
+        use crate::engine::session::SessionEngine;
+
+        let start = Instant::now();
+        let llm = self.llm.as_deref()
+            .ok_or_else(|| anyhow::anyhow!("session check requires LlmClient; build engine with .with_llm()"))?;
+        let mut violations = Vec::new();
+        let mut passed = Vec::new();
+        let session_engine = SessionEngine;
+        for (rule_id, rule) in &self.config.rules {
+            if rule.engine != crate::config::EngineKind::Session {
+                continue;
+            }
+            match session_engine.evaluate(state, rule_id, rule, llm) {
+                Ok(Some(v)) => violations.push(v),
+                Ok(None) => passed.push(rule_id.clone()),
+                Err(e) => violations.push(crate::verdict::Violation {
+                    rule_id: format!("{rule_id}__internal"),
+                    severity: crate::verdict::Severity::Error,
+                    engine: crate::verdict::Engine::Trust,
+                    file: "".to_string(),
+                    line: None,
+                    column: None,
+                    message: format!("{e:#}"),
+                    suggestion: None,
+                    context: None,
+                }),
+            }
+        }
+        Ok(crate::verdict::Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64))
     }
 }
