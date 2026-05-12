@@ -67,15 +67,71 @@ pub fn verify(input: &str) -> Result<()> {
 }
 
 /// Update or insert the `trust:` block in the YAML source with a fresh fingerprint.
-/// Preserves the rest of the YAML structure.
+///
+/// Performs a string-level edit so comments, key order, and scalar style in the
+/// rest of the file are preserved verbatim (P2-7). The fingerprint itself is
+/// computed via [`fingerprint`], which canonicalizes the YAML semantically and
+/// is unaffected by comments or formatting.
+///
+/// If a top-level `trust:` block already exists, it is replaced in place. The
+/// block is identified as a line starting with `trust:` at column 0 and ending
+/// at the next top-level key (or EOF). Otherwise, a fresh block is appended.
 pub fn write_trust_block(input: &str) -> Result<String> {
     let fp = fingerprint(input)?;
-    let mut value: Value = serde_yaml::from_str(input).context("parse yaml")?;
-    if let Value::Mapping(ref mut map) = value {
-        map.remove(Value::String("trust".into()));
-        let mut trust_map = serde_yaml::Mapping::new();
-        trust_map.insert(Value::String("fingerprint".into()), Value::String(fp));
-        map.insert(Value::String("trust".into()), Value::Mapping(trust_map));
+    let new_block = format!("trust:\n  fingerprint: {fp}\n");
+
+    let lines: Vec<&str> = input.lines().collect();
+    let trust_start = lines.iter().position(|l| {
+        // Top-level `trust:` key (column 0, no leading whitespace). The trust
+        // block is always written `trust:\n` with the fingerprint on the
+        // following line, so an exact match on `trust:` (after stripping
+        // trailing whitespace and inline comments) is sufficient and
+        // unambiguously avoids matching `trusted:`, `trust_chain:`, etc.
+        let no_comment = match l.find('#') {
+            Some(i) => &l[..i],
+            None => l,
+        };
+        no_comment.trim_end() == "trust:"
+    });
+
+    if let Some(start) = trust_start {
+        // End-of-block: first subsequent non-empty line whose first byte is
+        // not whitespace (i.e. another top-level key) — or EOF.
+        let end = (start + 1..lines.len())
+            .find(|i| {
+                let l = lines[*i];
+                !l.is_empty() && !l.starts_with(' ') && !l.starts_with('\t')
+            })
+            .unwrap_or(lines.len());
+
+        let mut out = String::with_capacity(input.len() + new_block.len());
+        if start > 0 {
+            for l in &lines[..start] {
+                out.push_str(l);
+                out.push('\n');
+            }
+        }
+        out.push_str(&new_block);
+        if end < lines.len() {
+            for l in &lines[end..] {
+                out.push_str(l);
+                out.push('\n');
+            }
+            // Preserve trailing-newline shape of the original.
+            if !input.ends_with('\n') {
+                out.pop();
+            }
+        }
+        return Ok(out);
     }
-    Ok(serde_yaml::to_string(&value)?)
+
+    // No existing trust block — append at EOF.
+    let mut out = String::with_capacity(input.len() + new_block.len() + 1);
+    out.push_str(input);
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&new_block);
+    Ok(out)
 }
+

@@ -1,4 +1,4 @@
-use hector_core::trust::{canonicalize_for_fingerprint, fingerprint, verify};
+use hector_core::trust::{canonicalize_for_fingerprint, fingerprint, verify, write_trust_block};
 
 const CFG_A: &str = "\
 schema_version: 2
@@ -65,6 +65,98 @@ fn verify_rejects_missing_trust_block() {
     let cfg = "schema_version: 2\nrules: {}\n";
     let result = verify(cfg);
     assert!(result.is_err());
+}
+
+/// P2-7 regression: `hector trust` must not destroy comments.
+///
+/// Prior implementation round-tripped through `serde_yaml`, which drops every
+/// comment and normalizes scalar style. The fix performs a string-level edit
+/// that locates the existing `trust:` block (or appends one at EOF) and
+/// rewrites only that block, leaving the rest of the file verbatim.
+#[test]
+fn comments_preserved_through_trust_write() {
+    let original = "\
+# top-level rationale: this codebase forbids prints in production
+schema_version: 2
+rules:
+  no-print:
+    # imports get audited by review, not by hector
+    description: \"x\"
+    engine: script
+    scope: [\"*.py\"]
+    severity: error
+    script: \"true\" # idempotent placeholder
+";
+    let out = write_trust_block(original).expect("write_trust_block");
+    assert!(
+        out.contains("# top-level rationale: this codebase forbids prints in production"),
+        "leading comment preserved; got:\n{out}"
+    );
+    assert!(
+        out.contains("# imports get audited by review, not by hector"),
+        "inline-rule comment preserved; got:\n{out}"
+    );
+    assert!(
+        out.contains("# idempotent placeholder"),
+        "trailing inline comment preserved; got:\n{out}"
+    );
+    assert!(out.contains("trust:"), "trust block written");
+    assert!(out.contains("sha256:"), "fingerprint written");
+    // Newly trusted file must still verify against itself.
+    verify(&out).expect("trust round-trips");
+}
+
+/// P2-7 regression: rewriting an existing trust block in place must preserve
+/// surrounding comments and structure.
+#[test]
+fn trust_rewrite_in_place_preserves_surrounding_lines() {
+    let original = "\
+# header comment
+schema_version: 2
+trust:
+  fingerprint: \"sha256:stale\"
+rules:
+  r:
+    description: \"x\"
+    engine: script
+    scope: [\"*\"]
+    severity: error
+    script: \"true\"
+# trailing comment
+";
+    let out = write_trust_block(original).expect("write_trust_block");
+    assert!(out.contains("# header comment"), "header preserved:\n{out}");
+    assert!(
+        out.contains("# trailing comment"),
+        "trailing preserved:\n{out}"
+    );
+    assert!(
+        !out.contains("sha256:stale"),
+        "stale fingerprint replaced:\n{out}"
+    );
+    // Must verify against itself.
+    verify(&out).expect("trust round-trips after rewrite");
+}
+
+/// P2-7 regression: when there is no existing `trust:` block, write one at EOF
+/// without disturbing the body.
+#[test]
+fn trust_appended_when_block_absent_preserves_body() {
+    let original = "\
+# important
+schema_version: 2
+rules:
+  r:
+    description: \"x\"
+    engine: script
+    scope: [\"*\"]
+    severity: error
+    script: \"true\"
+";
+    let out = write_trust_block(original).expect("write_trust_block");
+    assert!(out.starts_with("# important\n"), "body intact:\n{out}");
+    assert!(out.contains("\ntrust:\n"), "trust appended:\n{out}");
+    verify(&out).expect("trust round-trips");
 }
 
 /// P2-3 regression: TOCTOU between trust verify and config parse.
