@@ -23,11 +23,18 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 /// Resolve `path` to a form that can be matched against a relative scope glob
-/// authored in `config_dir`-relative terms. Falls back to the original path
-/// when canonicalization is impossible (e.g. the file is absent during diff
-/// mode where the diff references a path not yet on disk).
+/// authored in `config_dir`-relative terms.
+///
+/// Two fallback layers:
+/// 1. `canonicalize` failure (file missing — e.g. diff mode references a path
+///    not yet on disk) returns the original `PathBuf` so the scope match can
+///    still proceed against the literal input.
+/// 2. `strip_prefix` failure (the input resolves outside `config_dir` — e.g.
+///    `hector check /etc/passwd` against a `~/proj/.hector.yml`) returns the
+///    canonicalized absolute path. Bare-pattern globs in `config/scope.rs`
+///    register a `**/<pattern>` form, so absolute paths can still match
+///    rules like `*.py` via that fallback.
 fn relativize(path: &std::path::Path, root: &std::path::Path) -> std::path::PathBuf {
-    use std::path::PathBuf;
     let canon_path = path.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
     let canon_root = root.canonicalize().unwrap_or_else(|_| PathBuf::from(root));
     canon_path
