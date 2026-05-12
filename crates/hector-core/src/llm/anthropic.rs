@@ -1,6 +1,6 @@
 use super::{parse_verdicts, LlmClient, RuleVerdict};
 use crate::config::Rule;
-use crate::llm::prompt::build_prompt;
+use crate::llm::prompt::build_prompt_split;
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use std::time::Duration;
@@ -67,12 +67,20 @@ impl LlmClient for AnthropicClient {
         primary: &str,
         context: Option<&str>,
     ) -> Result<Vec<RuleVerdict>> {
-        let prompt = build_prompt(rules, primary, context);
+        // P2-20: Anthropic's `/v1/messages` accepts a top-level `system`
+        // parameter that is processed separately from the conversation. We
+        // put the operator-authored policy + output-format instructions
+        // there, and only the attacker-controlled evidence in the user
+        // message. The model can be trained to weight `system` over
+        // `user`, which widens the trust boundary beyond what
+        // `<TRUSTED_POLICY>` sentinel tags alone can guarantee.
+        let (system, user) = build_prompt_split(rules, primary, context);
         let url = format!("{}/v1/messages", self.base_url);
         let body = serde_json::json!({
             "model": self.model,
             "max_tokens": 4096,
-            "messages": [{ "role": "user", "content": prompt }],
+            "system": system,
+            "messages": [{ "role": "user", "content": user }],
         });
         let response = self
             .client

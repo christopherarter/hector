@@ -106,8 +106,7 @@ async fn anthropic_error_body_is_truncated_and_redacted() {
     // P2-15: when the endpoint echoes a Bearer token or API key in its 5xx body,
     // we must not propagate the raw secret. Truncate to ~200 chars and redact.
     let server = MockServer::start().await;
-    let leaky = "error: Bearer sk-1234567890abcdef and more text".to_string()
-        + &"x".repeat(500);
+    let leaky = "error: Bearer sk-1234567890abcdef and more text".to_string() + &"x".repeat(500);
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
         .respond_with(ResponseTemplate::new(500).set_body_string(leaky))

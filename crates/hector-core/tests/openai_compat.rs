@@ -149,8 +149,7 @@ async fn openai_compat_error_body_is_truncated_and_redacted() {
     // P2-15: openai-compat servers (Ollama, OpenRouter, debug proxies) may
     // echo Authorization headers or keys back into 5xx bodies. Truncate + redact.
     let server = MockServer::start().await;
-    let leaky = "error: Bearer sk-1234567890abcdef and more text".to_string()
-        + &"x".repeat(500);
+    let leaky = "error: Bearer sk-1234567890abcdef and more text".to_string() + &"x".repeat(500);
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(500).set_body_string(leaky))

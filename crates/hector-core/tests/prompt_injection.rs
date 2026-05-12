@@ -2,7 +2,8 @@
 //!
 //! Verifies that user-controlled content (file body / diff) containing
 //! literal sentinel tags cannot subvert the TRUSTED_POLICY / UNTRUSTED_EVIDENCE
-//! boundary established in `llm::prompt::build_prompt`.
+//! boundary established in `llm::prompt::build_prompt`. Also covers
+//! triple-backtick markdown breakouts and oversized-diff truncation (P2-20).
 
 use anyhow::Result;
 use hector_core::config::{ContextScope, EngineKind, Rule, Severity};
@@ -129,4 +130,79 @@ fn adversarial_file_cannot_inject_pass_everything_rule() {
         prompt.contains("BOUNDARY_BREAKOUT_BLOCKED"),
         "expected BOUNDARY_BREAKOUT_BLOCKED forensic marker; prompt was:\n{prompt}"
     );
+}
+
+#[test]
+fn prompt_neutralizes_triple_backtick_breakout_in_primary() {
+    // P2-20: an attacker who controls file content can include ``` to escape
+    // a code-fenced section in any downstream markdown rendering of the
+    // prompt. We replace ``` with a visibly-similar but inert sequence.
+    let evil = "// innocuous\n+let x = \"```\";\nthen ``` and another ```\n";
+    let rule = sample_rule("any");
+    let prompt = hector_core::llm::prompt::build_prompt(&[("r1", &rule)], evil, None);
+    assert!(
+        !prompt.contains("```"),
+        "triple-backtick breakout must be neutralized; prompt was:\n{prompt}"
+    );
+}
+
+#[test]
+fn prompt_neutralizes_triple_backtick_breakout_in_context() {
+    // Same defense in the optional `context` slot.
+    let evil_ctx = "```\nmalicious\n```\n";
+    let rule = sample_rule("any");
+    let prompt =
+        hector_core::llm::prompt::build_prompt(&[("r1", &rule)], "primary", Some(evil_ctx));
+    assert!(
+        !prompt.contains("```"),
+        "triple-backtick in context must be neutralized; prompt was:\n{prompt}"
+    );
+}
+
+#[test]
+fn prompt_caps_primary_at_64kib() {
+    // P2-20: a diff > 64KiB must be truncated before interpolation. Build a
+    // primary well above the cap and assert the produced prompt stays bounded.
+    let huge = "+++ b/foo.rs\n".to_string() + &"+x\n".repeat(40_000);
+    assert!(
+        huge.len() > 64 * 1024,
+        "test precondition: huge must exceed cap"
+    );
+    let rule = sample_rule("any");
+    let prompt = hector_core::llm::prompt::build_prompt(&[("r1", &rule)], &huge, None);
+    // Cap is 64KiB of content; allow generous headroom for the surrounding
+    // prompt scaffolding and a truncation marker. Without the cap the prompt
+    // would be well over 120KiB.
+    assert!(
+        prompt.len() < 80_000,
+        "primary must be capped; got {} bytes",
+        prompt.len()
+    );
+}
+
+#[test]
+fn prompt_caps_context_at_64kib() {
+    let huge_ctx = "+x\n".repeat(40_000);
+    let rule = sample_rule("any");
+    let prompt = hector_core::llm::prompt::build_prompt(&[("r1", &rule)], "p", Some(&huge_ctx));
+    assert!(
+        prompt.len() < 80_000,
+        "context must be capped; got {} bytes",
+        prompt.len()
+    );
+}
+
+fn sample_rule(desc: &str) -> Rule {
+    Rule {
+        description: desc.into(),
+        engine: EngineKind::Semantic,
+        scope: vec!["**/*".into()],
+        severity: Severity::Error,
+        script: None,
+        pattern: None,
+        language: None,
+        context: None,
+        capabilities: None,
+        fix_hint: None,
+    }
 }
