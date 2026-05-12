@@ -51,10 +51,19 @@ pub enum Command {
         clean: bool,
     },
     /// Record current violations to .hector/baseline.json (silenced from future runs).
+    ///
+    /// Without an action, defaults to `record`. The action subcommands are
+    /// `record` (capture current violations) and `refresh` (re-hash every
+    /// stored entry against current file content). Existing
+    /// `hector baseline` invocations keep working — the subcommand is
+    /// optional.
     Baseline {
-        #[arg(long, default_value = ".hector.yml")]
+        #[command(subcommand)]
+        action: Option<BaselineAction>,
+        #[arg(long, default_value = ".hector.yml", global = true)]
         config: PathBuf,
-        #[arg(long)]
+        /// (record mode) Glob filter restricting which files are scanned.
+        #[arg(long, global = true)]
         scan: Option<String>,
     },
     /// Session-state management (used by Claude Code adapter hooks).
@@ -62,6 +71,14 @@ pub enum Command {
         #[command(subcommand)]
         action: SessionAction,
     },
+}
+
+#[derive(Debug, Clone, Copy, Subcommand)]
+pub enum BaselineAction {
+    /// Record current violations to .hector/baseline.json.
+    Record,
+    /// Re-hash every baseline entry against current file content.
+    Refresh,
 }
 
 #[derive(Debug, Subcommand)]

@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Mutex;
 
-pub fn run(config: &Path, scan_glob: Option<String>) -> Result<i32> {
+pub fn record(config: &Path, scan_glob: Option<String>) -> Result<i32> {
     let engine = HectorEngine::load(config)?;
     let dir = config
         .parent()
@@ -71,6 +71,28 @@ pub fn run(config: &Path, scan_glob: Option<String>) -> Result<i32> {
         "baseline written: {} ({} entries)",
         baseline_path.display(),
         baseline.entries.len()
+    );
+    Ok(0)
+}
+
+/// Re-hash every baseline entry against the current on-disk content of
+/// the file it points at. Entries whose line is no longer present are
+/// dropped (and reported on stderr). The baseline file is rewritten in
+/// the v2 shape regardless of whether it loaded as v1.
+pub fn refresh(config: &Path) -> Result<i32> {
+    let dir = config
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let baseline_path = dir.join(".hector/baseline.json");
+    let mut baseline = Baseline::load(&baseline_path)?;
+    let report = baseline.refresh(dir)?;
+    baseline.save(&baseline_path)?;
+    println!(
+        "baseline refreshed: {} ({} entries updated, {} dropped)",
+        baseline_path.display(),
+        report.refreshed,
+        report.dropped
     );
     Ok(0)
 }
