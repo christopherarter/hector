@@ -1,5 +1,5 @@
 use crate::config::Rule;
-use crate::engine::capability::run_with_capabilities;
+use crate::engine::capability::run_with_capabilities_env;
 use crate::engine::{RuleContext, RuleEngine};
 use crate::verdict::{Engine, Severity, Violation};
 use anyhow::{anyhow, Result};
@@ -41,9 +41,16 @@ fn run_script_rule_internal(
         .script
         .as_ref()
         .ok_or_else(|| anyhow!("rule {rule_id} is engine: script but has no `script:` field"))?;
-    let substituted = script.replace("{file}", &file.display().to_string());
+    // `{file}` expands to the shell parameter `"$HECTOR_FILE"`. The actual path
+    // is passed via the child environment, never spliced into the command
+    // text, so shell metacharacters in the filename cannot escape into the
+    // surrounding command. The double-quotes prevent word-splitting on
+    // whitespace in the path.
+    let substituted = script.replace("{file}", "\"$HECTOR_FILE\"");
     let caps = rule.capabilities.clone().unwrap_or_default();
-    let outcome = run_with_capabilities(&substituted, cwd, &caps)?;
+    let file_str = file.display().to_string();
+    let outcome =
+        run_with_capabilities_env(&substituted, cwd, &caps, &[("HECTOR_FILE", &file_str)])?;
     if outcome.exit_code == 0 {
         return Ok(None);
     }

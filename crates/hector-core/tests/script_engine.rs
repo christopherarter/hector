@@ -43,3 +43,34 @@ fn failing_script_produces_violation() {
     assert_eq!(v.engine, hector_core::verdict::Engine::Script);
     assert_eq!(v.file, file.display().to_string());
 }
+
+#[test]
+fn script_engine_quotes_file_path_with_shell_metacharacters() {
+    use hector_core::config::{EngineKind, Rule, Severity};
+    use hector_core::engine::script::run_script_rule;
+    let tmp = tempdir().unwrap();
+    let cwd = tmp.path();
+    // Filename that, if interpolated unquoted into the shell, would `touch PWNED`.
+    let evil_name = "a; touch PWNED; b.txt";
+    let evil = cwd.join(evil_name);
+    std::fs::write(&evil, "hi").unwrap();
+    let rule = Rule {
+        description: "echo only".into(),
+        engine: EngineKind::Script,
+        scope: vec!["**/*".into()],
+        severity: Severity::Warning,
+        // The script is expected to receive the path as an env-backed shell
+        // parameter, not as literal text spliced into the command.
+        script: Some("ls -- {file} >/dev/null".into()),
+        pattern: None,
+        language: None,
+        context: None,
+        capabilities: None,
+        fix_hint: None,
+    };
+    let _ = run_script_rule("evil", &rule, &evil, "", cwd);
+    assert!(
+        !cwd.join("PWNED").exists(),
+        "shell injection succeeded — PWNED marker was created"
+    );
+}

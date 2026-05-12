@@ -12,18 +12,38 @@ pub struct ExecOutcome {
 /// Run a shell command under the requested capability constraints.
 /// Returns Ok(outcome) if the process completed (even non-zero exit).
 pub fn run_with_capabilities(cmd: &str, cwd: &Path, caps: &Capabilities) -> Result<ExecOutcome> {
+    run_with_capabilities_env(cmd, cwd, caps, &[])
+}
+
+/// Same as [`run_with_capabilities`], with an extra env-injection slice.
+///
+/// Each `(name, value)` pair is applied to the child process environment
+/// before spawning. Used by the script engine to pass attacker-controlled
+/// values (like file paths) to the shell via env vars rather than splicing
+/// them into the command text.
+pub fn run_with_capabilities_env(
+    cmd: &str,
+    cwd: &Path,
+    caps: &Capabilities,
+    env: &[(&str, &str)],
+) -> Result<ExecOutcome> {
     #[cfg(target_os = "linux")]
     {
-        run_linux(cmd, cwd, caps)
+        run_linux(cmd, cwd, caps, env)
     }
     #[cfg(not(target_os = "linux"))]
     {
-        run_best_effort(cmd, cwd, caps)
+        run_best_effort(cmd, cwd, caps, env)
     }
 }
 
 #[cfg(target_os = "linux")]
-fn run_linux(cmd: &str, cwd: &Path, caps: &Capabilities) -> Result<ExecOutcome> {
+fn run_linux(
+    cmd: &str,
+    cwd: &Path,
+    caps: &Capabilities,
+    env: &[(&str, &str)],
+) -> Result<ExecOutcome> {
     use nix::sched::{unshare, CloneFlags};
     let mut flags = CloneFlags::empty();
     if !caps.network {
@@ -34,6 +54,9 @@ fn run_linux(cmd: &str, cwd: &Path, caps: &Capabilities) -> Result<ExecOutcome> 
     }
     let mut child = Command::new("sh");
     child.arg("-c").arg(cmd).current_dir(cwd);
+    for (k, v) in env {
+        child.env(k, v);
+    }
     // Pre-exec hook to unshare into restricted namespaces.
     unsafe {
         use std::os::unix::process::CommandExt;
@@ -65,19 +88,24 @@ fn apply_mount_policy(policy: WritesPolicy, cwd: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn run_best_effort(cmd: &str, cwd: &Path, caps: &Capabilities) -> Result<ExecOutcome> {
+fn run_best_effort(
+    cmd: &str,
+    cwd: &Path,
+    caps: &Capabilities,
+    env: &[(&str, &str)],
+) -> Result<ExecOutcome> {
     // macOS: caps are advisory; log the limitation, run normally.
     if !caps.network || !matches!(caps.writes, WritesPolicy::Unrestricted) {
         eprintln!(
             "hector: capability enforcement is best-effort on this platform (see docs/security.md); running command unrestricted"
         );
     }
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .current_dir(cwd)
-        .output()
-        .context("running command")?;
+    let mut child = Command::new("sh");
+    child.arg("-c").arg(cmd).current_dir(cwd);
+    for (k, v) in env {
+        child.env(k, v);
+    }
+    let output = child.output().context("running command")?;
     Ok(ExecOutcome {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
