@@ -1,3 +1,4 @@
+pub mod baseline;
 pub mod check;
 pub mod init;
 pub mod migrate;

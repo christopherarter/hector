@@ -44,6 +44,13 @@ pub enum Command {
         #[arg(long)]
         clean: bool,
     },
+    /// Record current violations to .hector/baseline.json (silenced from future runs).
+    Baseline {
+        #[arg(long, default_value = ".hector.yml")]
+        config: PathBuf,
+        #[arg(long)]
+        scan: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]

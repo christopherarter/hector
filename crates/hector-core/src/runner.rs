@@ -158,6 +158,10 @@ impl HectorEngine {
             }
         }
 
+        let baseline = crate::baseline::Baseline::load(&self.config_dir.join(".hector/baseline.json"))
+            .unwrap_or_default();
+        violations.retain(|v| !baseline.contains(v));
+
         let verdict = Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64);
         let _ = crate::telemetry::append(
             &self.config_dir.join(".hector/log.jsonl"),

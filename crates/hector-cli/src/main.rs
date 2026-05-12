@@ -15,6 +15,7 @@ fn main() -> Result<()> {
         Command::Validate { config } => commands::validate::run(&config)?,
         Command::Init { dir } => commands::init::run(&dir)?,
         Command::Migrate { dir, clean } => commands::migrate::run(&dir, clean)?,
+        Command::Baseline { config, scan } => commands::baseline::run(&config, scan)?,
     };
     std::process::exit(code);
 }

@@ -14,6 +14,8 @@ hector-core = { path = "../hector-core" }
 clap.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
+globset.workspace = true
+walkdir.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

@@ -1,5 +1,6 @@
 //! Hector core library: config, engines, verdict, trust.
 
+pub mod baseline;
 pub mod config;
 pub mod diff;
 pub mod disable;
