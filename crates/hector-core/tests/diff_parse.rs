@@ -72,6 +72,28 @@ fn parse_unified_rejects_empty_path() {
     );
 }
 
+// A `+++ ...` line inside a hunk (not the file header `+++ b/`) is skipped
+// without counting toward added lines. Without this case, the branch
+// `!raw.starts_with("+++")` going false stays uncovered.
+#[test]
+fn parse_unified_ignores_literal_triple_plus_inside_hunk() {
+    let diff = "\
+--- a/notes.md
++++ b/notes.md
+@@ -1,2 +1,3 @@
+ head
++added
++++ literal triple plus in content
+";
+    let files = parse_unified(diff).unwrap();
+    assert_eq!(files.len(), 1, "the `+++` content line must not start a new file");
+    assert_eq!(
+        files[0].added_lines,
+        vec![2],
+        "only the real `+added` line counts; the `+++` content line is skipped"
+    );
+}
+
 // Regression: P2-10 — CRLF diffs left a trailing `\r` on the parsed path,
 // which silently mis-matched globs (e.g. `src/**/*.py` vs `myfile.py\r`).
 #[test]

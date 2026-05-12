@@ -114,6 +114,27 @@ fn log_entry_with_reason_serializes_field() {
     assert!(content.contains("\"kind\":\"semantic_skipped\""));
 }
 
+#[cfg(unix)]
+#[test]
+fn telemetry_append_errors_when_parent_uncreatable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempdir().unwrap();
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let log = tmp.path().join("nested/log.jsonl");
+    let entry = LogEntry {
+        timestamp: "t".into(),
+        kind: "check".into(),
+        file: "f".into(),
+        rule_id: None,
+        status: "pass".into(),
+        elapsed_ms: 0,
+        reason: None,
+    };
+    let result = append(&log, &entry);
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(result.is_err(), "expected error when parent unwriteable");
+}
+
 #[test]
 fn log_entry_without_reason_omits_field() {
     let dir = tempdir().unwrap();

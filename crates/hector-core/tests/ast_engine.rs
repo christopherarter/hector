@@ -109,6 +109,64 @@ fn ast_violation_populates_column_and_context() {
     );
 }
 
+#[test]
+fn ast_engine_errors_when_pattern_missing() {
+    let mut rule = make_ast_rule("$X", "TypeScript");
+    rule.pattern = None;
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.ts");
+    std::fs::write(&file, "const x = 1;\n").unwrap();
+    let ctx = RuleContext {
+        rule_id: "no-pattern",
+        rule: &rule,
+        file: &file,
+        content: Some("const x = 1;\n"),
+        diff: None,
+        cwd: dir.path(),
+        llm: None,
+    };
+    let err = AstEngine.run(&ctx).expect_err("missing pattern");
+    assert!(format!("{err:#}").contains("pattern"));
+}
+
+#[test]
+fn ast_engine_errors_when_language_missing() {
+    let mut rule = make_ast_rule("$X", "TypeScript");
+    rule.language = None;
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.ts");
+    std::fs::write(&file, "const x = 1;\n").unwrap();
+    let ctx = RuleContext {
+        rule_id: "no-language",
+        rule: &rule,
+        file: &file,
+        content: Some("const x = 1;\n"),
+        diff: None,
+        cwd: dir.path(),
+        llm: None,
+    };
+    let err = AstEngine.run(&ctx).expect_err("missing language");
+    assert!(format!("{err:#}").contains("language"));
+}
+
+#[test]
+fn ast_engine_errors_when_content_missing() {
+    let rule = make_ast_rule("$X", "TypeScript");
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.ts");
+    let ctx = RuleContext {
+        rule_id: "no-content",
+        rule: &rule,
+        file: &file,
+        content: None,
+        diff: None,
+        cwd: dir.path(),
+        llm: None,
+    };
+    let err = AstEngine.run(&ctx).expect_err("missing content");
+    assert!(format!("{err:#}").contains("content"));
+}
+
 // Regression: P1-11. The trait used to return `Option<Violation>`, so the
 // AST engine could only ever surface the first match — every other hit in
 // the same file was silently dropped. Now `RuleEngine::run` returns

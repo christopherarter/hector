@@ -51,6 +51,54 @@ rules:
 }
 
 #[test]
+fn capabilities_writes_defaults_to_none_when_omitted() {
+    let yaml = r#"schema_version: 2
+rules:
+  r:
+    description: "x"
+    engine: script
+    scope: ["*"]
+    severity: error
+    script: "true"
+    capabilities:
+      network: false
+"#;
+    let cfg = hector_core::config::parse_str(yaml).expect("parse");
+    let caps = cfg.rules["r"].capabilities.as_ref().unwrap();
+    assert_eq!(caps.writes, WritesPolicy::None);
+}
+
+#[test]
+fn scope_rejects_non_string_non_sequence_values() {
+    let yaml = r#"schema_version: 2
+rules:
+  r:
+    description: "x"
+    engine: script
+    scope: 42
+    severity: error
+    script: "true"
+"#;
+    let err = hector_core::config::parse_str(yaml).expect_err("scope must be string or list");
+    assert!(format!("{err:#}").contains("scope"));
+}
+
+#[test]
+fn scope_rejects_sequence_entries_that_are_not_strings() {
+    let yaml = r#"schema_version: 2
+rules:
+  r:
+    description: "x"
+    engine: script
+    scope: [1, 2]
+    severity: error
+    script: "true"
+"#;
+    let err = hector_core::config::parse_str(yaml).expect_err("entries must be strings");
+    assert!(format!("{err:#}").contains("string"));
+}
+
+#[test]
 fn parses_without_execution_block() {
     let yaml = r#"schema_version: 2
 rules:

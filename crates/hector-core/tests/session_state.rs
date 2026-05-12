@@ -111,3 +111,20 @@ fn session_state_clear() {
     let loaded = SessionState::load(&state_path).unwrap();
     assert!(loaded.edits.is_empty());
 }
+
+#[test]
+fn session_state_clear_is_a_noop_when_file_is_absent() {
+    let dir = tempdir().unwrap();
+    let state_path = dir.path().join(".hector/never_existed.json");
+    assert!(!state_path.exists());
+    SessionState::clear(&state_path).expect("clear must be idempotent on missing");
+}
+
+#[test]
+fn session_state_load_surfaces_parse_error_for_invalid_json() {
+    let dir = tempdir().unwrap();
+    let state_path = dir.path().join("session.json");
+    std::fs::write(&state_path, "not json at all").unwrap();
+    let err = SessionState::load(&state_path).expect_err("invalid json must error");
+    assert!(format!("{err:#}").contains("parsing"));
+}
