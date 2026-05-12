@@ -164,3 +164,58 @@ fn mixed_comment_and_code_is_dispatched() {
     let r = can_match_diff(diff, Path::new("src/lib.rs"), "no helpers");
     assert!(matches!(r, CanMatch::Yes));
 }
+
+#[test]
+fn pointer_deref_write_not_classified_as_comment() {
+    // *ptr = 0; starts with '*' after trim_start. The conservative rule is
+    // that this must dispatch to the LLM, not be silently skipped as a
+    // CommentsOnly diff.
+    let diff = "\
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,1 +1,2 @@
+ fn main() {}
++    *ptr = 0;
+";
+    let r = can_match_diff(diff, Path::new("src/lib.rs"), "no raw pointer writes");
+    assert!(matches!(r, CanMatch::Yes), "got: {r:?}");
+}
+
+#[test]
+fn comment_only_html_diff_is_skipped() {
+    let diff = "\
+--- a/page.html
++++ b/page.html
+@@ -1,1 +1,2 @@
+ <body></body>
++<!-- new comment -->
+";
+    let r = can_match_diff(diff, Path::new("page.html"), "no inline styles");
+    assert!(matches!(r, CanMatch::No(SkipReason::CommentsOnly)));
+}
+
+#[test]
+fn comment_only_lua_diff_is_skipped() {
+    let diff = "\
+--- a/init.lua
++++ b/init.lua
+@@ -1,1 +1,2 @@
+ local x = 1
++-- explanatory comment
+";
+    let r = can_match_diff(diff, Path::new("init.lua"), "no globals");
+    assert!(matches!(r, CanMatch::No(SkipReason::CommentsOnly)));
+}
+
+#[test]
+fn comment_only_lisp_diff_is_skipped() {
+    let diff = "\
+--- a/core.el
++++ b/core.el
+@@ -1,1 +1,2 @@
+ (defun foo () nil)
++; helper
+";
+    let r = can_match_diff(diff, Path::new("core.el"), "no setq");
+    assert!(matches!(r, CanMatch::No(SkipReason::CommentsOnly)));
+}

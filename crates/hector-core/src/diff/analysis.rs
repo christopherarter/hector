@@ -15,6 +15,7 @@ use regex::Regex;
 use std::path::Path;
 use std::sync::OnceLock;
 
+/// Tags *why* `can_match_diff` decided the semantic engine can be skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
     Empty,
@@ -24,6 +25,7 @@ pub enum SkipReason {
 }
 
 impl SkipReason {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Empty => "empty",
@@ -34,19 +36,27 @@ impl SkipReason {
     }
 }
 
+/// Verdict of the local diff pre-filter: dispatch to the LLM (`Yes`) or skip with a reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanMatch {
     Yes,
     No(SkipReason),
 }
 
+/// Decide whether the semantic engine could plausibly find a violation in `diff`.
+///
+/// This is a cost lever, not a correctness gate. False negatives — returning
+/// `Yes` when the LLM would have passed — are harmless: the LLM runs anyway,
+/// same as no filter. False positives — returning `No` when the LLM would have
+/// flagged a violation — are silent misses, so every `No` branch errs
+/// conservative: unknown extensions, unrecognized "avoid" phrasings, and
+/// mixed comment-and-code all dispatch.
 pub fn can_match_diff(diff: &str, file_path: &Path, rule_description: &str) -> CanMatch {
-    let lines: Vec<&str> = diff.lines().collect();
     let mut in_hunk = false;
     let mut added: Vec<&str> = Vec::new();
-    let mut removed_count: usize = 0;
+    let mut removed: usize = 0;
 
-    for raw in &lines {
+    for raw in diff.lines() {
         if raw.starts_with("@@ ") || raw.starts_with("@@\t") {
             in_hunk = true;
             continue;
@@ -60,7 +70,7 @@ pub fn can_match_diff(diff: &str, file_path: &Path, rule_description: &str) -> C
         if let Some(content) = raw.strip_prefix('+') {
             added.push(content);
         } else if raw.starts_with('-') {
-            removed_count += 1;
+            removed += 1;
         }
     }
 
@@ -69,7 +79,7 @@ pub fn can_match_diff(diff: &str, file_path: &Path, rule_description: &str) -> C
     }
 
     if added.is_empty() {
-        if removed_count > 0 && is_avoid_rule(rule_description) {
+        if removed > 0 && is_avoid_rule(rule_description) {
             return CanMatch::No(SkipReason::PureDeletion);
         }
         return CanMatch::Yes;
@@ -96,8 +106,8 @@ fn comment_markers_for(path: &Path) -> Option<&'static [&'static str]> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match ext.as_str() {
         "rs" | "c" | "h" | "cc" | "cpp" | "hpp" | "java" | "swift" | "kt" | "kts" | "scala"
-        | "cs" | "go" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => &["//", "/*", "*/", "*"],
-        "php" => &["//", "#", "/*", "*/", "*"],
+        | "cs" | "go" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => &["//", "/*", "*/"],
+        "php" => &["//", "#", "/*", "*/"],
         "py" | "rb" | "sh" | "bash" | "zsh" | "fish" | "yml" | "yaml" | "toml" | "ini" | "cfg"
         | "conf" | "mk" | "makefile" | "dockerfile" | "gitignore" => &["#"],
         "lua" | "hs" | "sql" | "ada" | "adb" | "ads" => &["--"],
