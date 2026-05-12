@@ -20,3 +20,16 @@
 - `hector` binary on PATH.
 - `jq` on PATH (parse PostToolUse event payloads).
 - `bash` (the hook script is bash).
+
+## How the hooks resolve
+
+`hooks/hooks.json` dispatches each event to `"${CLAUDE_PLUGIN_ROOT}/hooks/hook.sh"`.
+`CLAUDE_PLUGIN_ROOT` is set by Claude Code at hook-fire time and points to the
+plugin's installed directory (wherever the plugin manager unpacked this adapter).
+You do **not** set it yourself.
+
+If a hook fails with `hook.sh: No such file or directory`, the plugin is not
+installed where Claude Code expects. Reinstall with `/plugin install` or, for
+local development, symlink this directory under your plugins root. See
+[`docs/adapters/claude-code.md`](../../docs/adapters/claude-code.md) for full
+install paths and diagnostic steps.
