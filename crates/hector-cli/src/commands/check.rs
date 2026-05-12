@@ -20,7 +20,10 @@ pub fn run(
     };
 
     if session {
-        let dir = config.parent().unwrap_or(std::path::Path::new("."));
+        let dir = config
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(std::path::Path::new("."));
         let state_path = dir.join(".hector/session.json");
         let state = hector_core::session_state::SessionState::load(&state_path)?;
         let verdict = engine.check_session(&state)?;

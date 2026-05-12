@@ -102,6 +102,52 @@ fn check_with_untrusted_config_exits_one() {
 }
 
 #[test]
+fn check_with_relative_config_runs_script_in_config_dir() {
+    // Repro: --config .hector.yml (bare filename, no directory component)
+    // makes Path::parent() return Some("") on a relative path, not None — so
+    // the runner's config_dir ends up empty and the script engine spawns its
+    // subprocess with cwd="", which fails with ENOENT.
+    let dir = tempdir().unwrap();
+    let bad = dir.path().join("bad.txt");
+    std::fs::write(&bad, "forbidden\n").unwrap();
+
+    let cfg_path = dir.path().join(".hector.yml");
+    std::fs::write(
+        &cfg_path,
+        "schema_version: 2\nrules:\n  noforbidden:\n    description: \"x\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"grep -q forbidden {file} && exit 1 || exit 0\"\n",
+    )
+    .unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["trust", "--config", cfg_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "check",
+            "--config",
+            ".hector.yml",
+            "--file",
+            "bad.txt",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let parsed: serde_json::Value = serde_json::from_slice(&out).expect("valid json");
+    assert_eq!(parsed["status"], "block");
+    // An "__internal" suffix means the script subprocess could not spawn — the
+    // signature of the empty-cwd bug. The real rule id must come through.
+    assert_eq!(parsed["violations"][0]["rule_id"], "noforbidden");
+}
+
+#[test]
 fn check_diff_input_parses_and_runs() {
     let dir = tempdir().unwrap();
     let cfg = write_trusted(

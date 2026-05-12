@@ -5,7 +5,10 @@ use std::path::Path;
 
 pub fn run(config: &Path, scan_glob: Option<String>) -> Result<i32> {
     let engine = HectorEngine::load(config)?;
-    let dir = config.parent().unwrap_or(Path::new("."));
+    let dir = config
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let baseline_path = dir.join(".hector/baseline.json");
     let mut baseline = Baseline::load(&baseline_path)?;
 

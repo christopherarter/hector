@@ -81,8 +81,12 @@ impl HectorEngine {
             },
         };
 
+        // Path::parent() returns Some("") for a bare relative filename
+        // (e.g. ".hector.yml"), not None — filter that out so config_dir is
+        // always a usable directory.
         let config_dir = config_path
             .parent()
+            .filter(|p| !p.as_os_str().is_empty())
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
         Ok(Self {
