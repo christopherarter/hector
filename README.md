@@ -4,7 +4,12 @@ Policy-enforcement pipeline for AI coding agents. Rust rewrite of [dynamik-dev/b
 
 ## Status
 
-0.1b. Engines: `script`, `ast`, `semantic` (Anthropic), `session`. Commands: `check`, `trust`, `validate`, `init`, `migrate`, `baseline`. Plan C (Claude Code adapter) is next.
+0.1 (complete). Engines: `script`, `ast`, `semantic` (Anthropic), `session`. CLI: `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `session record`. Claude Code adapter shipped — install via `/plugin install` and use `/hector-init`. Plan 0.2 adds OpenAI + Aider + pre-commit.
+
+## Adapters
+
+- **Claude Code** — `adapters/claude-code/`. PostToolUse + Stop hooks, three skills. See [docs/adapters/claude-code.md](docs/adapters/claude-code.md).
+- *Aider, pre-commit, MCP — planned for 0.2/0.3.*
 
 ## Build
 
