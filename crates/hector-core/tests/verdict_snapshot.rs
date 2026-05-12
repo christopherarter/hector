@@ -76,6 +76,42 @@ fn verdict_with_internal_engine_violation_serializes() {
 }
 
 #[test]
+fn two_warnings_aggregate_to_warn_status() {
+    // P2-22: pin the (Warn, Warn) aggregation rule so a future "fix" to
+    // `from_violations` cannot silently downgrade two warnings to Pass or
+    // upgrade them to Block.
+    let v = Verdict::from_violations(
+        vec![
+            Violation {
+                rule_id: "a".into(),
+                severity: Severity::Warning,
+                engine: Engine::Ast,
+                file: "f".into(),
+                line: None,
+                column: None,
+                message: "x".into(),
+                suggestion: None,
+                context: None,
+            },
+            Violation {
+                rule_id: "b".into(),
+                severity: Severity::Warning,
+                engine: Engine::Ast,
+                file: "f".into(),
+                line: None,
+                column: None,
+                message: "y".into(),
+                suggestion: None,
+                context: None,
+            },
+        ],
+        vec![],
+        0,
+    );
+    assert!(matches!(v.status, Status::Warn));
+}
+
+#[test]
 fn verdict_warn_from_violations() {
     let v = Verdict::from_violations(
         vec![Violation {
