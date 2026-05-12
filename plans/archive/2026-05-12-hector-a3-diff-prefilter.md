@@ -62,7 +62,7 @@ The runner change in `runner.rs` lives in the existing per-rule loop (lines ~209
 
 The module doesn't exist yet — tests will fail to compile. We add the test file with the full surface area we want; Task 2 makes it pass.
 
-- [ ] **Step 1: Create the test file**
+- [x] **Step 1: Create the test file**
 
 ```rust
 use hector_core::diff::analysis::{can_match_diff, CanMatch, SkipReason};
@@ -205,7 +205,7 @@ fn mixed_comment_and_code_is_dispatched() {
 }
 ```
 
-- [ ] **Step 2: Run tests, confirm they fail to compile**
+- [x] **Step 2: Run tests, confirm they fail to compile**
 
 Run: `cargo test --test diff_analysis 2>&1 | head -20`
 
@@ -218,13 +218,13 @@ Expected: compile error — unresolved import `hector_core::diff::analysis`.
 - Modify: `crates/hector-core/src/diff/mod.rs:1-3` (add `pub mod analysis;`)
 - Possibly modify: `crates/hector-core/Cargo.toml` (add `regex` to `[dependencies]` if not already a direct dep)
 
-- [ ] **Step 1: Confirm `regex` availability**
+- [x] **Step 1: Confirm `regex` availability**
 
 Run: `cargo tree -p hector-core --depth 1 | grep -i regex`
 
 If absent from direct deps, run: `cargo add -p hector-core regex` (no version pin — use whatever the workspace converges on).
 
-- [ ] **Step 2: Add module declaration**
+- [x] **Step 2: Add module declaration**
 
 Edit `crates/hector-core/src/diff/mod.rs`:
 
@@ -235,7 +235,7 @@ pub mod parser;
 pub use parser::{parse_unified, ChangedFile};
 ```
 
-- [ ] **Step 3: Implement `analysis.rs`**
+- [x] **Step 3: Implement `analysis.rs`**
 
 ```rust
 //! Local diff analysis to short-circuit expensive semantic dispatch.
@@ -386,19 +386,19 @@ fn rule_mentions_comments(description: &str) -> bool {
 }
 ```
 
-- [ ] **Step 4: Run the tests, confirm they pass**
+- [x] **Step 4: Run the tests, confirm they pass**
 
 Run: `cargo test --test diff_analysis`
 
 Expected: all 11 tests pass.
 
-- [ ] **Step 5: Confirm no other tests regressed**
+- [x] **Step 5: Confirm no other tests regressed**
 
 Run: `cargo test -p hector-core`
 
 Expected: full crate green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/hector-core/src/diff/mod.rs \
@@ -421,7 +421,7 @@ git commit -m "feat(diff): add can_match_diff pre-filter for semantic engine (A3
 
 The current `LogEntry` is a flat struct serialized with serde. Adding an `Option<String>` field with `#[serde(skip_serializing_if = "Option::is_none")]` is wire-compatible: old logs continue to parse (Option defaults to None on absence); new logs only emit the field when present.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `crates/hector-core/tests/telemetry.rs`:
 
@@ -464,13 +464,13 @@ fn log_entry_without_reason_omits_field() {
 }
 ```
 
-- [ ] **Step 2: Run, confirm both fail to compile**
+- [x] **Step 2: Run, confirm both fail to compile**
 
 Run: `cargo test --test telemetry log_entry_with_reason 2>&1 | head -10`
 
 Expected: error — missing field `reason` (existing call sites) and unknown field `reason` (new test sees a not-yet-added struct field).
 
-- [ ] **Step 3: Add the field**
+- [x] **Step 3: Add the field**
 
 Edit `crates/hector-core/src/telemetry.rs`:
 
@@ -488,19 +488,19 @@ pub struct LogEntry {
 }
 ```
 
-- [ ] **Step 4: Fix the three existing `LogEntry { … }` construction sites**
+- [x] **Step 4: Fix the three existing `LogEntry { … }` construction sites**
 
 Edit `crates/hector-core/src/runner.rs` lines 188, 313, 393 (the three telemetry appends): add `reason: None,` at the end of each struct literal.
 
 Also fix the existing tests in `crates/hector-core/tests/telemetry.rs` that construct `LogEntry` (`append_creates_log_and_writes_jsonl` and any others) — add `reason: None,` to those literals.
 
-- [ ] **Step 5: Run the full crate**
+- [x] **Step 5: Run the full crate**
 
 Run: `cargo test -p hector-core`
 
 Expected: green. Confirm the two new telemetry tests pass and the existing telemetry/runner tests still pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add crates/hector-core/src/telemetry.rs \
@@ -537,11 +537,11 @@ for (rule_id, rule) in &self.config.rules {
 
 We insert a pre-filter step for the `Semantic` arm only: build the rule context as today, but **before** entering the `match`, if the rule's engine is `Semantic` and `can_match_diff(&diff, &path, &rule.description)` returns `CanMatch::No(reason)`, append a `semantic_skipped` telemetry record, push the rule into `passed` (so it shows up in `passed_checks` and downstream behavior matches a real pass), and `continue`.
 
-- [ ] **Step 1: Read the current loop once**
+- [x] **Step 1: Read the current loop once**
 
 Open `crates/hector-core/src/runner.rs` around lines 200–290 to verify the exact shape before editing.
 
-- [ ] **Step 2: Insert the pre-filter**
+- [x] **Step 2: Insert the pre-filter**
 
 Replace the block starting at the `for (rule_id, rule) in &self.config.rules {` line and ending immediately before `let outcome: Result<Vec<Violation>> = match rule.engine {` with the following. (Keep the existing variable names and surrounding code unchanged.)
 
@@ -595,19 +595,19 @@ for (rule_id, rule) in &self.config.rules {
 
 (Leave the existing `let outcome: Result<Vec<Violation>> = match rule.engine { … }` and downstream handling unchanged.)
 
-- [ ] **Step 3: Compile**
+- [x] **Step 3: Compile**
 
 Run: `cargo build -p hector-core`
 
 Expected: green.
 
-- [ ] **Step 4: Run the existing test suite as a smoke test**
+- [x] **Step 4: Run the existing test suite as a smoke test**
 
 Run: `cargo test -p hector-core`
 
 Expected: green. If `runner_diff.rs` or `semantic_engine.rs` has a test that fed a comment-only or whitespace-only diff to the semantic engine and asserted a verdict, that test will now find the rule in `passed_checks` (because the pre-filter routed it there). Update the assertion to match — the rule is still "passed", just by a different path.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add crates/hector-core/src/runner.rs
@@ -625,7 +625,7 @@ git commit -m "feat(runner): apply diff pre-filter before semantic dispatch (A3 
 
 We use a `FakeLlm` that records every `evaluate` call. The acceptance criterion ("verified by wiremock: no request reaches the mock") is functionally equivalent and avoids spinning up a real HTTP server.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 The real public surface (verified against `crates/hector-core/src/runner.rs:87-89` and `tests/runner_diff.rs`) is `HectorEngine::check(CheckInput::Diff { file, unified_diff })` and `trust::write_trust_block(raw_yaml)` for trust-stamping a config inline.
 
@@ -814,19 +814,19 @@ fn semantic_skipped_telemetry_recorded() {
 }
 ```
 
-- [ ] **Step 2: Run the four tests**
+- [x] **Step 2: Run the four tests**
 
 Run: `cargo test --test runner_semantic_prefilter`
 
 Expected: all four pass.
 
-- [ ] **Step 3: Run the full crate suite once more**
+- [x] **Step 3: Run the full crate suite once more**
 
 Run: `cargo test -p hector-core`
 
 Expected: green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/hector-core/tests/runner_semantic_prefilter.rs
@@ -839,7 +839,7 @@ git commit -m "test(runner): assert LLM not dispatched for skipped diffs (A3 pha
 
 ### Task 6: Sweep
 
-- [ ] **Step 1: Lint**
+- [x] **Step 1: Lint**
 
 Run: `cargo clippy --all-targets -- -D warnings`
 
@@ -847,27 +847,27 @@ Expected: green. Common warnings to expect on new code:
 - `clippy::needless_borrow` on the regex args — fix inline.
 - `clippy::needless_collect` on the `lines: Vec<&str>` — leave it; we iterate twice indirectly.
 
-- [ ] **Step 2: Format**
+- [x] **Step 2: Format**
 
 Run: `cargo fmt`
 
-- [ ] **Step 3: Full workspace test**
+- [x] **Step 3: Full workspace test**
 
 Run: `cargo test`
 
 Expected: green across workspace (including CLI tests that haven't been touched).
 
-- [ ] **Step 4: Spec acceptance criteria pass**
+- [x] **Step 4: Spec acceptance criteria pass**
 
 Open `specs/2026-05-12-bully-parity-closures.md` §A3 and confirm:
-- [ ] Fixture-driven tests for each `SkipReason` — covered by `tests/diff_analysis.rs`.
-- [ ] A semantic rule on a pure-deletion diff returns without invoking the LLM — covered by the pure-deletion test in `tests/runner_semantic_prefilter.rs` (extend if not already present; the current test only covers whitespace).
-- [ ] Comment detection covers at least Rust, TS/JS, Python, Go, Ruby, shell — covered by the per-extension map; add one explicit test per language if any are missing.
-- [ ] Telemetry log shows `semantic_skipped` with reason for each skip — covered by `semantic_skipped_telemetry_recorded`.
+- [x] Fixture-driven tests for each `SkipReason` — covered by `tests/diff_analysis.rs`.
+- [x] A semantic rule on a pure-deletion diff returns without invoking the LLM — covered by the pure-deletion test in `tests/runner_semantic_prefilter.rs` (extend if not already present; the current test only covers whitespace).
+- [x] Comment detection covers at least Rust, TS/JS, Python, Go, Ruby, shell — covered by the per-extension map; add one explicit test per language if any are missing.
+- [x] Telemetry log shows `semantic_skipped` with reason for each skip — covered by `semantic_skipped_telemetry_recorded`.
 
 If any acceptance criterion is uncovered, add a test in the appropriate file before committing.
 
-- [ ] **Step 5: Commit any sweep fixes**
+- [x] **Step 5: Commit any sweep fixes**
 
 ```bash
 git add -A
@@ -906,14 +906,14 @@ git commit -m "style(diff): clippy + fmt sweep (A3 phase 5)"
 
 ## Self-review checklist (run before handing off)
 
-- [ ] Every `SkipReason` variant has at least one fixture test.
-- [ ] At least one test per spec-required language (Rust, TS/JS, Python, Go, Ruby, shell) — even if just confirming the extension-map lookup.
-- [ ] Telemetry `reason` field serializes when present, omits when absent.
-- [ ] `cargo clippy --all-targets -- -D warnings` is green.
-- [ ] `cargo fmt` produced no diff after the final commit.
-- [ ] `cargo test` passes across the workspace.
-- [ ] No existing test was deleted to make a new behavior pass; if a test changed assertion, the change is justified in the commit message.
-- [ ] The runner pre-filter only fires for `EngineKind::Semantic` — confirm with a grep that `EngineKind::Script` and `EngineKind::Ast` arms are unchanged.
+- [x] Every `SkipReason` variant has at least one fixture test.
+- [x] At least one test per spec-required language (Rust, TS/JS, Python, Go, Ruby, shell) — even if just confirming the extension-map lookup.
+- [x] Telemetry `reason` field serializes when present, omits when absent.
+- [x] `cargo clippy --all-targets -- -D warnings` is green.
+- [x] `cargo fmt` produced no diff after the final commit.
+- [x] `cargo test` passes across the workspace.
+- [x] No existing test was deleted to make a new behavior pass; if a test changed assertion, the change is justified in the commit message.
+- [x] The runner pre-filter only fires for `EngineKind::Semantic` — confirm with a grep that `EngineKind::Script` and `EngineKind::Ast` arms are unchanged.
 
 ---
 

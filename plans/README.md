@@ -11,11 +11,9 @@ A plan owns its own progress via its checkboxes — that's the source of truth. 
 
 ## Active
 
-The 0.2.0 cohort closes the bully-parity gaps. A1 and A2 shipped; A3 is the remaining item. See [`specs/2026-05-12-bully-parity-closures.md`](../specs/2026-05-12-bully-parity-closures.md) for the spec.
+The 0.2.0 bully-parity cohort (A1 prompt-injection, A2 skip patterns, A3 diff pre-filter) shipped. Next: pick from the spec's later tracks — B1 parallel rule execution, C1 `hector doctor`, or whichever the maintainer prioritizes. See [`specs/2026-05-12-bully-parity-closures.md`](../specs/2026-05-12-bully-parity-closures.md) for the menu.
 
-| Priority | Plan | Goal | Steps | Order |
-|---|---|---|---|---|
-| 🔴 cost | [A3 — Diff Pre-Filter](2026-05-12-hector-a3-diff-prefilter.md) | Locally short-circuit `engine: semantic` when the diff can't fire the rule (empty / whitespace / comment-only / pure-deletion against an "avoid X" rule). | 0 / 40 | now |
+_(no plans queued — write one when picking the next item)_
 
 ## Future
 
@@ -34,6 +32,7 @@ Completed plans live in [`archive/`](archive/). They're frozen design records.
 - [`2026-05-12-bug-audit-remediation`](archive/2026-05-12-bug-audit-remediation.md) — remediation campaign for the [P0/P1/P2 findings](../docs/audits/2026-05-12-bug-audit.md) from the 2026-05-12 audit.
 - [`2026-05-12-hector-a1-prompt-injection`](archive/2026-05-12-hector-a1-prompt-injection.md) — `<TRUSTED_POLICY>` / `<UNTRUSTED_EVIDENCE>` sentinel boundary in semantic prompt.
 - [`2026-05-12-hector-a2-skip-patterns`](archive/2026-05-12-hector-a2-skip-patterns.md) — built-in skip patterns + project `skip:` + `~/.hector-ignore`.
+- [`2026-05-12-hector-a3-diff-prefilter`](archive/2026-05-12-hector-a3-diff-prefilter.md) — local `can_match_diff` short-circuit for `engine: semantic`; new `reason` field on telemetry; runner-side wiring.
 
 ## Conventions
 
