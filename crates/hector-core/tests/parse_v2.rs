@@ -30,3 +30,38 @@ fn parses_v2_minimal() {
     assert_eq!(ast.language.as_deref(), Some("ts"));
     assert_eq!(ast.scope, vec!["src/**/*.ts"]); // single-string scope normalized to vec
 }
+
+#[test]
+fn parses_execution_max_workers() {
+    let yaml = r#"schema_version: 2
+execution:
+  max_workers: 4
+rules:
+  r1:
+    description: "no foo"
+    engine: ast
+    scope: ["**/*.rs"]
+    severity: warning
+    pattern: "$X"
+    language: rust
+"#;
+    let cfg = hector_core::config::parse_str(yaml).expect("parse");
+    let exec = cfg.execution.as_ref().expect("execution block");
+    assert_eq!(exec.max_workers, 4);
+}
+
+#[test]
+fn parses_without_execution_block() {
+    let yaml = r#"schema_version: 2
+rules:
+  r1:
+    description: "no foo"
+    engine: ast
+    scope: ["**/*.rs"]
+    severity: warning
+    pattern: "$X"
+    language: rust
+"#;
+    let cfg = hector_core::config::parse_str(yaml).expect("parse");
+    assert!(cfg.execution.is_none());
+}

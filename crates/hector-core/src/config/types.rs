@@ -12,7 +12,21 @@ pub struct Config {
     pub trust: Option<TrustBlock>,
     #[serde(default)]
     pub skip: Vec<String>,
+    #[serde(default)]
+    pub execution: Option<ExecutionConfig>,
     pub rules: BTreeMap<String, Rule>,
+}
+
+/// Optional execution-tuning block. Controls the rayon pool that dispatches
+/// rules in parallel during `HectorEngine::check`. Absence = use the default
+/// of `min(8, num_cpus::get())`. The `HECTOR_MAX_WORKERS` env var overrides
+/// any value set here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionConfig {
+    /// Maximum worker threads. `0` clamps to 1 at pool-construction time
+    /// (rayon rejects `num_threads(0)`).
+    #[serde(default)]
+    pub max_workers: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
