@@ -16,6 +16,11 @@ fn main() -> Result<()> {
         Command::Init { dir } => commands::init::run(&dir)?,
         Command::Migrate { dir, clean } => commands::migrate::run(&dir, clean)?,
         Command::Baseline { config, scan } => commands::baseline::run(&config, scan)?,
+        Command::Session { action } => match action {
+            cli::SessionAction::Record { dir, file, diff, session_id } => {
+                commands::session::record(&dir, &file, &diff, session_id)?
+            }
+        },
     };
     std::process::exit(code);
 }

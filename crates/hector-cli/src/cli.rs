@@ -53,6 +53,26 @@ pub enum Command {
         #[arg(long)]
         scan: Option<String>,
     },
+    /// Session-state management (used by Claude Code adapter hooks).
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SessionAction {
+    /// Append an edit record to .hector/session.json.
+    Record {
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        diff: String,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
