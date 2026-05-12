@@ -50,27 +50,49 @@ fn parse_disable_directives(line: &str) -> Vec<String> {
 }
 
 /// Collect comma- or whitespace-separated rule IDs after `hector-disable:`.
-/// Stops at end-of-input, the literal token `reason:`, or any `*`/`/` terminator
-/// (block-comment closers). Returns the rule IDs and the number of bytes consumed
-/// from `s` so the outer loop can continue scanning for additional directives.
+/// Stops at end-of-input, the literal token `reason:`, a bare `*`
+/// (block-comment closer `*/` minus the slash, or a stray `*`), or a `/`
+/// that begins a comment terminator (`//` or `*/...` style `*/`, captured
+/// here as `//` or `/*`).
+///
+/// P2-4: previously `/` was an unconditional terminator, which silently
+/// truncated namespaced rule IDs like `python/no-print` to `python`. We
+/// now only break on `/` when the next byte is `/` (line-comment opener)
+/// or `*` (block-comment opener) — the patterns that actually close a
+/// trailing comment context.
+///
+/// Returns the rule IDs and the number of bytes consumed from `s` so the
+/// outer loop can continue scanning for additional directives.
 fn collect_rule_ids(s: &str) -> (Vec<String>, usize) {
     let mut ids = Vec::new();
     let mut i = 0;
     let bytes = s.as_bytes();
+    // A `/` terminates only when followed by `/` or `*`. Used at the
+    // outer-skip layer (between tokens) and inside the token walker.
+    let slash_terminates_at = |buf: &[u8], idx: usize| -> bool {
+        buf.get(idx).copied() == Some(b'/')
+            && matches!(buf.get(idx + 1).copied(), Some(b'/' | b'*'))
+    };
     while i < bytes.len() {
         let c = bytes[i] as char;
         if c.is_whitespace() || c == ',' {
             i += 1;
             continue;
         }
-        if c == '*' || c == '/' {
+        if c == '*' {
+            break;
+        }
+        if c == '/' && slash_terminates_at(bytes, i) {
             break;
         }
         // Start of a token. Find its end.
         let start = i;
         while i < bytes.len() {
             let c = bytes[i] as char;
-            if c.is_whitespace() || c == ',' || c == '*' || c == '/' {
+            if c.is_whitespace() || c == ',' || c == '*' {
+                break;
+            }
+            if c == '/' && slash_terminates_at(bytes, i) {
                 break;
             }
             i += 1;
