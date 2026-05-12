@@ -134,4 +134,3 @@ pub fn write_trust_block(input: &str) -> Result<String> {
     out.push_str(&new_block);
     Ok(out)
 }
-

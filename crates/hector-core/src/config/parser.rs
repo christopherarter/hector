@@ -26,3 +26,19 @@ pub fn parse_file(path: &std::path::Path) -> Result<Config> {
 pub fn is_legacy(cfg: &Config) -> bool {
     cfg.schema_version == 1
 }
+
+/// Read just the `schema_version` field without enforcing the full v2 shape.
+///
+/// Used by the runner to detect v1 *before* trust verification so we can emit
+/// a friendly "run `hector migrate`" hint instead of the generic
+/// "trust block missing" error (P2-11).
+///
+/// Returns `None` for any input that does not have a parseable integer
+/// `schema_version` at the top level — the normal load path will then surface
+/// a proper parse error.
+pub fn peek_schema_version(input: &str) -> Option<u32> {
+    let v: serde_yaml::Value = serde_yaml::from_str(input).ok()?;
+    v.get("schema_version")?
+        .as_u64()
+        .and_then(|n| u32::try_from(n).ok())
+}

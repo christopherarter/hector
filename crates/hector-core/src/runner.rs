@@ -88,19 +88,14 @@ impl HectorEngine {
         // `resolve_trusted` verifies the trust block of the root and every
         // transitive ancestor reachable through `extends:`. This is the only
         // gate before `script:` rules may run, so the trust chain must be
-        // verified end-to-end here.
+        // verified end-to-end here. It also detects schema v1 (P2-11) before
+        // trust verify and surfaces a `hector migrate` hint.
         let config = crate::config::extends::resolve_trusted(config_path)?;
 
         // Validate every rule's scope by constructing the matcher up front.
         for (rule_id, rule) in &config.rules {
             crate::config::scope::ScopeMatcher::new(&rule.scope)
                 .with_context(|| format!("rule `{rule_id}` has invalid scope glob"))?;
-        }
-
-        if crate::config::parser::is_legacy(&config) {
-            eprintln!(
-                "hector: warning — `.bully.yml` schema_version 1 is deprecated; run `hector migrate` to upgrade to schema_version 2"
-            );
         }
 
         // If no explicit override, auto-construct from config.llm.

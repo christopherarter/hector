@@ -35,6 +35,14 @@ fn resolve_inner(path: &Path, seen: &mut HashSet<PathBuf>, verify_trust: bool) -
     }
     let content = std::fs::read_to_string(&canonical)
         .with_context(|| format!("reading {}", canonical.display()))?;
+    // P2-11: detect schema v1 BEFORE trust verify so users see a clear
+    // "run `hector migrate`" hint instead of "trust block missing".
+    if matches!(super::parser::peek_schema_version(&content), Some(1)) {
+        return Err(anyhow!(
+            "{} is schema_version 1 (legacy bully); run `hector migrate` to upgrade to schema_version 2",
+            canonical.display()
+        ));
+    }
     if verify_trust {
         crate::trust::verify(&content)
             .with_context(|| format!("trust verify for {}", canonical.display()))?;

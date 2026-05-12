@@ -4,7 +4,7 @@ pub mod scope;
 pub mod skip;
 pub mod types;
 
-pub use parser::{is_legacy, parse_file, parse_str, SUPPORTED_SCHEMAS};
+pub use parser::{is_legacy, parse_file, parse_str, peek_schema_version, SUPPORTED_SCHEMAS};
 pub use types::*;
 
 use anyhow::Result;
