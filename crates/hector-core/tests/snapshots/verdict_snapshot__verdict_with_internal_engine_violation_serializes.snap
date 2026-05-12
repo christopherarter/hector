@@ -5,20 +5,20 @@ expression: v
 {
   "schema_version": 2,
   "hector_version": "[VERSION]",
-  "status": "warn",
+  "status": "block",
   "violations": [
     {
-      "rule_id": "no-debug",
-      "severity": "warning",
-      "engine": "ast",
-      "file": "src/lib.ts",
+      "rule_id": "no-derived-state__internal",
+      "severity": "error",
+      "engine": "internal",
+      "file": "src/app.tsx",
       "line": null,
       "column": null,
-      "message": "debugger statement left in code",
-      "suggestion": "remove debugger",
+      "message": "semantic check requires LlmClient",
+      "suggestion": null,
       "context": null
     }
   ],
   "passed_checks": [],
-  "elapsed_ms": 55
+  "elapsed_ms": 7
 }

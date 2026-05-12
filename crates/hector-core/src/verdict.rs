@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// Verdict JSON schema version.
+///
+/// History:
+/// - v1: initial 0.1 shape with five `Engine` variants (`Script`, `Ast`,
+///   `Semantic`, `Session`, `Trust`).
+/// - v2 (P1-1): split overloaded `Engine::Trust` into `Engine::Trust`
+///   (true trust-gate failures) and `Engine::Internal` (engine runtime
+///   errors). Wire format for the new variant is `"internal"`.
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verdict {
@@ -47,7 +55,18 @@ pub enum Engine {
     Ast,
     Semantic,
     Session,
+    /// True trust-gate failure: config fingerprint mismatch.
+    ///
+    /// In practice trust failures halt at `HectorEngine::load`, so this
+    /// variant is rarely seen in a `Violation`. Reserved for the case
+    /// where a downstream caller wants to surface a trust-rejection as a
+    /// structured verdict instead of a load error.
     Trust,
+    /// Engine-internal runtime error (LLM unavailable, AST refused diff,
+    /// script spawn failure, etc.). The rule's `rule_id` is suffixed with
+    /// `__internal` by the runner so consumers can distinguish runtime
+    /// errors from rule violations.
+    Internal,
 }
 
 impl Verdict {

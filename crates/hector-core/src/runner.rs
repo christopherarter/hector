@@ -249,10 +249,13 @@ impl HectorEngine {
                 }
                 Ok(None) => passed.push(rule_id.clone()),
                 Err(e) => {
+                    // P1-1: engine runtime errors are Engine::Internal, not
+                    // Engine::Trust. Trust failures halt at load time and
+                    // never reach this arm.
                     violations.push(Violation {
                         rule_id: format!("{rule_id}__internal"),
                         severity: crate::verdict::Severity::Error,
-                        engine: crate::verdict::Engine::Trust,
+                        engine: crate::verdict::Engine::Internal,
                         file: path.display().to_string(),
                         line: None,
                         column: None,
@@ -305,10 +308,11 @@ impl HectorEngine {
             match session_engine.evaluate(state, rule_id, rule, llm) {
                 Ok(Some(v)) => violations.push(v),
                 Ok(None) => passed.push(rule_id.clone()),
+                // P1-1: session-engine runtime errors are Engine::Internal.
                 Err(e) => violations.push(crate::verdict::Violation {
                     rule_id: format!("{rule_id}__internal"),
                     severity: crate::verdict::Severity::Error,
-                    engine: crate::verdict::Engine::Trust,
+                    engine: crate::verdict::Engine::Internal,
                     file: "".to_string(),
                     line: None,
                     column: None,
