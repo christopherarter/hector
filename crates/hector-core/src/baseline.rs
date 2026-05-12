@@ -26,8 +26,20 @@ impl Baseline {
         Ok(())
     }
 
+    /// Stable identity of a violation for baseline membership.
+    ///
+    /// P1-4: the previous `"{rule_id}::{file}::{line}"` format collided when
+    /// `::` appeared in either the rule_id or the file path
+    /// (e.g. `rule_id="a::b" file="c"` vs `rule_id="a" file="b::c"`). JSON
+    /// encoding of the tuple is unambiguous for every input and also
+    /// preserves the `Option<u32>` discriminant on `line`, so `line: None`
+    /// and `line: Some(0)` no longer collapse to the same fingerprint.
     pub fn fingerprint(v: &Violation) -> String {
-        format!("{}::{}::{}", v.rule_id, v.file, v.line.unwrap_or(0))
+        // Serializing a 3-tuple of primitives cannot fail; an `Err` here
+        // would indicate a serde_json bug. Fall back to the legacy format
+        // as a defensive last resort rather than panicking the runner.
+        serde_json::to_string(&(&v.rule_id, &v.file, &v.line))
+            .unwrap_or_else(|_| format!("{}::{}::{}", v.rule_id, v.file, v.line.unwrap_or(0)))
     }
 
     pub fn add(&mut self, v: &Violation) {

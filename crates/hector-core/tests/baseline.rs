@@ -81,16 +81,46 @@ fn save_then_load_round_trip() {
     assert!(loaded.contains(&v3));
 }
 
-// Current fingerprint formula is `{rule_id}::{file}::{line.unwrap_or(0)}`,
-// so a Violation with `line: None` collides with one carrying `line: Some(0)`.
-// This pins the present behavior — it is intentional bookkeeping, not a bug:
-// callers that need to baseline a no-line violation and a line-0 violation
-// separately would have to disambiguate at the fingerprint layer.
+// P1-4 regression: the previous fingerprint formula was
+// `{rule_id}::{file}::{line.unwrap_or(0)}`. With `rule_id="a::b" file="c"` and
+// `rule_id="a" file="b::c"`, fingerprints collided because `::` is both the
+// separator and a legal substring of either field. We now JSON-encode the
+// tuple, which removes ambiguity for every input.
 #[test]
-fn line_none_collides_with_line_zero() {
+fn fingerprint_distinguishes_separator_in_id_vs_file() {
+    let v1 = make_violation("a::b", "c", Some(0));
+    let v2 = make_violation("a", "b::c", Some(0));
+    assert_ne!(
+        Baseline::fingerprint(&v1),
+        Baseline::fingerprint(&v2),
+        "rule_id and file boundaries must not collapse"
+    );
+}
+
+// P1-4: separator embedded in either field round-trips through save/load.
+#[test]
+fn fingerprint_with_separator_round_trips() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".hector").join("baseline.json");
+    let mut b = Baseline::default();
+    let v = make_violation("ns::rule", "weird::name.txt", Some(7));
+    b.add(&v);
+    b.save(&path).unwrap();
+    let loaded = Baseline::load(&path).unwrap();
+    assert!(loaded.contains(&v));
+    // A near-miss with the boundary shifted by one char must NOT collide.
+    let v_collide = make_violation("ns", "rule::weird::name.txt", Some(7));
+    assert!(!loaded.contains(&v_collide));
+}
+
+// Note: line-None now serializes distinctly from line-Some(0) because the
+// JSON encoding preserves the Option discriminant. This is a strict
+// improvement over the prior collision behavior.
+#[test]
+fn line_none_distinct_from_line_zero() {
     let v_none = make_violation("r1", "a.txt", None);
     let v_zero = make_violation("r1", "a.txt", Some(0));
-    assert_eq!(
+    assert_ne!(
         Baseline::fingerprint(&v_none),
         Baseline::fingerprint(&v_zero)
     );
