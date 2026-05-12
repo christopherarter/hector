@@ -38,3 +38,40 @@ fn repo_scope_falls_back_to_file_for_now() {
     // Repo expansion is degraded in 0.1b — returns file content with a note in ctx.
     assert!(ctx.is_some());
 }
+
+#[test]
+fn diff_scope_errors_when_diff_is_missing() {
+    let err = expand_context(ContextScope::Diff, None, None, Path::new("/tmp"))
+        .expect_err("missing diff");
+    assert!(format!("{err:#}").contains("diff"));
+}
+
+#[test]
+fn file_scope_errors_when_file_is_missing() {
+    let err = expand_context(ContextScope::File, None, None, Path::new("/tmp"))
+        .expect_err("missing file anchor");
+    assert!(format!("{err:#}").contains("file"));
+}
+
+#[test]
+fn repo_scope_errors_when_file_anchor_is_missing() {
+    let err = expand_context(ContextScope::Repo, None, None, Path::new("/tmp"))
+        .expect_err("missing repo anchor");
+    assert!(format!("{err:#}").contains("repo"));
+}
+
+#[test]
+fn file_scope_surfaces_read_error_for_nonexistent_path() {
+    let dir = tempdir().unwrap();
+    let missing = dir.path().join("nope.txt");
+    let result = expand_context(ContextScope::File, None, Some(&missing), dir.path());
+    assert!(result.is_err());
+}
+
+#[test]
+fn repo_scope_surfaces_read_error_for_nonexistent_path() {
+    let dir = tempdir().unwrap();
+    let missing = dir.path().join("nope.txt");
+    let result = expand_context(ContextScope::Repo, None, Some(&missing), dir.path());
+    assert!(result.is_err());
+}
