@@ -1841,7 +1841,7 @@ After all phases are merged:
 Use the `superpowers:subagent-driven-development` skill as the parent loop. Send one subagent per task with this prompt template:
 
 ```
-You are implementing Task <N.M> from docs/superpowers/plans/2026-05-12-bug-audit-remediation.md.
+You are implementing Task <N.M> from plans/archive/2026-05-12-bug-audit-remediation.md.
 
 Goal: <single sentence from task header>.
 
