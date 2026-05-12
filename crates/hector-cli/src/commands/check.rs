@@ -28,7 +28,9 @@ pub fn run(
         let state = hector_core::session_state::SessionState::load(&state_path)?;
         let verdict = engine.check_session(&state)?;
         emit(&verdict, format)?;
-        hector_core::session_state::SessionState::clear(&state_path)?;
+        if should_clear_session(verdict.status) {
+            hector_core::session_state::SessionState::clear(&state_path)?;
+        }
         return Ok(exit_code(&verdict));
     }
 
@@ -79,6 +81,12 @@ fn exit_code(v: &Verdict) -> i32 {
         Status::Pass | Status::Warn => 0,
         Status::Block => 2,
     }
+}
+
+/// P2-12: only clear the session file on Pass/Warn so a Block verdict
+/// leaves `.hector/session.json` intact for re-inspection.
+fn should_clear_session(status: Status) -> bool {
+    matches!(status, Status::Pass | Status::Warn)
 }
 
 fn emit(v: &Verdict, format: OutputFormat) -> Result<()> {
@@ -197,5 +205,15 @@ mod tests {
         let full = "--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n+x\n";
         let slice = build_single_file_diff(full, &PathBuf::from("src/missing.rs"));
         assert_eq!(slice, "");
+    }
+
+    // P2-12: session.json must persist across a Block verdict so the user
+    // can re-inspect the offending session. Only Pass/Warn acknowledge it.
+
+    #[test]
+    fn should_clear_session_on_pass_and_warn_only() {
+        assert!(should_clear_session(Status::Pass));
+        assert!(should_clear_session(Status::Warn));
+        assert!(!should_clear_session(Status::Block));
     }
 }
