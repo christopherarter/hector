@@ -125,3 +125,54 @@ fn line_none_distinct_from_line_zero() {
         Baseline::fingerprint(&v_zero)
     );
 }
+
+// Regression: P2-5 — `Baseline::save` used to call `std::fs::write` which
+// truncates the destination before writing. A crash mid-write left the
+// file half-empty, breaking subsequent loads. We now write to a sibling
+// `.tmp` file, `sync_all`, then atomically `rename` onto the target.
+// This test exercises the recovery property: a pre-existing corrupt file
+// at the target path must be cleanly replaced by a successful `save`.
+#[test]
+fn save_replaces_corrupt_target_atomically() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".hector").join("baseline.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // Pre-existing corrupt baseline (simulates a torn write from a crash
+    // under the old non-atomic implementation).
+    std::fs::write(&path, b"{ not valid json").unwrap();
+    assert!(Baseline::load(&path).is_err(), "precondition: corrupt");
+
+    let mut b = Baseline::default();
+    b.add(&make_violation("r1", "a.txt", Some(1)));
+    b.save(&path).expect("atomic save should overwrite corrupt target");
+
+    // After save, no stray `.tmp` sibling should linger.
+    let tmp_sibling = path.with_extension("json.tmp");
+    assert!(
+        !tmp_sibling.exists(),
+        "atomic save must clean up its temp sibling (found {})",
+        tmp_sibling.display()
+    );
+
+    let loaded = Baseline::load(&path).expect("post-save load");
+    assert!(loaded.contains(&make_violation("r1", "a.txt", Some(1))));
+}
+
+// P2-5: explicit fsync + rename means the temp path is in the same
+// directory as the target (so `rename` stays atomic on the same
+// filesystem). Verify the temp path is a sibling, not somewhere else.
+#[test]
+fn atomic_save_keeps_temp_file_in_parent_dir() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join(".hector").join("baseline.json");
+    let b = Baseline::default();
+    b.save(&path).unwrap();
+    // Walk the parent and confirm only `baseline.json` remains.
+    let entries: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(entries.len(), 1, "expected only the final file: {entries:?}");
+    assert_eq!(entries[0].to_string_lossy(), "baseline.json");
+}
