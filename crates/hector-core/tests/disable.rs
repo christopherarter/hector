@@ -55,3 +55,11 @@ fn existing_single_rule_unchanged() {
     assert!(!map.is_disabled(1, "reason"));
     assert!(!map.is_disabled(1, "x"));
 }
+
+#[test]
+fn file_level_disable_silences_script_violation_without_line() {
+    let src = "// hector-disable: noisy-script\nfn main() {}\n";
+    let map = DisableMap::from_source(src);
+    assert!(map.is_disabled_file_wide("noisy-script"));
+    assert!(!map.is_disabled_file_wide("other-rule"));
+}

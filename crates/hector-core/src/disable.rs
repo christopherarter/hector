@@ -24,6 +24,16 @@ impl DisableMap {
             .map(|rules| rules.iter().any(|r| r == rule_id))
             .unwrap_or(false)
     }
+
+    /// True if any `hector-disable: <rule_id>` directive in the file matches
+    /// `rule_id`, regardless of line. Used for violations with `line: None`
+    /// (file-level findings from `script:` / `semantic:` engines) so the
+    /// directive isn't silently ignored.
+    pub fn is_disabled_file_wide(&self, rule_id: &str) -> bool {
+        self.by_line
+            .values()
+            .any(|rules| rules.iter().any(|r| r == rule_id))
+    }
 }
 
 fn parse_disable_directives(line: &str) -> Vec<String> {

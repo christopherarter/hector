@@ -239,11 +239,16 @@ impl HectorEngine {
             };
             match outcome {
                 Ok(Some(v)) => {
-                    if let Some(line) = v.line {
-                        if disable_map.is_disabled(line, rule_id) {
-                            passed.push(rule_id.clone());
-                            continue;
-                        }
+                    // Script and semantic engines often emit file-level
+                    // violations with `line: None`. Honor `hector-disable:`
+                    // directives anywhere in the file in that case (P1-2).
+                    let disabled = match v.line {
+                        Some(line) => disable_map.is_disabled(line, rule_id),
+                        None => disable_map.is_disabled_file_wide(rule_id),
+                    };
+                    if disabled {
+                        passed.push(rule_id.clone());
+                        continue;
                     }
                     violations.push(v);
                 }
