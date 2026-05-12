@@ -62,3 +62,39 @@ fn ast_engine_no_match_no_violation() {
     let outcome = engine.run(&ctx).expect("run");
     assert!(outcome.is_none());
 }
+
+#[test]
+fn ast_violation_populates_column_and_context() {
+    // P1-3: AST violations must populate `column` and `context` (the verdict
+    // shape defines both; AST has the data via `start_pos().column()` and we
+    // can synthesize a ±N-line window around the match).
+    let rule = Rule {
+        description: "x".into(),
+        engine: EngineKind::Ast,
+        scope: vec!["**/*.rs".into()],
+        severity: Severity::Warning,
+        script: None,
+        pattern: Some("$E.unwrap()".into()),
+        language: Some("rust".into()),
+        context: None,
+        capabilities: None,
+        fix_hint: None,
+    };
+    let content = "fn a() {\n    foo();\n    bar.unwrap();\n    baz();\n}\n";
+    let ctx = RuleContext {
+        rule_id: "no-unwrap",
+        rule: &rule,
+        file: std::path::Path::new("test.rs"),
+        content: Some(content),
+        diff: None,
+        cwd: std::path::Path::new("."),
+        llm: None,
+    };
+    let v = AstEngine.run(&ctx).expect("run").expect("violation expected");
+    assert!(v.column.is_some(), "column must be populated for ast");
+    let ctxstr = v.context.expect("context must be populated for ast");
+    assert!(
+        ctxstr.contains("foo();") && ctxstr.contains("bar.unwrap();") && ctxstr.contains("baz();"),
+        "context should include surrounding ±N lines: {ctxstr}"
+    );
+}

@@ -26,8 +26,8 @@ impl RuleEngine for AstEngine {
             .content
             .ok_or_else(|| anyhow!("ast engine requires file content (CheckInput::File)"))?;
 
-        let first_match_line = find_first_match(content, pattern_str, lang_name)?;
-        let Some(line) = first_match_line else {
+        let first_match = find_first_match(content, pattern_str, lang_name)?;
+        let Some((line, column, context_str)) = first_match else {
             return Ok(None);
         };
 
@@ -41,15 +41,30 @@ impl RuleEngine for AstEngine {
             engine: Engine::Ast,
             file: ctx.file.display().to_string(),
             line: Some(line),
-            column: None,
+            column: Some(column),
             message: ctx.rule.description.clone(),
             suggestion: ctx.rule.fix_hint.clone(),
-            context: None,
+            context: Some(context_str),
         }))
     }
 }
 
-fn find_first_match(content: &str, pattern_str: &str, lang_name: &str) -> Result<Option<u32>> {
+/// Number of lines on either side of an AST match included in
+/// `Violation.context`. The match line plus this many lines above and below
+/// give consumers (editors, CI annotators) enough surrounding code to render
+/// a useful snippet without blowing up payload size.
+const CONTEXT_RADIUS: usize = 3;
+
+/// Locate the first AST match in `content` and return its 1-based
+/// `(line, column, context_window)`.
+///
+/// The context window is `±CONTEXT_RADIUS` lines around the match line,
+/// joined with `\n`, clamped to the file's bounds.
+fn find_first_match(
+    content: &str,
+    pattern_str: &str,
+    lang_name: &str,
+) -> Result<Option<(u32, u32, String)>> {
     use ast_grep_core::matcher::Pattern;
     use ast_grep_language::{LanguageExt, SupportLang};
     use std::str::FromStr;
@@ -59,11 +74,28 @@ fn find_first_match(content: &str, pattern_str: &str, lang_name: &str) -> Result
     let grep = lang.ast_grep(content);
     let pattern = Pattern::try_new(pattern_str, lang)
         .map_err(|e| anyhow!("invalid ast-grep pattern `{pattern_str}`: {e:?}"))?;
-    // start_pos().line() is zero-based; convert to 1-based.
-    let line = grep
-        .root()
-        .find_all(pattern)
-        .next()
-        .map(|node| (node.start_pos().line() + 1) as u32);
-    Ok(line)
+    let root = grep.root();
+    let Some(node) = root.find_all(pattern).next() else {
+        return Ok(None);
+    };
+    // ast-grep positions are zero-based; verdicts are 1-based.
+    let start = node.start_pos();
+    let line = (start.line() + 1) as u32;
+    let column = (start.column(&node) + 1) as u32;
+    let context_str = surrounding_lines(content, line);
+    Ok(Some((line, column, context_str)))
+}
+
+/// Build a `±CONTEXT_RADIUS`-line window around the 1-based `line`, joined
+/// with `\n`. Bounds are clamped, so a match on line 1 of a short file just
+/// returns the available lines.
+fn surrounding_lines(content: &str, line: u32) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return String::new();
+    }
+    let idx = (line.saturating_sub(1) as usize).min(lines.len().saturating_sub(1));
+    let lo = idx.saturating_sub(CONTEXT_RADIUS);
+    let hi = idx.saturating_add(CONTEXT_RADIUS + 1).min(lines.len());
+    lines[lo..hi].join("\n")
 }
