@@ -311,10 +311,34 @@ impl HectorEngine {
             if rule.engine != crate::config::EngineKind::Session {
                 continue;
             }
+            // P2-17: per-edit scope filtering. The session engine
+            // aggregates `state.edits` into one LLM prompt; without
+            // filtering, a rule scoped to `src/auth/**` would fire on
+            // sessions whose every edit lives under `src/billing/`. We
+            // construct the rule's scope matcher (validated at load) and
+            // keep only edits whose file path matches. If nothing
+            // matches, the rule trivially passes without an LLM call.
+            let matcher = crate::config::scope::ScopeMatcher::new(&rule.scope)
+                .expect("scope validated at load");
+            let filtered_edits: Vec<crate::session_state::EditRecord> = state
+                .edits
+                .iter()
+                .filter(|e| matcher.matches(std::path::Path::new(&e.file)))
+                .cloned()
+                .collect();
+            if filtered_edits.is_empty() {
+                passed.push(rule_id.clone());
+                continue;
+            }
+            let scoped_state = crate::session_state::SessionState {
+                session_id: state.session_id.clone(),
+                started_at: state.started_at.clone(),
+                edits: filtered_edits,
+            };
             let llm = self.llm.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("session check requires LlmClient; build engine with .with_llm()")
             })?;
-            match session_engine.evaluate(state, rule_id, rule, llm) {
+            match session_engine.evaluate(&scoped_state, rule_id, rule, llm) {
                 Ok(Some(v)) => violations.push(v),
                 Ok(None) => passed.push(rule_id.clone()),
                 // P1-1: session-engine runtime errors are Engine::Internal.

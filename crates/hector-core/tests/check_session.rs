@@ -74,6 +74,47 @@ fn check_session_returns_violation_when_llm_says_so() {
 }
 
 #[test]
+fn session_rule_with_scope_no_matching_edits_passes_trivially() {
+    // P2-17: a session rule scoped to `src/auth/**` must NOT fire when
+    // every recorded edit lives outside that scope. The aggregation step
+    // should filter edits by scope before invoking the LLM; if the
+    // filtered list is empty the rule trivially passes and the LLM is
+    // never asked.
+    let dir = tempdir().unwrap();
+    let path = write_trusted(dir.path(), SESSION_RULE_CONFIG);
+    // The fake is canned to "Violation" — if the runner forwards to it,
+    // the test fails. The only way to reach Pass is to short-circuit
+    // before the LLM call.
+    let fake = FakeLlm {
+        canned: vec![RuleVerdict {
+            rule_id: "audit-tests".into(),
+            status: RuleStatus::Violation {
+                message: "should not have been called".into(),
+                line: None,
+            },
+        }],
+    };
+    let engine = HectorEngine::builder()
+        .with_llm(Box::new(fake))
+        .load(&path)
+        .expect("load");
+
+    let state = SessionState {
+        session_id: "s1".into(),
+        started_at: "t".into(),
+        edits: vec![EditRecord {
+            file: "src/billing/checkout.ts".into(),
+            diff: "+ const x = 1;".into(),
+            timestamp: "t".into(),
+        }],
+    };
+    let verdict = engine.check_session(&state).expect("check_session");
+    assert_eq!(verdict.status, Status::Pass);
+    assert!(verdict.violations.is_empty(), "rule must not fire when no edits match scope");
+    assert!(verdict.passed_checks.iter().any(|r| r == "audit-tests"));
+}
+
+#[test]
 fn check_session_returns_pass_when_llm_says_pass() {
     let dir = tempdir().unwrap();
     let path = write_trusted(dir.path(), SESSION_RULE_CONFIG);
