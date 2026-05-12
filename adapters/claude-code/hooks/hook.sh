@@ -17,6 +17,8 @@ MODE="${1:-post-tool-use}"
 # Default project root is the CWD where Claude Code is running.
 PROJECT_ROOT="$(pwd)"
 CONFIG="${PROJECT_ROOT}/.hector.yml"
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYNTHESIZE_DIFF="${HOOK_DIR}/synthesize_diff.sh"
 
 # Per-invocation temp file for verdict JSON; cleaned up on exit so concurrent
 # Claude Code sessions don't clobber each other.
@@ -75,16 +77,16 @@ case "${MODE}" in
       exit 0
     fi
 
-    # Build a synthetic unified diff for session recording.
-    # (Claude Code's Edit/Write events don't include a diff; we fake one
-    #  from the new_string + old_string pair when available.)
+    # Build a synthetic unified diff for session recording. Claude Code's
+    # Edit/Write events don't carry a real diff, so we fake one from the
+    # (old_string, new_string) pair. The synthesizer (P1-8/P1-9 fix):
+    #   - Emits correct `@@ -1,N +1,M @@` line counts for multi-line edits.
+    #   - Escapes any line in OLD/NEW that looks like a diff header, so
+    #     attacker-controlled content can't reframe the diff onto another
+    #     file.
     OLD=$(echo "${EVENT}" | jq -r '.tool_input.old_string // ""')
     NEW=$(echo "${EVENT}" | jq -r '.tool_input.new_string // .tool_input.content // ""')
-    DIFF="--- a/${FILE}
-+++ b/${FILE}
-@@ -1 +1 @@
--${OLD}
-+${NEW}"
+    DIFF=$("${SYNTHESIZE_DIFF}" "${FILE}" "${OLD}" "${NEW}")
 
     # 1. Record the edit into session state (non-blocking).
     hector session record --dir "${PROJECT_ROOT}" --file "${FILE}" --diff "${DIFF}" >/dev/null 2>&1 || true

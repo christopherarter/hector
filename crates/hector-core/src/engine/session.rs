@@ -14,10 +14,15 @@ impl SessionEngine {
         rule: &Rule,
         llm: &dyn LlmClient,
     ) -> Result<Option<Violation>> {
+        // P1-9: bind the per-edit framing delimiter to the random
+        // `session_id` so attacker-controlled diff content cannot forge
+        // a frame for a different file. The legacy boundary
+        // `--- file: <path> ---` was trivially reproducible inside any
+        // edit's diff; the session id makes the boundary unpredictable.
         let aggregated = state
             .edits
             .iter()
-            .map(|e| format!("--- file: {} ---\n{}", e.file, e.diff))
+            .map(|e| format!("--- file:{}:{} ---\n{}", state.session_id, e.file, e.diff))
             .collect::<Vec<_>>()
             .join("\n\n");
         let verdicts = llm.evaluate(&[(rule_id, rule)], &aggregated, None)?;

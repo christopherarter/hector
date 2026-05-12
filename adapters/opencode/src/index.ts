@@ -123,10 +123,55 @@ const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
   }
 }
 
-function synthesizeDiff(filePath: string, args: FileToolArgs): string {
+/**
+ * Build a synthetic unified diff for an Edit/Write tool invocation.
+ *
+ * The OpenCode tool events don't include a real diff; we fake one from
+ * the (oldString, newString) pair so `hector session record` can ingest
+ * it. Two correctness concerns:
+ *
+ * 1. **Hunk-header counts (P1-8).** A literal `@@ -1 +1 @@` is wrong as
+ *    soon as either side has more than one line — hector's diff parser
+ *    uses the header's `new_start` to number added lines, so wrong
+ *    counts produce wrong line numbers in downstream violations. Count
+ *    lines on each side and emit `1,N` form whenever N > 1.
+ *
+ * 2. **Injection scrub (P1-9).** `oldString`/`newString` are arbitrary
+ *    user content. Without escaping, a `newString` containing
+ *    `\n+++ b/SECRET\n` becomes a real `+++ b/SECRET` header in the
+ *    synthesized diff, fooling hector's parser into thinking the edit
+ *    targets a different file. We prefix any line in the user-provided
+ *    blocks that *looks* like a diff header with a backslash, which the
+ *    parser does not recognize.
+ *
+ * Exported for unit testing — see `tests/synthesize_diff.test.ts`.
+ */
+export function synthesizeDiff(filePath: string, args: FileToolArgs): string {
   const old = args.oldString ?? ""
   const neu = args.newString ?? args.content ?? ""
-  return `--- a/${filePath}\n+++ b/${filePath}\n@@ -1 +1 @@\n-${old}\n+${neu}`
+
+  // Neutralize attacker-controlled lines that mimic diff headers. We act
+  // on the prefixed block (after `-`/`+` is applied) so a malicious OLD
+  // string like `-- a/SECRET` (which would become `--- a/SECRET` after
+  // the `-` prefix) is also caught.
+  const scrub = (s: string) =>
+    s
+      .split("\n")
+      .map((l) => (/^(---|\+\+\+|@@) /.test(l) ? "\\" + l : l))
+      .join("\n")
+
+  const oldLines = old === "" ? 0 : old.split("\n").length
+  const newLines = neu === "" ? 0 : neu.split("\n").length
+  // Diff parsers expect `0,0` (no lines on this side) or `<start>,<count>`
+  // when count != 1, or bare `<start>` when count == 1.
+  const hunkOld = oldLines <= 1 ? "1" : `1,${oldLines}`
+  const hunkNew = newLines <= 1 ? "1" : `1,${newLines}`
+  const oldBlock =
+    old === "" ? "" : old.split("\n").map((l) => "-" + l).join("\n") + "\n"
+  const newBlock =
+    neu === "" ? "" : neu.split("\n").map((l) => "+" + l).join("\n") + "\n"
+
+  return `--- a/${filePath}\n+++ b/${filePath}\n@@ -${hunkOld} +${hunkNew} @@\n${scrub(oldBlock)}${scrub(newBlock)}`
 }
 
 export default HectorPlugin
