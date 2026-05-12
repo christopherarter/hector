@@ -36,6 +36,14 @@ pub enum Command {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
     },
+    /// Rewrite .bully.yml to .hector.yml (schema v1 -> v2). Move .bully/ -> .hector/.
+    Migrate {
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+        /// Delete .bully.yml after migration.
+        #[arg(long)]
+        clean: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]

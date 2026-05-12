@@ -14,6 +14,7 @@ fn main() -> Result<()> {
         Command::Trust { config } => commands::trust::run(&config)?,
         Command::Validate { config } => commands::validate::run(&config)?,
         Command::Init { dir } => commands::init::run(&dir)?,
+        Command::Migrate { dir, clean } => commands::migrate::run(&dir, clean)?,
     };
     std::process::exit(code);
 }
