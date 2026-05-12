@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Hector is a Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — a policy-enforcement pipeline for AI coding agents. Status: **0.1 complete**. All four engines (`script`, `ast`, `semantic`, `session`) are wired. CLI ships `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `session record`. The Claude Code adapter under `adapters/claude-code/` is shipped (0.1c). Plan 0.2 adds OpenAI + Aider + pre-commit. The authoritative docs are `specs/overview.md` (Hector at 1.0) and `specs/2026-05-11-hector-plan-and-0.1-design.md` (phasing + 0.1 design); the per-phase plans live in `plans/`.
 
+## Rules
+
+- When fixing bugs, start with a failing test. Use the test-writing skill. The failing test will then become the regression coverage.
+- Ask for a code review from a separate agent when you complete coding tasks.
+- When reviewing code, your code review will be reviewed by our princple engineer, so do good deep work.
+- This tool has not shipped yet. We don't need to hedge.
+
 ## Commands
 
 ```bash
@@ -55,7 +62,7 @@ This contract is consumed by CI and editor adapters — do not break it.
 
 **Verdict JSON** (`verdict.rs`) is "locked-but-unstable" at 0.1 and freezes at 0.3. Treat `Verdict`, `Violation`, `Status`, `Severity`, `Engine`, and `SCHEMA_VERSION` as a public stability surface even now — bump `SCHEMA_VERSION` if you must change shape.
 
-**Capability sandbox** (`engine/capability.rs`) is **Linux-strict, macOS-advisory**. On Linux, `network: false` uses `CLONE_NEWNET` and writes policies use `CLONE_NEWNS`. On macOS the constraints are logged and the command runs unrestricted. Do not treat capability tests as security tests on macOS.
+**Capability sandbox** (`engine/capability.rs`) is **Linux-strict for network, advisory for writes**. On Linux, `network: false` unshare's the net namespace when privileged (falls back to best-effort with a warning when not). The writes policy is currently a no-op pending CAP_SYS_ADMIN-via-CLONE_NEWUSER work in 0.2. On macOS, all capability constraints are advisory and the command runs unrestricted.
 
 **Scope matching** (`config/scope.rs`) deliberately diverges from raw globset: bare patterns without `/` are also registered as `**/<pattern>` so `*.py` matches at any depth — this mirrors bully's semantics. Don't "fix" it.
 
@@ -67,4 +74,4 @@ This contract is consumed by CI and editor adapters — do not break it.
 - Test fixtures live in `tests/fixtures/` at the repo root; crate-level tests reference them via relative paths.
 - `Cargo.lock` is gitignored (workspace policy in `.gitignore`) — do not commit it.
 - The binary name is `hector`, not `hector-cli`.
-- `Engine::Trust` in the verdict enum is the catch-all bucket for *internal* engine errors as well as trust-gate failures (semantic mismatch acknowledged); a rename is on the table before the verdict shape freezes at 0.3.
+- `Engine::Trust` in the verdict enum is the catch-all bucket for _internal_ engine errors as well as trust-gate failures (semantic mismatch acknowledged); a rename is on the table before the verdict shape freezes at 0.3.
