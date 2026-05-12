@@ -1,6 +1,6 @@
 # Hector E1 — Baseline Line-Content Checksum Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (or superpowers:subagent-driven-development) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (or superpowers:subagent-driven-development) to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Spec section:** [`specs/2026-05-12-bully-parity-closures.md` §E1](../specs/2026-05-12-bully-parity-closures.md)
 **Severity:** 🟡 high (latent correctness bug)
@@ -98,7 +98,7 @@ pub struct RefreshReport {
 
 The existing `add` / `contains` methods stay, defined as `add_with_content(v, None)` / `contains_with_content(v, None)` shims so test sites and the runner don't all need to change in one commit.
 
-- [ ] **Step 1: Append tests**
+- [x] **Step 1: Append tests**
 
 ```rust
 // --- E1: line-content checksum -----------------------------------------
@@ -248,13 +248,13 @@ fn refresh_drops_entries_whose_line_no_longer_exists() {
 }
 ```
 
-- [ ] **Step 2: Run, confirm they fail**
+- [x] **Step 2: Run, confirm they fail**
 
 Run: `cargo test --test baseline 2>&1 | tail -40`
 
 Expected: compile errors — `add_with_content`, `contains_with_content`, `refresh`, `RefreshReport` not defined.
 
-- [ ] **Step 3: Commit failing tests**
+- [x] **Step 3: Commit failing tests**
 
 ```bash
 git add crates/hector-core/tests/baseline.rs
@@ -270,7 +270,7 @@ git commit -m "test(baseline): failing tests for line-content checksum (E1 phase
 **Files:**
 - Modify: `crates/hector-core/src/baseline.rs`
 
-- [ ] **Step 1: Replace the module body**
+- [x] **Step 1: Replace the module body**
 
 The new shape:
 
@@ -474,19 +474,19 @@ Two notes for the reviewer:
 - `BaselineOnDisk` is `Deserialize`-only; `Baseline` is `Serialize`-only. This forces every write to produce v2 even after a v1 read.
 - `LEGACY_WARNING_EMITTED` is process-global. The CLI process boundary is the unit; `hector check` followed by `hector baseline refresh` would each warn once if both encountered a v1 file.
 
-- [ ] **Step 2: Run the test file, confirm green**
+- [x] **Step 2: Run the test file, confirm green**
 
 Run: `cargo test --test baseline`
 
 Expected: all tests pass, including the 7 new ones from Phase 1.
 
-- [ ] **Step 3: Run the full hector-core suite**
+- [x] **Step 3: Run the full hector-core suite**
 
 Run: `cargo test -p hector-core`
 
 Expected: green. Existing call sites use `add` / `contains` shims, so nothing else needs to change.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/hector-core/src/baseline.rs crates/hector-core/tests/baseline.rs
@@ -515,7 +515,7 @@ violations.retain(|v| !baseline.contains(v));
 
 The change is a one-liner: `!baseline.contains(v)` → `!baseline.contains_with_content(v, Some(&content))`. `content` is the post-edit file body captured at the top of `check`. For diff mode the file was already read into `content` (line 155); for file mode the caller supplies it. Both modes have the post-edit content available, which is correct semantics (we check against what the agent just wrote).
 
-- [ ] **Step 1: Update the filter**
+- [x] **Step 1: Update the filter**
 
 Edit `crates/hector-core/src/runner.rs:301`:
 
@@ -523,17 +523,17 @@ Edit `crates/hector-core/src/runner.rs:301`:
 violations.retain(|v| !baseline.contains_with_content(v, Some(&content)));
 ```
 
-- [ ] **Step 2: Update the `baseline` CLI command to pass content during recording**
+- [x] **Step 2: Update the `baseline` CLI command to pass content during recording**
 
 In `crates/hector-cli/src/commands/baseline.rs`, where the loop calls `bl.add(&v)`, change to `bl.add_with_content(&v, Some(&content))` — the same `content` already read from disk on the line above. This is what gives newly-recorded entries a real checksum.
 
-- [ ] **Step 3: Run the full workspace**
+- [x] **Step 3: Run the full workspace**
 
 Run: `cargo test`
 
 Expected: green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/hector-core/src/runner.rs crates/hector-cli/src/commands/baseline.rs
@@ -550,7 +550,7 @@ git commit -m "feat(runner): pass file content to baseline.contains for E1 check
 - Create: `crates/hector-core/tests/fixtures/baseline_v1.json`
 - Create: `crates/hector-core/tests/baseline_legacy.rs`
 
-- [ ] **Step 1: Write the fixture**
+- [x] **Step 1: Write the fixture**
 
 Content:
 
@@ -564,7 +564,7 @@ Content:
 
 The single fingerprint is what `Baseline::fingerprint` would have produced for `(rule_id=todo-marker, file=src/lib.rs, line=2)` under the post-P1-4 JSON-tuple encoding.
 
-- [ ] **Step 2: Write the integration test**
+- [x] **Step 2: Write the integration test**
 
 ```rust
 use hector_core::baseline::Baseline;
@@ -602,13 +602,13 @@ fn v1_fixture_loads_and_matches_by_tuple_only() {
 }
 ```
 
-- [ ] **Step 3: Run**
+- [x] **Step 3: Run**
 
 Run: `cargo test --test baseline_legacy`
 
 Expected: green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add crates/hector-core/tests/fixtures/baseline_v1.json crates/hector-core/tests/baseline_legacy.rs
@@ -629,7 +629,7 @@ git commit -m "feat(baseline): backwards-compat read for old format (E1 phase 3)
 
 The current `Baseline { config, scan }` variant becomes a parent that takes a `#[command(subcommand)]`. We preserve the no-subcommand record path with a default (record mode) so existing scripts don't break.
 
-- [ ] **Step 1: Update `cli.rs`**
+- [x] **Step 1: Update `cli.rs`**
 
 Replace the existing `Baseline` variant with:
 
@@ -660,7 +660,7 @@ pub enum BaselineAction {
 
 The `Option<BaselineAction>` with `None` defaulting to record mode preserves the existing CLI shape exactly.
 
-- [ ] **Step 2: Update `main.rs` dispatch**
+- [x] **Step 2: Update `main.rs` dispatch**
 
 ```rust
 Command::Baseline { action, config, scan } => match action.unwrap_or(cli::BaselineAction::Record) {
@@ -669,7 +669,7 @@ Command::Baseline { action, config, scan } => match action.unwrap_or(cli::Baseli
 },
 ```
 
-- [ ] **Step 3: Update `commands/baseline.rs`**
+- [x] **Step 3: Update `commands/baseline.rs`**
 
 Rename the existing `run` → `record`. Add a sibling `refresh`:
 
@@ -690,7 +690,7 @@ pub fn refresh(config: &Path) -> Result<i32> {
 }
 ```
 
-- [ ] **Step 4: Write the CLI integration test**
+- [x] **Step 4: Write the CLI integration test**
 
 `crates/hector-cli/tests/cli_baseline_refresh.rs`:
 
@@ -755,19 +755,19 @@ fn refresh_with_no_baseline_succeeds_silently() {
 }
 ```
 
-- [ ] **Step 5: Run**
+- [x] **Step 5: Run**
 
 Run: `cargo test -p hector-cli --test cli_baseline_refresh`
 
 Expected: green.
 
-- [ ] **Step 6: Run full workspace**
+- [x] **Step 6: Run full workspace**
 
 Run: `cargo test`
 
 Expected: green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/hector-cli/src/cli.rs crates/hector-cli/src/main.rs \
@@ -782,11 +782,11 @@ git commit -m "feat(cli): hector baseline refresh subcommand (E1 phase 4)"
 
 ### Task 6: Lint, format, coverage
 
-- [ ] **Step 1: `cargo fmt --check`** — must produce no diff.
-- [ ] **Step 2: `cargo clippy --all-targets -- -D warnings`** — must be green. Watch for cognitive-complexity warnings in `Baseline::refresh` and `Baseline::contains_with_content`; the match on a 3-tuple inside `contains_with_content` is at the edge of the 15-cap. If clippy fires, extract the match arms to a `match-content` helper before annotating.
-- [ ] **Step 3: `cargo test --workspace`** — must be green.
-- [ ] **Step 4: `bash scripts/ci-coverage.sh`** — `baseline.rs` must hit ≥90% region. The `refresh` happy path and drop path are both exercised; the `BaselineOnDisk` V1 branch is exercised by `legacy_baseline_without_checksum_loads_with_warning`. If any branch is uncovered, add a focused unit test before committing.
-- [ ] **Step 5: Commit any sweep fixes**
+- [x] **Step 1: `cargo fmt --check`** — must produce no diff.
+- [x] **Step 2: `cargo clippy --all-targets -- -D warnings`** — must be green. Watch for cognitive-complexity warnings in `Baseline::refresh` and `Baseline::contains_with_content`; the match on a 3-tuple inside `contains_with_content` is at the edge of the 15-cap. If clippy fires, extract the match arms to a `match-content` helper before annotating.
+- [x] **Step 3: `cargo test --workspace`** — must be green.
+- [x] **Step 4: `bash scripts/ci-coverage.sh`** — `baseline.rs` must hit ≥90% region. The `refresh` happy path and drop path are both exercised; the `BaselineOnDisk` V1 branch is exercised by `legacy_baseline_without_checksum_loads_with_warning`. If any branch is uncovered, add a focused unit test before committing.
+- [x] **Step 5: Commit any sweep fixes**
 
 ```bash
 git add -A
@@ -832,14 +832,14 @@ git commit -m "style(baseline): fmt + clippy sweep (E1 phase 5)"
 
 ## Self-review checklist
 
-- [ ] Every acceptance criterion has a named test.
-- [ ] Legacy fixture is a verbatim copy of what `Baseline::save` would have produced under the v1 implementation (so it doubles as a regression pin).
-- [ ] `cargo fmt --check` clean.
-- [ ] `cargo clippy --all-targets -- -D warnings` clean.
-- [ ] `cargo test --workspace` clean.
-- [ ] `bash scripts/ci-coverage.sh` reports `baseline.rs` ≥ 90% region coverage.
-- [ ] The runner's edit is one line; B1/C4 conflict surface is minimal.
-- [ ] CLI default behavior (no subcommand) still records, preserving the existing `hector baseline` invocation.
+- [x] Every acceptance criterion has a named test.
+- [x] Legacy fixture is a verbatim copy of what `Baseline::save` would have produced under the v1 implementation (so it doubles as a regression pin).
+- [x] `cargo fmt --check` clean.
+- [x] `cargo clippy --all-targets -- -D warnings` clean.
+- [x] `cargo test --workspace` clean.
+- [x] `bash scripts/ci-coverage.sh` reports `baseline.rs` ≥ 90% region coverage.
+- [x] The runner's edit is one line; B1/C4 conflict surface is minimal.
+- [x] CLI default behavior (no subcommand) still records, preserving the existing `hector baseline` invocation.
 
 ---
 
