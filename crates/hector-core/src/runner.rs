@@ -158,7 +158,19 @@ impl HectorEngine {
             }
         }
 
-        Ok(Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64))
+        let verdict = Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64);
+        let _ = crate::telemetry::append(
+            &self.config_dir.join(".hector/log.jsonl"),
+            &crate::telemetry::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                kind: "check".into(),
+                file: path.display().to_string(),
+                rule_id: None,
+                status: format!("{:?}", verdict.status).to_lowercase(),
+                elapsed_ms: verdict.elapsed_ms,
+            },
+        );
+        Ok(verdict)
     }
 
     pub fn check_session(&self, state: &crate::session_state::SessionState) -> Result<crate::verdict::Verdict> {
@@ -190,6 +202,18 @@ impl HectorEngine {
                 }),
             }
         }
-        Ok(crate::verdict::Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64))
+        let verdict = crate::verdict::Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64);
+        let _ = crate::telemetry::append(
+            &self.config_dir.join(".hector/log.jsonl"),
+            &crate::telemetry::LogEntry {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                kind: "check_session".into(),
+                file: "".into(),
+                rule_id: None,
+                status: format!("{:?}", verdict.status).to_lowercase(),
+                elapsed_ms: verdict.elapsed_ms,
+            },
+        );
+        Ok(verdict)
     }
 }

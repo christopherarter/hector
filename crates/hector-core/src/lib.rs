@@ -7,5 +7,6 @@ pub mod engine;
 pub mod llm;
 pub mod runner;
 pub mod session_state;
+pub mod telemetry;
 pub mod trust;
 pub mod verdict;
