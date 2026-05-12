@@ -25,6 +25,17 @@ treat `writes:` as advisory documentation, not as a control.
 If you need write isolation today, run hector inside an OS-level
 sandbox (e.g., a container, a fresh user, or `bwrap`).
 
+## Capabilities and runtime safety
+
+`Capabilities::default()` enables network and unrestricted writes — the
+maximally-permissive shape. This is intentional: rules that need to
+isolate themselves opt in via `capabilities: { network: false, writes:
+none }`. Because the writes policy is a documented no-op in 0.1 and the
+network sandbox falls back to "best-effort" on unprivileged hosts (P0-8,
+P0-9), operators relying on `network: false` for adversarial isolation
+**must run hector inside an OS-level sandbox** (container, fresh user,
+or `bwrap`). The capability schema is not a security boundary in 0.1.
+
 ## Roadmap
 
 macOS sandbox profile integration is tracked in `specs/2026-05-11-hector-plan-and-0.1-design.md` §13 (risks). Re-evaluated at 1.0.
