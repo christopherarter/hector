@@ -1,6 +1,8 @@
-# 0.1b — Engine set complete
+# Changelog
 
-## New since 0.1a
+Notable changes to Hector, newest first. In-flight work lives in `plans/`.
+
+## 0.1b — Engine set complete
 
 ### Engines
 - `ast`: structural pattern matching via `ast-grep-core`. Rules specify `pattern:` and `language:`.
