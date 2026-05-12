@@ -2,9 +2,13 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { existsSync, rmSync } from "node:fs"
 import { join } from "node:path"
 
-// OpenCode tools we gate. `apply_patch` is intentionally not gated at 0.1d —
-// its multi-file patch format would need per-file extraction; see
-// docs/adapters/opencode.md for the known-gap note.
+// OpenCode tools we gate. `apply_patch` is intentionally not gated at 0.1d
+// (P2-14, deferred) — the opencode plugin SDK does not currently surface
+// an `apply_patch` tool through `tool.execute.after`, and its multi-file
+// patch format would need per-file extraction (split on `+++ b/<path>`
+// boundaries, reissue `hector check --file` per file). See
+// docs/adapters/opencode.md → "What it does NOT do" for the known-gap
+// note. Tracked until the apply_patch tool is wired through the adapter.
 const GATED_TOOLS = new Set(["edit", "write"])
 
 type FileToolArgs = {
