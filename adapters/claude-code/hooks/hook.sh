@@ -18,6 +18,16 @@ MODE="${1:-post-tool-use}"
 PROJECT_ROOT="$(pwd)"
 CONFIG="${PROJECT_ROOT}/.hector.yml"
 
+# Per-invocation temp file for verdict JSON; cleaned up on exit so concurrent
+# Claude Code sessions don't clobber each other.
+TMP_VERDICT=""
+cleanup() {
+  if [[ -n "${TMP_VERDICT}" && -f "${TMP_VERDICT}" ]]; then
+    rm -f "${TMP_VERDICT}"
+  fi
+}
+trap cleanup EXIT
+
 # Skip silently if hector isn't configured for this project.
 if [[ ! -f "${CONFIG}" ]]; then
   exit 0
@@ -36,8 +46,9 @@ case "${MODE}" in
     if [[ ! -f "${PROJECT_ROOT}/.hector/session.json" ]]; then
       exit 0
     fi
-    if ! hector check --session --config "${CONFIG}" --format json > /tmp/hector-session-verdict.json; then
-      cat /tmp/hector-session-verdict.json >&2
+    TMP_VERDICT=$(mktemp -t hector-session-verdict.XXXXXX)
+    if ! hector check --session --config "${CONFIG}" --format json > "${TMP_VERDICT}"; then
+      cat "${TMP_VERDICT}" >&2
       exit 2
     fi
     # session.json was cleared by hector check --session as a side effect.
@@ -68,8 +79,9 @@ case "${MODE}" in
     hector session record --dir "${PROJECT_ROOT}" --file "${FILE}" --diff "${DIFF}" >/dev/null 2>&1 || true
 
     # 2. Gate the edit by running checks.
-    if ! hector check --file "${FILE}" --config "${CONFIG}" --format json > /tmp/hector-verdict.json; then
-      cat /tmp/hector-verdict.json >&2
+    TMP_VERDICT=$(mktemp -t hector-verdict.XXXXXX)
+    if ! hector check --file "${FILE}" --config "${CONFIG}" --format json > "${TMP_VERDICT}"; then
+      cat "${TMP_VERDICT}" >&2
       exit 2
     fi
     exit 0
