@@ -41,6 +41,18 @@ fn session_state_atomic_write() {
 }
 
 #[test]
+fn session_state_load_missing_returns_empty() {
+    // P2-2 regression: `load` on a non-existent path previously surfaced an
+    // IO error. Adapters all had to special-case this. Treat missing as
+    // empty state so `hector check --session` on a fresh checkout just works.
+    let dir = tempdir().unwrap();
+    let nonexistent = dir.path().join("does/not/exist/session.json");
+    let loaded = SessionState::load(&nonexistent).expect("missing file is empty, not error");
+    assert!(loaded.edits.is_empty(), "expected no edits on fresh load");
+    assert_eq!(loaded.session_id, "");
+}
+
+#[test]
 fn session_state_clear() {
     let dir = tempdir().unwrap();
     let state_path = dir.path().join(".hector/session.json");
@@ -52,5 +64,8 @@ fn session_state_clear() {
     });
     s.save(&state_path).unwrap();
     SessionState::clear(&state_path).unwrap();
-    assert!(SessionState::load(&state_path).is_err());
+    // After P2-2, `load` on a missing path is empty state, not an error.
+    assert!(!state_path.exists());
+    let loaded = SessionState::load(&state_path).unwrap();
+    assert!(loaded.edits.is_empty());
 }

@@ -27,6 +27,14 @@ impl SessionState {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
+        // P2-2: treat a missing file as empty state rather than an IO error.
+        // Adapters (Claude Code, opencode, future pre-commit) all want
+        // "fresh-checkout means no recorded edits, just an empty session";
+        // surfacing ENOENT through anyhow forced every caller to special-case
+        // this. Mirror Baseline::load's NotFound handling.
+        if !path.exists() {
+            return Ok(Self::new(""));
+        }
         let content =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let s: Self = serde_json::from_str(&content)
