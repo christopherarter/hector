@@ -129,11 +129,7 @@ fn extends_errors_for_nonexistent_parent_path() {
 fn extends_rejects_v1_parent_with_migrate_hint() {
     let dir = tempfile::tempdir().unwrap();
     let parent_path = dir.path().join("parent.yml");
-    std::fs::write(
-        &parent_path,
-        "schema_version: 1\nrules: {}\n",
-    )
-    .unwrap();
+    std::fs::write(&parent_path, "schema_version: 1\nrules: {}\n").unwrap();
     let child_path = dir.path().join("child.yml");
     std::fs::write(
         &child_path,

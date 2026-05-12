@@ -130,7 +130,10 @@ fn session_state_save_with_parentless_path_returns_error() {
         timestamp: "t".into(),
     });
     let result = s.save(Path::new(""));
-    assert!(result.is_err(), "empty path must surface an error, not panic");
+    assert!(
+        result.is_err(),
+        "empty path must surface an error, not panic"
+    );
 }
 
 #[test]

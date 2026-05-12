@@ -86,7 +86,11 @@ fn parse_unified_ignores_literal_triple_plus_inside_hunk() {
 +++ literal triple plus in content
 ";
     let files = parse_unified(diff).unwrap();
-    assert_eq!(files.len(), 1, "the `+++` content line must not start a new file");
+    assert_eq!(
+        files.len(),
+        1,
+        "the `+++` content line must not start a new file"
+    );
     assert_eq!(
         files[0].added_lines,
         vec![2],

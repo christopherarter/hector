@@ -129,7 +129,10 @@ fn telemetry_append_with_parentless_path_returns_error() {
             reason: None,
         },
     );
-    assert!(result.is_err(), "empty path must surface an error, not panic");
+    assert!(
+        result.is_err(),
+        "empty path must surface an error, not panic"
+    );
 }
 
 #[cfg(unix)]

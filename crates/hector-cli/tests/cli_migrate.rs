@@ -102,7 +102,11 @@ fn migrate_refuses_to_overwrite_existing_hector_config() {
         "schema_version: 1\nrules: {}\n",
     )
     .unwrap();
-    fs::write(dir.path().join(".hector.yml"), "schema_version: 2\nrules: {}\n").unwrap();
+    fs::write(
+        dir.path().join(".hector.yml"),
+        "schema_version: 2\nrules: {}\n",
+    )
+    .unwrap();
     Command::cargo_bin("hector")
         .unwrap()
         .args(["migrate", "--dir", dir.path().to_str().unwrap()])
@@ -118,12 +122,7 @@ fn migrate_clean_flag_removes_legacy_config() {
     fs::write(&bully, "schema_version: 1\nrules: {}\n").unwrap();
     Command::cargo_bin("hector")
         .unwrap()
-        .args([
-            "migrate",
-            "--dir",
-            dir.path().to_str().unwrap(),
-            "--clean",
-        ])
+        .args(["migrate", "--dir", dir.path().to_str().unwrap(), "--clean"])
         .assert()
         .success();
     assert!(!bully.exists(), ".bully.yml removed under --clean");
@@ -190,4 +189,3 @@ fn migrate_errors_when_writing_hector_config_fails() {
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
     drop(assertion);
 }
-
