@@ -35,9 +35,20 @@ pub struct Violation {
     pub engine: Engine,
     pub file: String,
     pub line: Option<u32>,
+    /// 1-based column of the violation's start position.
+    ///
+    /// P2-19 / P1-3: only the AST engine populates this — it reads the
+    /// column from the matched node's start byte. The `script`,
+    /// `semantic`, and `session` engines have no positional information
+    /// from a regex/LLM hit and always leave this `None`.
     pub column: Option<u32>,
     pub message: String,
     pub suggestion: Option<String>,
+    /// Snippet of source surrounding the violation.
+    ///
+    /// P2-19 / P1-3: AST populates this with the matched node's line
+    /// ±3 lines for editor display. Script, semantic, and session
+    /// engines leave it `None`.
     pub context: Option<String>,
 }
 
