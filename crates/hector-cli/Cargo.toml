@@ -17,6 +17,8 @@ serde_json.workspace = true
 globset.workspace = true
 walkdir.workspace = true
 chrono.workspace = true
+ignore = "0.4"
+rayon = "1"
 
 [dev-dependencies]
 assert_cmd.workspace = true
