@@ -1,5 +1,7 @@
 //! Hector core library: config, engines, verdict, trust.
 
+#![warn(clippy::cognitive_complexity)]
+
 pub mod baseline;
 pub mod config;
 pub mod diff;

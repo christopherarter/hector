@@ -133,6 +133,12 @@ impl HectorEngine {
         })
     }
 
+    // Central orchestration: input-mode normalization, skip short-circuit,
+    // four-engine dispatch, telemetry. Decomposing further would split the
+    // flow across helpers without making any individual piece easier to
+    // reason about; the complexity is intrinsic to the work this method
+    // does, not an accident.
+    #[allow(clippy::cognitive_complexity)]
     pub fn check(&self, input: CheckInput) -> Result<Verdict> {
         use crate::disable::DisableMap;
         let start = Instant::now();

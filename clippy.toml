@@ -1,0 +1,5 @@
+# Maximum cognitive complexity per function. Clippy's `cognitive_complexity`
+# lint (in the `nursery` group) is opted-in at each crate root. Tightening
+# from the default of 25 forces functions with significant branching to be
+# decomposed rather than allowed to accumulate.
+cognitive-complexity-threshold = 15
