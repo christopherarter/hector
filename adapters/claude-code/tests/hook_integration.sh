@@ -65,5 +65,31 @@ echo "PASS: session-start clears stale state"
 echo '{}' | "${HOOK}" stop
 echo "PASS: stop with no session.json is a no-op"
 
+# Test 5: PostToolUse against an untrusted config → exit 1 (internal error),
+# not exit 2 (which would be reserved for actual rule violations).
+UNTRUSTED=$(mktemp -d)
+trap 'rm -rf "${PROJECT}" "${UNTRUSTED}"' EXIT
+cat > "${UNTRUSTED}/.hector.yml" <<'EOF'
+schema_version: 2
+rules:
+  no-debug:
+    description: "no DEBUG markers in source"
+    engine: script
+    scope: ["*.txt"]
+    severity: error
+    script: "exit 0"
+EOF
+cd "${UNTRUSTED}"
+echo "anything" > file.txt
+EVENT='{"tool_input": {"file_path": "'"${UNTRUSTED}"'/file.txt", "new_string": "anything"}}'
+EC=0
+echo "${EVENT}" | "${HOOK}" post-tool-use >/dev/null 2>&1 || EC=$?
+if [[ "${EC}" == "1" ]]; then
+  echo "PASS: untrusted config returns exit 1 (internal error)"
+else
+  echo "FAIL: expected exit 1 for untrusted config, got ${EC}"
+  exit 1
+fi
+
 echo ""
 echo "All hook integration tests passed."

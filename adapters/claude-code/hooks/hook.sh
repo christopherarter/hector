@@ -47,12 +47,23 @@ case "${MODE}" in
       exit 0
     fi
     TMP_VERDICT=$(mktemp -t hector-session-verdict.XXXXXX)
-    if ! hector check --session --config "${CONFIG}" --format json > "${TMP_VERDICT}"; then
-      cat "${TMP_VERDICT}" >&2
-      exit 2
-    fi
-    # session.json was cleared by hector check --session as a side effect.
-    exit 0
+    EC=0
+    hector check --session --config "${CONFIG}" --format json > "${TMP_VERDICT}" || EC=$?
+    case "${EC}" in
+      0)
+        # session.json was cleared by hector check --session as a side effect.
+        exit 0
+        ;;
+      2)
+        cat "${TMP_VERDICT}" >&2
+        exit 2
+        ;;
+      *)
+        echo "hector: internal error during session check (exit ${EC})" >&2
+        [[ -s "${TMP_VERDICT}" ]] && cat "${TMP_VERDICT}" >&2
+        exit 1
+        ;;
+    esac
     ;;
 
   post-tool-use|*)
@@ -78,12 +89,22 @@ case "${MODE}" in
     # 1. Record the edit into session state (non-blocking).
     hector session record --dir "${PROJECT_ROOT}" --file "${FILE}" --diff "${DIFF}" >/dev/null 2>&1 || true
 
-    # 2. Gate the edit by running checks.
+    # 2. Gate the edit by running checks. Differentiate hector exit codes:
+    #    0 = pass/warn, 2 = block (rule violation), 1 = internal error.
     TMP_VERDICT=$(mktemp -t hector-verdict.XXXXXX)
-    if ! hector check --file "${FILE}" --config "${CONFIG}" --format json > "${TMP_VERDICT}"; then
-      cat "${TMP_VERDICT}" >&2
-      exit 2
-    fi
-    exit 0
+    EC=0
+    hector check --file "${FILE}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" || EC=$?
+    case "${EC}" in
+      0) exit 0 ;;
+      2)
+        cat "${TMP_VERDICT}" >&2
+        exit 2
+        ;;
+      *)
+        echo "hector: internal error checking ${FILE} (exit ${EC})" >&2
+        [[ -s "${TMP_VERDICT}" ]] && cat "${TMP_VERDICT}" >&2
+        exit 1
+        ;;
+    esac
     ;;
 esac
