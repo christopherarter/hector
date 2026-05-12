@@ -193,3 +193,32 @@ fn check_diff_input_parses_and_runs() {
     );
     assert_eq!(status, "pass");
 }
+
+#[test]
+fn check_skips_cargo_lock_with_default_config() {
+    let dir = tempdir().unwrap();
+    // A script rule scoped to *.lock that always fails. If the rule ran
+    // we'd see exit 2; if it's skipped we see exit 0. The skip is what
+    // we're testing.
+    let cfg = write_trusted(
+        dir.path(),
+        "schema_version: 2\nrules:\n  always-fail:\n    description: \"x\"\n    engine: script\n    scope: [\"*.lock\"]\n    severity: error\n    script: \"exit 1\"\n",
+    );
+
+    let lockfile = dir.path().join("Cargo.lock");
+    std::fs::write(&lockfile, "# generated\n").unwrap();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "check",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--file",
+            lockfile.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(0);
+}

@@ -16,6 +16,26 @@ fn extends_merges_rules() {
 }
 
 #[test]
+fn extends_unions_skip_globs_from_parent_and_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent_path = dir.path().join("parent.yml");
+    std::fs::write(
+        &parent_path,
+        "schema_version: 2\nskip:\n  - \"*.snap\"\nrules: {}\n",
+    )
+    .unwrap();
+    let child_path = dir.path().join("child.yml");
+    std::fs::write(
+        &child_path,
+        "schema_version: 2\nextends: [\"./parent.yml\"]\nskip:\n  - \"fixtures/**\"\nrules: {}\n",
+    )
+    .unwrap();
+    let cfg = parse_file_with_extends(&child_path).expect("parse");
+    assert!(cfg.skip.contains(&"*.snap".to_string()));
+    assert!(cfg.skip.contains(&"fixtures/**".to_string()));
+}
+
+#[test]
 fn cycle_in_extends_is_error() {
     let dir = tempfile::tempdir().unwrap();
     let a = dir.path().join("a.yml");
