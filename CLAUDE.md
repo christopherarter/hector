@@ -12,7 +12,7 @@ Hector is a Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/b
 - Ask for a code review from a separate agent when you complete coding tasks.
 - When reviewing code, your code review will be reviewed by our princple engineer, so do good deep work.
 - This tool has not shipped yet. We don't need to hedge.
-- Rust source files under `crates/*/src/` must meet ≥90% line coverage. CI enforces this per-file via `scripts/ci-coverage.sh` (cargo-llvm-cov). Adding code without bringing the file up to the gate will break the build.
+- Rust source files under `crates/*/src/` must meet ≥90% **region** coverage (distinct decision points — branches, short-circuits, match arms — not executed lines). CI enforces this per-file via `scripts/ci-coverage.sh` (cargo-llvm-cov). Adding code without bringing the file up to the gate will break the build.
 
 ## Commands
 
@@ -25,7 +25,7 @@ cargo test --test e2e_script_rules          # single integration test file
 cargo test <name>                           # filter by test-fn name
 cargo clippy --all-targets -- -D warnings   # lint
 cargo fmt
-bash scripts/ci-coverage.sh                 # per-file ≥90% line-coverage gate (matches CI)
+bash scripts/ci-coverage.sh                 # per-file ≥90% region-coverage gate (matches CI)
 ```
 
 Snapshot tests use `insta` — review with `cargo insta review` after intentional verdict-shape changes. CLI tests use `assert_cmd` and shell out to the compiled binary. LLM HTTP paths are exercised with `wiremock` (see `crates/hector-core/tests/anthropic.rs`).
