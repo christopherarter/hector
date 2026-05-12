@@ -257,9 +257,28 @@ impl HectorEngine {
             }
         }
 
-        let baseline =
-            crate::baseline::Baseline::load(&self.config_dir.join(".hector/baseline.json"))
-                .unwrap_or_default();
+        // P2-6: a corrupt or unreadable baseline used to fall through
+        // `unwrap_or_default()` silently — operators got unrelated
+        // suppression behavior with no diagnostic. Now: `NotFound` stays
+        // silent (the common first-run state), any other load failure
+        // surfaces a one-line warning to stderr and we proceed with an
+        // empty baseline so the check still runs.
+        let baseline_path = self.config_dir.join(".hector/baseline.json");
+        let baseline = match crate::baseline::Baseline::load(&baseline_path) {
+            Ok(b) => b,
+            Err(e) => {
+                let is_missing = e.downcast_ref::<std::io::Error>().is_some_and(|io| {
+                    io.kind() == std::io::ErrorKind::NotFound
+                });
+                if !is_missing {
+                    eprintln!(
+                        "hector: warning — baseline at {} is corrupt or unreadable: {e:#}; ignoring",
+                        baseline_path.display()
+                    );
+                }
+                crate::baseline::Baseline::default()
+            }
+        };
         violations.retain(|v| !baseline.contains(v));
 
         let verdict =

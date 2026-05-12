@@ -2,6 +2,98 @@ use assert_cmd::Command;
 use std::fs;
 use tempfile::tempdir;
 
+// Regression: P2-6 — a corrupt `.hector/baseline.json` used to flow through
+// `unwrap_or_default()` in the runner, silently producing wrong suppression
+// behavior with no warning. The runner now distinguishes `NotFound` (treat
+// as empty) from any other load error (warn to stderr and proceed with an
+// empty baseline so the check still runs).
+#[test]
+fn corrupt_baseline_emits_stderr_warning() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "clean\n").unwrap();
+    let cfg = dir.path().join(".hector.yml");
+    fs::write(
+        &cfg,
+        "schema_version: 2\nrules:\n  noop:\n    description: x\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"true\"\n",
+    )
+    .unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["trust", "--config", cfg.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Pre-place a malformed baseline at the expected location.
+    fs::create_dir_all(dir.path().join(".hector")).unwrap();
+    fs::write(dir.path().join(".hector/baseline.json"), "{not valid json").unwrap();
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "check",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--file",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    // The check still succeeds (corrupt baseline = treated as empty, the
+    // rule passes). The user must see a warning explaining the situation.
+    assert!(
+        out.status.success(),
+        "check should succeed with empty fallback baseline; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("baseline") && (stderr.contains("corrupt") || stderr.contains("invalid")),
+        "stderr must warn about the corrupt baseline; got: {stderr}"
+    );
+}
+
+// P2-6 negative case: a missing baseline file is the normal first-run
+// state. The runner must NOT print a warning in that case.
+#[test]
+fn missing_baseline_is_silent() {
+    let dir = tempdir().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "clean\n").unwrap();
+    let cfg = dir.path().join(".hector.yml");
+    fs::write(
+        &cfg,
+        "schema_version: 2\nrules:\n  noop:\n    description: x\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"true\"\n",
+    )
+    .unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["trust", "--config", cfg.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // No .hector/baseline.json present.
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "check",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--file",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.to_lowercase().contains("baseline"),
+        "missing baseline must be silent; got: {stderr}"
+    );
+}
+
 #[test]
 fn baseline_skips_gitignored_and_target_dirs() {
     let tmp = tempdir().unwrap();
