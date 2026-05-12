@@ -180,6 +180,7 @@ impl HectorEngine {
                     rule_id: None,
                     status: "pass".into(),
                     elapsed_ms: elapsed,
+                    reason: None,
                 },
             ) {
                 eprintln!("hector: telemetry append failed: {e:#}");
@@ -305,6 +306,7 @@ impl HectorEngine {
                 rule_id: None,
                 status: format!("{:?}", verdict.status).to_lowercase(),
                 elapsed_ms: verdict.elapsed_ms,
+                reason: None,
             },
         ) {
             eprintln!("hector: telemetry append failed: {e:#}");
@@ -385,6 +387,7 @@ impl HectorEngine {
                 rule_id: None,
                 status: format!("{:?}", verdict.status).to_lowercase(),
                 elapsed_ms: verdict.elapsed_ms,
+                reason: None,
             },
         ) {
             eprintln!("hector: telemetry append failed: {e:#}");

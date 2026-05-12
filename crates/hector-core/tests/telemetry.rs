@@ -12,6 +12,7 @@ fn append_creates_log_and_writes_jsonl() {
         rule_id: None,
         status: "pass".into(),
         elapsed_ms: 12,
+        reason: None,
     };
     append(&log, &entry).unwrap();
     let content = std::fs::read_to_string(&log).unwrap();
@@ -25,6 +26,7 @@ fn append_creates_log_and_writes_jsonl() {
         rule_id: None,
         status: "block".into(),
         elapsed_ms: 22,
+        reason: None,
     };
     append(&log, &entry2).unwrap();
     let content = std::fs::read_to_string(&log).unwrap();
@@ -49,6 +51,7 @@ fn telemetry_append_is_atomic_under_concurrent_writers() {
                         rule_id: None,
                         status: "pass".into(),
                         elapsed_ms: 0,
+                        reason: None,
                     };
                     append(&p, &entry).unwrap();
                 }
@@ -80,6 +83,7 @@ fn telemetry_append_creates_file_with_mode_0600() {
         rule_id: None,
         status: "pass".into(),
         elapsed_ms: 0,
+        reason: None,
     };
     append(&path, &entry).unwrap();
     let meta = std::fs::metadata(&path).unwrap();
@@ -89,4 +93,41 @@ fn telemetry_append_creates_file_with_mode_0600() {
         "telemetry log must be owner-only; got {:o}",
         mode
     );
+}
+
+#[test]
+fn log_entry_with_reason_serializes_field() {
+    let dir = tempdir().unwrap();
+    let log = dir.path().join(".hector/log.jsonl");
+    let entry = LogEntry {
+        timestamp: "2026-05-12T00:00:00Z".into(),
+        kind: "semantic_skipped".into(),
+        file: "src/lib.rs".into(),
+        rule_id: Some("no-unwrap".into()),
+        status: "pass".into(),
+        elapsed_ms: 0,
+        reason: Some("whitespace_only".into()),
+    };
+    append(&log, &entry).unwrap();
+    let content = std::fs::read_to_string(&log).unwrap();
+    assert!(content.contains("\"reason\":\"whitespace_only\""));
+    assert!(content.contains("\"kind\":\"semantic_skipped\""));
+}
+
+#[test]
+fn log_entry_without_reason_omits_field() {
+    let dir = tempdir().unwrap();
+    let log = dir.path().join(".hector/log.jsonl");
+    let entry = LogEntry {
+        timestamp: "2026-05-12T00:00:01Z".into(),
+        kind: "check".into(),
+        file: "src/lib.rs".into(),
+        rule_id: None,
+        status: "pass".into(),
+        elapsed_ms: 1,
+        reason: None,
+    };
+    append(&log, &entry).unwrap();
+    let content = std::fs::read_to_string(&log).unwrap();
+    assert!(!content.contains("\"reason\""));
 }
