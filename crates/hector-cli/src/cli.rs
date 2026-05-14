@@ -81,6 +81,27 @@ pub enum Command {
         #[command(subcommand)]
         action: SessionAction,
     },
+    /// Show which rules are in scope for `<file>` and which skip-pattern
+    /// (if any) suppresses it. Read-only — no engine runs, no LLM is
+    /// called, no telemetry is written.
+    Explain {
+        /// Path to inspect. Relative to cwd.
+        file: PathBuf,
+        #[arg(long, default_value = "human")]
+        format: OutputFormat,
+        #[arg(long, default_value = ".hector.yml")]
+        config: PathBuf,
+    },
+    /// List the rules whose scope matches `<file>` with their description
+    /// and severity. Read-only — see `explain` for full scope reporting.
+    Guide {
+        /// Path to inspect. Relative to cwd.
+        file: PathBuf,
+        #[arg(long, default_value = "human")]
+        format: OutputFormat,
+        #[arg(long, default_value = ".hector.yml")]
+        config: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Subcommand)]
