@@ -65,6 +65,8 @@ pub fn run(dir: &Path, format: OutputFormat) -> Result<i32> {
         check_config_parses(&ctx),
         check_trust(&ctx),
         check_schema_version(&ctx),
+        check_scope_globs(&ctx),
+        check_engines(&ctx),
     ];
     let report = Report {
         hector_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -268,6 +270,141 @@ fn check_schema_version(ctx: &DoctorContext) -> CheckResult {
     }
 }
 
+/// Every rule's scope globs construct a valid `ScopeMatcher`. The
+/// runner already validates this at load time, but doctor surfaces it
+/// as its own row so a globset error doesn't masquerade as a generic
+/// parse failure. Skipped (warn) when the config doesn't parse.
+fn check_scope_globs(ctx: &DoctorContext) -> CheckResult {
+    let cfg = match hector_core::config::parse_file_with_extends(&ctx.config_path) {
+        Ok(c) => c,
+        Err(_) => {
+            return CheckResult {
+                name: "scope_globs",
+                status: Status::Warn,
+                detail: "skipped (config does not parse)".into(),
+                remediation: None,
+            };
+        }
+    };
+    let mut bad: Vec<String> = Vec::new();
+    for (rule_id, rule) in &cfg.rules {
+        if let Err(e) = hector_core::config::scope::ScopeMatcher::new(&rule.scope) {
+            bad.push(format!("{rule_id}: {e:#}"));
+        }
+    }
+    if bad.is_empty() {
+        CheckResult {
+            name: "scope_globs",
+            status: Status::Pass,
+            detail: format!("{} rule(s) have valid scope", cfg.rules.len()),
+            remediation: None,
+        }
+    } else {
+        CheckResult {
+            name: "scope_globs",
+            status: Status::Fail,
+            detail: format!("invalid scope on: {}", bad.join("; ")),
+            remediation: Some("fix the listed glob(s) and re-run `hector trust`".into()),
+        }
+    }
+}
+
+/// Engine availability:
+///   - Semantic / Session rules → require an `llm:` block whose
+///     `api_key_env` resolves to a non-empty value (Ollama is exempt
+///     from the api-key requirement, mirroring `llm::build_from_config`).
+///   - All-script / all-ast configs → trivially pass.
+/// Decomposed via `llm_block_status` so this function stays cheap on
+/// cognitive complexity.
+fn check_engines(ctx: &DoctorContext) -> CheckResult {
+    let cfg = match hector_core::config::parse_file_with_extends(&ctx.config_path) {
+        Ok(c) => c,
+        Err(_) => {
+            return CheckResult {
+                name: "engines",
+                status: Status::Warn,
+                detail: "skipped (config does not parse)".into(),
+                remediation: None,
+            };
+        }
+    };
+    let needs_llm = cfg.rules.values().any(|r| {
+        matches!(
+            r.engine,
+            hector_core::config::EngineKind::Semantic | hector_core::config::EngineKind::Session
+        )
+    });
+    if !needs_llm {
+        return CheckResult {
+            name: "engines",
+            status: Status::Pass,
+            detail: "deterministic engines only (no LLM required)".into(),
+            remediation: None,
+        };
+    }
+    llm_block_status(cfg.llm.as_ref())
+}
+
+/// Inspect the `llm:` block for a config that has at least one
+/// semantic/session rule. Returns the engine-row `CheckResult` directly
+/// so the caller stays a one-liner.
+fn llm_block_status(cfg: Option<&hector_core::config::LlmConfig>) -> CheckResult {
+    let Some(llm) = cfg else {
+        return CheckResult {
+            name: "engines",
+            status: Status::Warn,
+            detail: "semantic/session rule(s) present but no `llm:` block configured".into(),
+            remediation: Some(
+                "add an `llm:` block with provider/model/api_key_env (see docs/quickstart.md)"
+                    .into(),
+            ),
+        };
+    };
+    // Ollama needs no API key — `build_from_config` defaults to an empty key.
+    if llm.provider == "ollama" {
+        return CheckResult {
+            name: "engines",
+            status: Status::Pass,
+            detail: format!("provider=ollama, model={}", llm.model),
+            remediation: None,
+        };
+    }
+    let env_name = match llm.api_key_env.as_deref() {
+        Some(n) if !n.is_empty() => n,
+        _ => {
+            return CheckResult {
+                name: "engines",
+                status: Status::Warn,
+                detail: format!("provider={} but `api_key_env` is unset", llm.provider),
+                remediation: Some(
+                    "set `api_key_env: <NAME>` in the `llm:` block of `.hector.yml`".into(),
+                ),
+            };
+        }
+    };
+    if hector_core::llm::api_key_env_present(env_name) {
+        CheckResult {
+            name: "engines",
+            status: Status::Pass,
+            detail: format!(
+                "provider={}, model={}, ${env_name} resolves",
+                llm.provider, llm.model
+            ),
+            remediation: None,
+        }
+    } else {
+        CheckResult {
+            name: "engines",
+            status: Status::Warn,
+            detail: format!("env var `{env_name}` not set; semantic/session rules will error at evaluation"),
+            remediation: Some(format!(
+                "export `{env_name}` with a valid {} API key",
+                llm.provider
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,5 +510,91 @@ mod tests {
         let d = tempdir().unwrap();
         let r = check_trust(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Warn);
+    }
+
+    #[test]
+    fn engines_pass_when_no_llm_rules() {
+        let d = tempdir().unwrap();
+        let trusted = hector_core::trust::write_trust_block(
+            "schema_version: 2\nrules:\n  r:\n    description: \"x\"\n    engine: script\n    scope: [\"*\"]\n    severity: error\n    script: \"true\"\n",
+        ).unwrap();
+        fs::write(d.path().join(".hector.yml"), trusted).unwrap();
+        let r = check_engines(&ctx_with(d.path()));
+        assert_eq!(r.status, Status::Pass);
+    }
+
+    #[test]
+    fn engines_warn_when_semantic_rule_lacks_llm_block() {
+        let d = tempdir().unwrap();
+        let trusted = hector_core::trust::write_trust_block(
+            "schema_version: 2\nrules:\n  s:\n    description: \"x\"\n    engine: semantic\n    scope: [\"*\"]\n    severity: warning\n    context: file\n",
+        ).unwrap();
+        fs::write(d.path().join(".hector.yml"), trusted).unwrap();
+        let r = check_engines(&ctx_with(d.path()));
+        assert_eq!(r.status, Status::Warn);
+        assert!(r.remediation.unwrap().contains("llm"));
+    }
+
+    #[test]
+    fn engines_pass_for_ollama_without_key() {
+        let cfg = hector_core::config::LlmConfig {
+            provider: "ollama".into(),
+            model: "llama3".into(),
+            api_key_env: None,
+            base_url: None,
+        };
+        let r = llm_block_status(Some(&cfg));
+        assert_eq!(r.status, Status::Pass);
+    }
+
+    #[test]
+    fn engines_warn_when_api_key_env_unset() {
+        let cfg = hector_core::config::LlmConfig {
+            provider: "anthropic".into(),
+            model: "claude".into(),
+            api_key_env: Some("HECTOR_DOCTOR_TEST_DEFINITELY_UNSET_AAA".into()),
+            base_url: None,
+        };
+        std::env::remove_var("HECTOR_DOCTOR_TEST_DEFINITELY_UNSET_AAA");
+        let r = llm_block_status(Some(&cfg));
+        assert_eq!(r.status, Status::Warn);
+        assert!(r.remediation.unwrap().contains("HECTOR_DOCTOR_TEST_DEFINITELY_UNSET_AAA"));
+    }
+
+    #[test]
+    fn engines_pass_when_api_key_env_set() {
+        let cfg = hector_core::config::LlmConfig {
+            provider: "anthropic".into(),
+            model: "claude".into(),
+            api_key_env: Some("HECTOR_DOCTOR_TEST_PRESENT_KEY".into()),
+            base_url: None,
+        };
+        std::env::set_var("HECTOR_DOCTOR_TEST_PRESENT_KEY", "x");
+        let r = llm_block_status(Some(&cfg));
+        std::env::remove_var("HECTOR_DOCTOR_TEST_PRESENT_KEY");
+        assert_eq!(r.status, Status::Pass);
+    }
+
+    #[test]
+    fn engines_warn_when_api_key_env_field_missing() {
+        let cfg = hector_core::config::LlmConfig {
+            provider: "anthropic".into(),
+            model: "claude".into(),
+            api_key_env: None,
+            base_url: None,
+        };
+        let r = llm_block_status(Some(&cfg));
+        assert_eq!(r.status, Status::Warn);
+    }
+
+    #[test]
+    fn scope_globs_pass_on_clean_config() {
+        let d = tempdir().unwrap();
+        let trusted = hector_core::trust::write_trust_block(
+            "schema_version: 2\nrules:\n  r:\n    description: \"x\"\n    engine: script\n    scope: [\"*.rs\"]\n    severity: error\n    script: \"true\"\n",
+        ).unwrap();
+        fs::write(d.path().join(".hector.yml"), trusted).unwrap();
+        let r = check_scope_globs(&ctx_with(d.path()));
+        assert_eq!(r.status, Status::Pass);
     }
 }
