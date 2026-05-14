@@ -82,6 +82,20 @@ pub fn build_from_config(cfg: &LlmConfig) -> Result<Option<Box<dyn LlmClient>>> 
     }
 }
 
+/// C1: side-effect-free probe used by `hector doctor`.
+///
+/// Reports whether the configured `api_key_env` env var is set to a
+/// non-empty value, matching `read_api_key`'s emptiness rule (treats
+/// the empty string as absent) so doctor reports the same answer the
+/// runner would consult.
+///
+/// Returns `false` when the var is missing, unset, or empty. Never logs
+/// (unlike `read_api_key`, which warns to stderr) — doctor builds its
+/// own remediation message.
+pub fn api_key_env_present(env_name: &str) -> bool {
+    matches!(std::env::var(env_name), Ok(v) if !v.is_empty())
+}
+
 fn read_api_key(cfg: &LlmConfig) -> Option<String> {
     let env_name = cfg.api_key_env.as_deref()?;
     match std::env::var(env_name) {

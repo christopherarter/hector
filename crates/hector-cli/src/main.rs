@@ -50,6 +50,7 @@ fn main() -> Result<()> {
             } => commands::session::record(&dir, &file, &diff, session_id)?,
             cli::SessionAction::Start { dir } => commands::session::start(&dir)?,
         },
+        Command::Doctor { dir, format } => commands::doctor::run(&dir, format)?,
     };
     std::process::exit(code);
 }
