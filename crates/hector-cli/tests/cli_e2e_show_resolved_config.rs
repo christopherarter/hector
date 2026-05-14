@@ -208,3 +208,60 @@ fn yaml_format_origin_comment_precedes_each_rule() {
 
     let _ = parent;
 }
+
+#[test]
+fn json_format_emits_sorted_rules_with_origin_field() {
+    let dir = tempdir().unwrap();
+    let parent = write_plain(
+        dir.path(),
+        "parent.yml",
+        "schema_version: 2\nrules:\n  zeta:\n    description: \"z\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+    let child = write_trusted(
+        dir.path(),
+        "schema_version: 2\nextends: [\"parent.yml\"]\nrules:\n  alpha:\n    description: \"a\"\n    engine: script\n    scope: [\"*.rs\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "show-resolved-config",
+            "--config",
+            child.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+
+    assert!(
+        v.get("trust").is_none(),
+        "json view must not contain a trust block"
+    );
+    assert!(
+        v.get("extends").is_none(),
+        "json view must not contain extends"
+    );
+    assert_eq!(v["schema_version"], 2);
+
+    let rules = v["rules"].as_object().unwrap();
+    assert_eq!(rules.len(), 2);
+    let keys: Vec<&str> = rules.keys().map(|k| k.as_str()).collect();
+    // serde_json::Map preserves insertion order; we built the map from a
+    // BTreeMap so insertion order *is* sorted-by-id order.
+    assert_eq!(keys, vec!["alpha", "zeta"], "rules must be sorted by id");
+
+    let alpha = &rules["alpha"];
+    assert_eq!(alpha["engine"], "script");
+    assert_eq!(alpha["severity"], "warning");
+    assert!(alpha["origin"].as_str().unwrap().ends_with(".hector.yml"));
+
+    let zeta = &rules["zeta"];
+    assert!(zeta["origin"].as_str().unwrap().ends_with("parent.yml"));
+
+    let _ = parent;
+}

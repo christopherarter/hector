@@ -181,8 +181,12 @@ fn annotate_yaml_with_origins(
 }
 
 fn format_json(
-    _cfg: &hector_core::config::Config,
-    _origins: &std::collections::BTreeMap<String, std::path::PathBuf>,
+    cfg: &hector_core::config::Config,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<String> {
-    Ok(String::new())
+    let view = build_view(cfg, origins);
+    // Pretty-printed for human inspection; tooling can re-serialize.
+    let body = serde_json::to_string_pretty(&view)?;
+    // Trailing newline so `... | wc -l` includes the last line.
+    Ok(format!("{body}\n"))
 }
