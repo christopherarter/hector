@@ -23,6 +23,10 @@ cargo build --release
 
 See [docs/quickstart.md](docs/quickstart.md).
 
+## Inspect
+
+- `hector show-resolved-config [--format tsv|yaml|json]` — print the post-`extends:` merged rule set, with each rule annotated by the file that defined it. See [docs/show-resolved-config.md](docs/show-resolved-config.md).
+
 ## Specs
 
 - [`specs/overview.md`](specs/overview.md) — Hector at 1.0
