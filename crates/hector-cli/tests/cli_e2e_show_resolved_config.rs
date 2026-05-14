@@ -116,3 +116,95 @@ fn tsv_extends_chain_inherits_and_overrides_with_origin() {
     // Silence the unused-binding lint without weakening the test.
     let _ = parent;
 }
+
+#[test]
+fn yaml_format_emits_canonical_merged_config_without_trust() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted(
+        dir.path(),
+        "schema_version: 2\nrules:\n  alpha:\n    description: \"a\"\n    engine: script\n    scope: [\"*.rs\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "show-resolved-config",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--format",
+            "yaml",
+        ])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+
+    // Trust block must be stripped from the rendered view; otherwise we
+    // would imply the merged form has a fingerprint, which is meaningless.
+    assert!(
+        !stdout.contains("trust:"),
+        "yaml must not emit trust block: {stdout}"
+    );
+    assert!(
+        !stdout.contains("fingerprint:"),
+        "yaml must not emit fingerprint: {stdout}"
+    );
+    // Extends already consumed by the merge; rendering it would mislead.
+    assert!(
+        !stdout.contains("extends:"),
+        "yaml must not emit extends list: {stdout}"
+    );
+
+    // The merged config round-trips through serde_yaml as a map; the
+    // origin comments precede each rule.
+    assert!(stdout.contains("alpha:"));
+    assert!(stdout.contains("# origin:"));
+    assert!(stdout.contains(".hector.yml"));
+}
+
+#[test]
+fn yaml_format_origin_comment_precedes_each_rule() {
+    let dir = tempdir().unwrap();
+    let parent = write_plain(
+        dir.path(),
+        "parent.yml",
+        "schema_version: 2\nrules:\n  beta:\n    description: \"b\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+    let child = write_trusted(
+        dir.path(),
+        "schema_version: 2\nextends: [\"parent.yml\"]\nrules:\n  alpha:\n    description: \"a\"\n    engine: script\n    scope: [\"*.rs\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "show-resolved-config",
+            "--config",
+            child.to_str().unwrap(),
+            "--format",
+            "yaml",
+        ])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+
+    // Every rule has a preceding `# origin: <path>` comment line.
+    let alpha_origin = stdout.find("# origin: ").and_then(|i| {
+        let after = &stdout[i..];
+        after.lines().next()
+    });
+    assert!(
+        alpha_origin.is_some(),
+        "expected at least one origin comment: {stdout}"
+    );
+    // Both rules surface in the body.
+    assert!(stdout.contains("alpha:"));
+    assert!(stdout.contains("beta:"));
+
+    let _ = parent;
+}

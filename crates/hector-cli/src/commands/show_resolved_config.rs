@@ -3,7 +3,65 @@
 
 use crate::cli::ShowFormat;
 use anyhow::Result;
-use std::path::Path;
+use serde::Serialize;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+/// The shape that gets serialized by the YAML and JSON formatters.
+///
+/// Mirrors `Config` minus the two fields that are meaningless after the
+/// extends merge:
+/// - `trust:` — per-config-file fingerprint; the merged form has no
+///   single source file to fingerprint.
+/// - `extends:` — already consumed by the merge; leaving it in would
+///   imply unresolved inheritance.
+///
+/// Constructed by [`build_view`] from a `Config` + the rule origin map.
+#[derive(Debug, Serialize)]
+struct ResolvedView<'a> {
+    schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    llm: Option<&'a hector_core::config::LlmConfig>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    skip: &'a Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execution: Option<&'a hector_core::config::ExecutionConfig>,
+    /// Sorted-by-id rule list. Each entry carries an `origin` field
+    /// alongside the rule body so the JSON shape can attribute every
+    /// rule to its source file.
+    rules: BTreeMap<&'a str, RuleView<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct RuleView<'a> {
+    #[serde(flatten)]
+    rule: &'a hector_core::config::Rule,
+    origin: String,
+}
+
+fn build_view<'a>(
+    cfg: &'a hector_core::config::Config,
+    origins: &'a BTreeMap<String, PathBuf>,
+) -> ResolvedView<'a> {
+    let rules: BTreeMap<&'a str, RuleView<'a>> = cfg
+        .rules
+        .iter()
+        .map(|(id, rule)| {
+            let origin = origins
+                .get(id)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            (id.as_str(), RuleView { rule, origin })
+        })
+        .collect();
+    ResolvedView {
+        schema_version: cfg.schema_version,
+        llm: cfg.llm.as_ref(),
+        skip: &cfg.skip,
+        execution: cfg.execution.as_ref(),
+        rules,
+    }
+}
 
 pub fn run(config: &Path, format: ShowFormat) -> Result<i32> {
     match hector_core::config::extends::resolve_with_origin(config) {
@@ -75,10 +133,51 @@ fn severity_str(s: hector_core::config::Severity) -> &'static str {
 }
 
 fn format_yaml(
-    _cfg: &hector_core::config::Config,
-    _origins: &std::collections::BTreeMap<String, std::path::PathBuf>,
+    cfg: &hector_core::config::Config,
+    origins: &BTreeMap<String, PathBuf>,
 ) -> Result<String> {
-    Ok(String::new())
+    let view = build_view(cfg, origins);
+    let body = serde_yaml::to_string(&view)?;
+    Ok(annotate_yaml_with_origins(&body, origins))
+}
+
+/// Walk the rendered YAML body and inject a `# origin: <path>` comment
+/// line above each rule entry. Detects rule entries by matching lines
+/// of the form `^  <id>:$` *inside* the `rules:` block — every rule key
+/// in `ResolvedView` is two-space-indented.
+fn annotate_yaml_with_origins(
+    body: &str,
+    origins: &BTreeMap<String, PathBuf>,
+) -> String {
+    let mut out = String::with_capacity(body.len() + 128);
+    let mut in_rules_block = false;
+    for line in body.lines() {
+        if line.starts_with("rules:") {
+            in_rules_block = true;
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_rules_block {
+            // A rule-key line is `  <id>:` with exactly two leading
+            // spaces and a trailing colon. Anything more deeply
+            // indented is a field of the rule body, not a new rule.
+            if let Some(stripped) = line.strip_prefix("  ") {
+                if !stripped.starts_with(' ')
+                    && stripped.ends_with(':')
+                    && stripped.len() > 1
+                {
+                    let id = &stripped[..stripped.len() - 1];
+                    if let Some(origin) = origins.get(id) {
+                        out.push_str(&format!("  # origin: {}\n", origin.display()));
+                    }
+                }
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 fn format_json(
