@@ -90,3 +90,75 @@ fn read_all_returns_empty_for_missing_log() {
         read_all(&dir.path().join("nope.jsonl")).expect("missing file is empty, not error");
     assert!(entries.is_empty());
 }
+
+#[test]
+fn legacy_warning_fires_only_once() {
+    // Write the same legacy line to two distinct files. Read both.
+    // Both reads must succeed; the warning is "best-effort" anyway, so
+    // we only assert no panic and the expected entry counts.
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.jsonl");
+    let b = dir.path().join("b.jsonl");
+    let line = "{\"timestamp\":\"t\",\"kind\":\"check\",\"file\":\"x\",\"rule_id\":null,\"status\":\"pass\",\"elapsed_ms\":1}\n";
+    std::fs::write(&a, line).unwrap();
+    std::fs::write(&b, line).unwrap();
+    assert_eq!(read_all(&a).unwrap().len(), 1);
+    assert_eq!(read_all(&b).unwrap().len(), 1);
+}
+
+#[test]
+fn legacy_status_warn_and_block_lift_correctly() {
+    // Exercises parse_status's warn and block arms via the legacy reader.
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("statuses.jsonl");
+    let body = "{\"timestamp\":\"t\",\"kind\":\"check\",\"file\":\"a\",\"rule_id\":null,\"status\":\"warn\",\"elapsed_ms\":1}\n{\"timestamp\":\"t\",\"kind\":\"check\",\"file\":\"b\",\"rule_id\":null,\"status\":\"block\",\"elapsed_ms\":2}\n";
+    std::fs::write(&log, body).unwrap();
+    let entries = read_all(&log).unwrap();
+    assert_eq!(entries.len(), 2);
+    let LogEntry::Check { status: s0, .. } = &entries[0] else {
+        panic!("warn line should be Check");
+    };
+    let LogEntry::Check { status: s1, .. } = &entries[1] else {
+        panic!("block line should be Check");
+    };
+    assert_eq!(*s0, Status::Warn);
+    assert_eq!(*s1, Status::Block);
+}
+
+#[test]
+fn legacy_semantic_verdict_lifts_correctly() {
+    // Exercises into_typed's `"semantic_verdict"` arm — the rest of the
+    // arms are covered by the main fixture.
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("sv.jsonl");
+    // legacy semantic_verdict: file present
+    let body = "{\"timestamp\":\"t\",\"kind\":\"semantic_verdict\",\"file\":\"src/x.rs\",\"rule_id\":\"r\",\"status\":\"pass\",\"elapsed_ms\":0}\n{\"timestamp\":\"t\",\"kind\":\"semantic_verdict\",\"file\":\"\",\"rule_id\":\"s\",\"status\":\"violation\",\"elapsed_ms\":0}\n";
+    std::fs::write(&log, body).unwrap();
+    let entries = read_all(&log).unwrap();
+    assert_eq!(entries.len(), 2);
+    match &entries[0] {
+        LogEntry::SemanticVerdict {
+            file: Some(f),
+            verdict,
+            rule,
+            ..
+        } => {
+            assert_eq!(f, "src/x.rs");
+            assert_eq!(verdict, "pass");
+            assert_eq!(rule, "r");
+        }
+        other => panic!("expected SemanticVerdict with file, got {other:?}"),
+    }
+    match &entries[1] {
+        LogEntry::SemanticVerdict {
+            file: None,
+            verdict,
+            rule,
+            ..
+        } => {
+            assert_eq!(verdict, "violation");
+            assert_eq!(rule, "s");
+        }
+        other => panic!("expected SemanticVerdict file=None, got {other:?}"),
+    }
+}

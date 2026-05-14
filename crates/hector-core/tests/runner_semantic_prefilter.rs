@@ -272,3 +272,46 @@ fn semantic_skipped_telemetry_uses_typed_variant() {
         "per-file Check record present; log:\n{log}"
     );
 }
+
+#[test]
+fn engine_error_yields_per_rule_record_with_engine_error_reason() {
+    // A semantic rule with no LLM client wired up: dispatch errors,
+    // runner converts the error to an `Engine::Internal` violation, and
+    // the per-rule record carries reason="engine_error".
+    let dir = tempdir().unwrap();
+    let cfg_body = r#"schema_version: 2
+rules:
+  needs-llm:
+    description: "x"
+    engine: semantic
+    scope: ["*.rs"]
+    severity: error
+"#;
+    let cfg_path = dir.path().join(".hector.yml");
+    let trusted = hector_core::trust::write_trust_block(cfg_body).unwrap();
+    std::fs::write(&cfg_path, trusted).unwrap();
+    let target = dir.path().join("foo.rs");
+    std::fs::write(&target, "fn main(){}\n").unwrap();
+
+    // No `.with_llm(...)` — semantic engine will error.
+    let engine = HectorEngine::load(&cfg_path).unwrap();
+    let _ = engine
+        .check(CheckInput::File {
+            path: target,
+            content: "fn main(){}\n".into(),
+        })
+        .unwrap();
+
+    let entries =
+        hector_core::telemetry::read_all(&dir.path().join(".hector/log.jsonl")).unwrap();
+    let has_engine_error = entries.iter().any(|e| {
+        matches!(
+            e, hector_core::telemetry::LogEntry::Check { rules, .. }
+            if rules.iter().any(|r| r.reason.as_deref() == Some("engine_error"))
+        )
+    });
+    assert!(
+        has_engine_error,
+        "missing engine_error per-rule record; entries: {entries:#?}"
+    );
+}
