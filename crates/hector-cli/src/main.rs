@@ -49,6 +49,9 @@ fn main() -> Result<()> {
                 session_id,
             } => commands::session::record(&dir, &file, &diff, session_id)?,
         },
+        Command::ShowResolvedConfig { config, format } => {
+            commands::show_resolved_config::run(&config, format)?
+        }
     };
     std::process::exit(code);
 }

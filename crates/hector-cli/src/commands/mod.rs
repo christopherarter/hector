@@ -3,5 +3,6 @@ pub mod check;
 pub mod init;
 pub mod migrate;
 pub mod session;
+pub mod show_resolved_config;
 pub mod trust;
 pub mod validate;

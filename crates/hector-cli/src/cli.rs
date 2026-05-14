@@ -81,6 +81,19 @@ pub enum Command {
         #[command(subcommand)]
         action: SessionAction,
     },
+    /// Print the post-extends merged rule set.
+    ///
+    /// Read-only. Does not run any rule. Default format is TSV with the
+    /// columns: `id<TAB>engine<TAB>severity<TAB>scope<TAB>fix_hint<TAB>origin`.
+    /// `--format yaml` prints the canonical merged config (sans `trust:`
+    /// and `extends:`); `--format json` prints the same shape as JSON
+    /// with each rule annotated by its origin.
+    ShowResolvedConfig {
+        #[arg(long, default_value = ".hector.yml")]
+        config: PathBuf,
+        #[arg(long, default_value = "tsv")]
+        format: ShowFormat,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Subcommand)]
@@ -109,5 +122,12 @@ pub enum SessionAction {
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum OutputFormat {
     Human,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ShowFormat {
+    Tsv,
+    Yaml,
     Json,
 }

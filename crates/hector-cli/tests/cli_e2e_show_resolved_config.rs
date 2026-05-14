@@ -1,0 +1,118 @@
+//! C3 — `hector show-resolved-config` end-to-end coverage.
+
+use assert_cmd::Command;
+use tempfile::tempdir;
+
+fn write_trusted(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+    let cfg = dir.join(".hector.yml");
+    let trusted = hector_core::trust::write_trust_block(body).unwrap();
+    std::fs::write(&cfg, trusted).unwrap();
+    cfg
+}
+
+fn write_plain(dir: &std::path::Path, name: &str, body: &str) -> std::path::PathBuf {
+    let p = dir.join(name);
+    std::fs::write(&p, body).unwrap();
+    p
+}
+
+#[test]
+fn tsv_default_emits_id_engine_severity_scope_fix_hint_origin() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted(
+        dir.path(),
+        "schema_version: 2\nrules:\n  no-todo:\n    description: \"reject TODO\"\n    engine: script\n    scope: [\"*.rs\", \"*.txt\"]\n    severity: warning\n    script: \"true\"\n    fix_hint: \"remove the TODO\"\n  no-unwrap:\n    description: \"avoid unwrap\"\n    engine: ast\n    scope: [\"*.rs\"]\n    severity: error\n    pattern: \"$X.unwrap()\"\n    language: \"rust\"\n",
+    );
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args(["show-resolved-config", "--config", cfg.to_str().unwrap()])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 2, "two rules → two lines, no header: {stdout}");
+
+    // BTreeMap iteration is alphabetic by id; defensive sort lives in the
+    // command. `no-todo` < `no-unwrap`.
+    let cols0: Vec<&str> = lines[0].split('\t').collect();
+    assert_eq!(cols0.len(), 6, "TSV row must have 6 columns: {:?}", cols0);
+    assert_eq!(cols0[0], "no-todo");
+    assert_eq!(cols0[1], "script");
+    assert_eq!(cols0[2], "warning");
+    assert_eq!(cols0[3], "*.rs,*.txt");
+    assert_eq!(cols0[4], "remove the TODO");
+    assert!(
+        cols0[5].ends_with(".hector.yml"),
+        "origin must point at the local config: {}",
+        cols0[5]
+    );
+
+    let cols1: Vec<&str> = lines[1].split('\t').collect();
+    assert_eq!(cols1[0], "no-unwrap");
+    assert_eq!(cols1[1], "ast");
+    assert_eq!(cols1[2], "error");
+    assert_eq!(cols1[3], "*.rs");
+    assert_eq!(
+        cols1[4], "",
+        "empty fix_hint must emit an empty cell, preserving column count"
+    );
+    assert!(cols1[5].ends_with(".hector.yml"));
+}
+
+#[test]
+fn tsv_extends_chain_inherits_and_overrides_with_origin() {
+    let dir = tempdir().unwrap();
+    let parent = write_plain(
+        dir.path(),
+        "parent.yml",
+        "schema_version: 2\nrules:\n  inherited:\n    description: \"from parent\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: warning\n    script: \"true\"\n  overridden:\n    description: \"parent version\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: error\n    script: \"true\"\n",
+    );
+    let child = write_trusted(
+        dir.path(),
+        "schema_version: 2\nextends: [\"parent.yml\"]\nrules:\n  local-only:\n    description: \"only in child\"\n    engine: script\n    scope: [\"*.md\"]\n    severity: warning\n    script: \"true\"\n  overridden:\n    description: \"child wins\"\n    engine: script\n    scope: [\"*.txt\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args(["show-resolved-config", "--config", child.to_str().unwrap()])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 3, "merged rule count = 3");
+
+    let parsed: std::collections::BTreeMap<&str, Vec<&str>> = lines
+        .iter()
+        .map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            (cols[0], cols)
+        })
+        .collect();
+
+    let inherited = parsed.get("inherited").unwrap();
+    assert!(
+        inherited[5].ends_with("parent.yml"),
+        "inherited rule's origin is the parent file: {}",
+        inherited[5]
+    );
+
+    let local = parsed.get("local-only").unwrap();
+    assert!(local[5].ends_with(".hector.yml"));
+
+    let overridden = parsed.get("overridden").unwrap();
+    assert_eq!(overridden[2], "warning", "child wins on collision");
+    assert!(
+        overridden[5].ends_with(".hector.yml"),
+        "child-defined rule's origin is the child file"
+    );
+
+    // Silence the unused-binding lint without weakening the test.
+    let _ = parent;
+}
