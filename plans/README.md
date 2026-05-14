@@ -11,9 +11,12 @@ A plan owns its own progress via its checkboxes — that's the source of truth. 
 
 ## Active
 
-The 0.2.0 bully-parity cohort (A1 prompt-injection, A2 skip patterns, A3 diff pre-filter) shipped, then B1 (parallel rule execution), E1 (baseline checksum), and C4 (`--rule` / `--explain` / `--print-prompt`) followed it. Next: pick from the spec's later tracks — C1 `hector doctor`, or whichever the maintainer prioritizes. See [`specs/2026-05-12-bully-parity-closures.md`](../specs/2026-05-12-bully-parity-closures.md) for the menu.
+The 0.2.0 bully-parity cohort (A1 prompt-injection, A2 skip patterns, A3 diff pre-filter) shipped, then B1 (parallel rule execution), E1 (baseline checksum), and C4 (`--rule` / `--explain` / `--print-prompt`) followed it. Four queued plans below cover the next batch from [`specs/2026-05-12-bully-parity-closures.md`](../specs/2026-05-12-bully-parity-closures.md).
 
-_(no plans queued — write one when picking the next item)_
+- [`2026-05-13-hector-c1-doctor`](2026-05-13-hector-c1-doctor.md) — `hector doctor` diagnostic subcommand. **0.2.0 release blocker.**
+- [`2026-05-13-hector-d1-typed-telemetry`](2026-05-13-hector-d1-typed-telemetry.md) — `serde(tag = "type")` enum for `LogEntry`; back-compat reader for the deprecation window. Foundation for D2/D3.
+- [`2026-05-13-hector-c2-explain-guide`](2026-05-13-hector-c2-explain-guide.md) — `hector explain <file>` and `hector guide <file>` read-only inspection commands.
+- [`2026-05-13-hector-c3-show-resolved-config`](2026-05-13-hector-c3-show-resolved-config.md) — `hector show-resolved-config` (TSV / YAML / JSON) with per-rule origin tracking.
 
 ## Future
 
