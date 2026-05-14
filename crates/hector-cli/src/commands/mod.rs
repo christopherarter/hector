@@ -1,6 +1,8 @@
 pub mod baseline;
 pub mod check;
 pub mod doctor;
+pub mod explain;
+pub mod guide;
 pub mod init;
 pub mod migrate;
 pub mod session;

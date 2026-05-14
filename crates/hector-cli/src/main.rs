@@ -51,6 +51,16 @@ fn main() -> Result<()> {
             cli::SessionAction::Start { dir } => commands::session::start(&dir)?,
         },
         Command::Doctor { dir, format } => commands::doctor::run(&dir, format)?,
+        Command::Explain {
+            file,
+            format,
+            config,
+        } => commands::explain::run(&file, format, &config)?,
+        Command::Guide {
+            file,
+            format,
+            config,
+        } => commands::guide::run(&file, format, &config)?,
     };
     std::process::exit(code);
 }
