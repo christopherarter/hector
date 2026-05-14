@@ -45,9 +45,52 @@ rules:
     assert!(verdict.passed_checks.is_empty(), "no rules should run");
 
     let log = fs::read_to_string(dir.path().join(".hector/log.jsonl")).expect("telemetry");
+    // D1: skip-pattern record folds into a Check with empty rules.
     assert!(
-        log.contains("\"kind\":\"skipped\""),
-        "expected a skipped telemetry record; log was:\n{log}"
+        log.contains("\"type\":\"check\"") && log.contains("\"rules\":[]"),
+        "expected a typed check record with empty rules; log was:\n{log}"
+    );
+}
+
+#[test]
+fn skip_pattern_emits_typed_check_with_empty_rules() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted(
+        dir.path(),
+        r#"schema_version: 2
+rules:
+  silly:
+    description: "any"
+    engine: semantic
+    scope: ["**/*.lock"]
+    severity: error
+"#,
+    );
+
+    let engine = hector_core::runner::HectorEngine::load(&cfg).expect("load");
+    let lockfile = dir.path().join("Cargo.lock");
+    fs::write(&lockfile, "# generated\n").unwrap();
+    engine
+        .check(hector_core::runner::CheckInput::File {
+            path: lockfile.clone(),
+            content: fs::read_to_string(&lockfile).unwrap(),
+        })
+        .expect("check");
+
+    let log = fs::read_to_string(dir.path().join(".hector/log.jsonl")).expect("telemetry");
+    // D1: skip-pattern record is a `Check` with empty `rules`.
+    assert!(
+        log.contains("\"type\":\"check\""),
+        "telemetry must use typed shape; got:\n{log}"
+    );
+    assert!(
+        log.contains("\"rules\":[]"),
+        "skip-pattern record must have empty rules:\n{log}"
+    );
+    // No legacy `kind` field anywhere.
+    assert!(
+        !log.contains("\"kind\":\"skipped\""),
+        "legacy `kind` must be gone:\n{log}"
     );
 }
 

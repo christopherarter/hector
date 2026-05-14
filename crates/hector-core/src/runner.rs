@@ -1,12 +1,25 @@
 use crate::config::skip::{parse_user_global_ignore, SkipMatcher, USER_GLOBAL_IGNORE_FILENAME};
 use crate::config::{Config, EngineKind, Rule};
 use crate::engine::{RuleContext, RuleEngine};
-use crate::verdict::{Verdict, Violation};
+use crate::telemetry::{LogEntry, PerRuleRecord};
+use crate::verdict::{Status, Verdict, Violation};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+/// Map a config `EngineKind` to the verdict-side `Engine` used in
+/// telemetry. Free-standing helper so the per-rule record construction
+/// stays a single-line expression in the hot paths.
+fn engine_kind_to_verdict_engine(kind: EngineKind) -> crate::verdict::Engine {
+    match kind {
+        EngineKind::Script => crate::verdict::Engine::Script,
+        EngineKind::Ast => crate::verdict::Engine::Ast,
+        EngineKind::Semantic => crate::verdict::Engine::Semantic,
+        EngineKind::Session => crate::verdict::Engine::Session,
+    }
+}
 
 /// C4: optional per-run knobs for `HectorEngine::check`. Plumbed via
 /// `HectorEngine::builder().with_options(...)` so the public `check`
@@ -77,6 +90,11 @@ struct RuleOutcome {
     violations: Vec<Violation>,
     passed: Option<String>,
     explain: Option<RuleExplain>,
+    /// D1: per-rule telemetry line. Always populated when the rule
+    /// reached engine dispatch (or was short-circuited by A3); `None`
+    /// when the rule was out-of-scope (won't appear in the Check.rules
+    /// array, matches "rule didn't run for this file" semantics).
+    record: Option<PerRuleRecord>,
 }
 
 /// Per-file inputs reused across every rule evaluation in one `check()`
@@ -319,6 +337,7 @@ impl HectorEngine {
                 violations: vec![],
                 passed: None,
                 explain: None,
+                record: None,
             };
         }
         // A3: short-circuit semantic dispatch when the diff cannot
@@ -329,12 +348,22 @@ impl HectorEngine {
             let explain = inputs.collect_explain.then(|| RuleExplain {
                 rule_id: rule_id.to_string(),
                 engine: rule.engine,
-                outcome: ExplainOutcome::Skipped { reason },
+                outcome: ExplainOutcome::Skipped {
+                    reason: reason.clone(),
+                },
+            });
+            let record = Some(PerRuleRecord {
+                rule_id: rule_id.to_string(),
+                engine: engine_kind_to_verdict_engine(rule.engine),
+                status: Status::Pass,
+                elapsed_ms: 0,
+                reason: Some(reason),
             });
             return RuleOutcome {
                 violations: vec![],
                 passed: Some(rule_id.to_string()),
                 explain,
+                record,
             };
         }
         let ctx = RuleContext {
@@ -354,6 +383,7 @@ impl HectorEngine {
             cwd: &self.config_dir,
             llm: self.llm.as_deref(),
         };
+        let rule_start = Instant::now();
         let outcome: Result<Vec<Violation>> = match rule.engine {
             EngineKind::Script => crate::engine::script::ScriptEngine.run(&ctx),
             EngineKind::Ast => crate::engine::ast::AstEngine.run(&ctx),
@@ -362,7 +392,34 @@ impl HectorEngine {
             // path; treat it as a pass here.
             _ => Ok(Vec::new()),
         };
-        Self::merge_engine_outcome(rule_id, rule.engine, inputs, outcome)
+        let rule_elapsed = rule_start.elapsed().as_millis() as u64;
+        // D1: when a semantic rule reached the LLM and produced a
+        // result, emit a SemanticVerdict telemetry line. Errors don't
+        // produce a verdict line — those surface as engine_error in the
+        // per-rule record.
+        if rule.engine == EngineKind::Semantic {
+            if let Ok(ref vs) = outcome {
+                let verdict_str = if vs.is_empty() { "pass" } else { "violation" };
+                self.append_semantic_verdict(rule_id, Some(&inputs.path.display().to_string()), verdict_str);
+            }
+        }
+        Self::merge_engine_outcome(rule_id, rule.engine, inputs, outcome, rule_elapsed)
+    }
+
+    /// D1: emit a SemanticVerdict telemetry line. Used by the semantic
+    /// dispatch arm of `evaluate_one_rule` and by `check_session` when a
+    /// session rule reaches the LLM. Best-effort: failures stderr-warn.
+    fn append_semantic_verdict(&self, rule_id: &str, file: Option<&str>, verdict_str: &str) {
+        let entry = LogEntry::SemanticVerdict {
+            ts: chrono::Utc::now().to_rfc3339(),
+            rule: rule_id.to_string(),
+            verdict: verdict_str.into(),
+            file: file.map(str::to_string),
+        };
+        if let Err(e) = crate::telemetry::append(&self.config_dir.join(".hector/log.jsonl"), &entry)
+        {
+            eprintln!("hector: telemetry append failed: {e:#}");
+        }
     }
 
     /// Post-process the engine's `Result<Vec<Violation>>` into a `RuleOutcome`.
@@ -379,7 +436,9 @@ impl HectorEngine {
         engine: EngineKind,
         inputs: &CheckInputs<'_>,
         outcome: Result<Vec<Violation>>,
+        elapsed: u64,
     ) -> RuleOutcome {
+        let verdict_engine = engine_kind_to_verdict_engine(engine);
         match outcome {
             // P1-11: the engine may return many violations (AST emits one
             // per match). Walk the vec, apply per-violation disable
@@ -395,9 +454,16 @@ impl HectorEngine {
                     violations: vec![],
                     passed: Some(rule_id.to_string()),
                     explain,
+                    record: Some(PerRuleRecord {
+                        rule_id: rule_id.to_string(),
+                        engine: verdict_engine,
+                        status: Status::Pass,
+                        elapsed_ms: elapsed,
+                        reason: None,
+                    }),
                 }
             }
-            Ok(vs) => Self::apply_disables(rule_id, engine, inputs, vs),
+            Ok(vs) => Self::apply_disables(rule_id, engine, inputs, vs, elapsed),
             Err(e) => {
                 // P1-1: engine runtime errors are Engine::Internal, not
                 // Engine::Trust. Trust failures halt at load time and never
@@ -422,6 +488,13 @@ impl HectorEngine {
                     violations: vec![v],
                     passed: None,
                     explain,
+                    record: Some(PerRuleRecord {
+                        rule_id: rule_id.to_string(),
+                        engine: verdict_engine,
+                        status: Status::Block,
+                        elapsed_ms: elapsed,
+                        reason: Some("engine_error".into()),
+                    }),
                 }
             }
         }
@@ -436,20 +509,36 @@ impl HectorEngine {
         engine: EngineKind,
         inputs: &CheckInputs<'_>,
         vs: Vec<Violation>,
+        elapsed: u64,
     ) -> RuleOutcome {
         let mut kept: Vec<Violation> = Vec::new();
         let mut any_emitted = false;
+        let mut any_disabled = false;
         for v in vs {
             let disabled = match v.line {
                 Some(line) => inputs.disable_map.is_disabled(line, rule_id),
                 None => inputs.disable_map.is_disabled_file_wide(rule_id),
             };
             if disabled {
+                any_disabled = true;
                 continue;
             }
             kept.push(v);
             any_emitted = true;
         }
+        let verdict_engine = engine_kind_to_verdict_engine(engine);
+        let (status, reason) = if any_emitted {
+            let sev = kept[0].severity;
+            let s = match sev {
+                crate::verdict::Severity::Error => Status::Block,
+                crate::verdict::Severity::Warning => Status::Warn,
+            };
+            (s, None)
+        } else if any_disabled {
+            (Status::Pass, Some("disabled".to_string()))
+        } else {
+            (Status::Pass, None)
+        };
         let passed = if any_emitted {
             None
         } else {
@@ -467,6 +556,13 @@ impl HectorEngine {
             violations: kept,
             passed,
             explain,
+            record: Some(PerRuleRecord {
+                rule_id: rule_id.to_string(),
+                engine: verdict_engine,
+                status,
+                elapsed_ms: elapsed,
+                reason,
+            }),
         }
     }
 
@@ -526,14 +622,12 @@ impl HectorEngine {
             // append is best-effort and never the source of truth.
             if let Err(e) = crate::telemetry::append(
                 &self.config_dir.join(".hector/log.jsonl"),
-                &crate::telemetry::LogEntry {
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    kind: "skipped".into(),
+                &LogEntry::Check {
+                    ts: chrono::Utc::now().to_rfc3339(),
                     file: path.display().to_string(),
-                    rule_id: None,
-                    status: "pass".into(),
+                    status: Status::Pass,
                     elapsed_ms: elapsed,
-                    reason: None,
+                    rules: vec![],
                 },
             ) {
                 eprintln!("hector: telemetry append failed: {e:#}");
@@ -594,6 +688,7 @@ impl HectorEngine {
             })
         };
 
+        let mut records: Vec<PerRuleRecord> = Vec::new();
         for outcome in outcomes {
             violations.extend(outcome.violations);
             if let Some(id) = outcome.passed {
@@ -601,6 +696,9 @@ impl HectorEngine {
             }
             if let Some(row) = outcome.explain {
                 explain.push(row);
+            }
+            if let Some(rec) = outcome.record {
+                records.push(rec);
             }
         }
 
@@ -637,14 +735,12 @@ impl HectorEngine {
         // P2-21: same rationale as the skip-path append above.
         if let Err(e) = crate::telemetry::append(
             &self.config_dir.join(".hector/log.jsonl"),
-            &crate::telemetry::LogEntry {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                kind: "check".into(),
+            &LogEntry::Check {
+                ts: chrono::Utc::now().to_rfc3339(),
                 file: path.display().to_string(),
-                rule_id: None,
-                status: format!("{:?}", verdict.status).to_lowercase(),
+                status: verdict.status,
                 elapsed_ms: verdict.elapsed_ms,
-                reason: None,
+                rules: records,
             },
         ) {
             eprintln!("hector: telemetry append failed: {e:#}");
@@ -732,19 +828,82 @@ impl HectorEngine {
         };
         let reason_str = reason.as_str().to_string();
         let log_path = self.config_dir.join(".hector/log.jsonl");
-        let entry = crate::telemetry::LogEntry {
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            kind: "semantic_skipped".into(),
+        let entry = LogEntry::SemanticSkipped {
+            ts: chrono::Utc::now().to_rfc3339(),
             file: path.display().to_string(),
-            rule_id: Some(rule_id.to_string()),
-            status: "pass".into(),
-            elapsed_ms: 0,
-            reason: Some(reason_str.clone()),
+            rule: rule_id.to_string(),
+            reason: reason_str.clone(),
         };
         if let Err(e) = crate::telemetry::append(&log_path, &entry) {
             eprintln!("hector: telemetry append failed: {e:#}");
         }
         Some(reason_str)
+    }
+
+    /// D1: split the per-rule arms of `check_session` out so the loop
+    /// body stays under the cognitive-complexity cap. Pushes per-rule
+    /// outcomes into the shared `violations` / `passed` / `records`
+    /// accumulators and emits a `SemanticVerdict` for each rule that
+    /// actually reached the LLM.
+    fn absorb_session_outcome(
+        &self,
+        rule_id: &str,
+        rule: &Rule,
+        evaluation: Result<Option<Violation>>,
+        elapsed: u64,
+        violations: &mut Vec<Violation>,
+        passed: &mut Vec<String>,
+        records: &mut Vec<PerRuleRecord>,
+    ) {
+        match evaluation {
+            Ok(Some(v)) => {
+                violations.push(v);
+                self.append_semantic_verdict(rule_id, None, "violation");
+                let status = match rule.severity {
+                    crate::config::Severity::Error => Status::Block,
+                    crate::config::Severity::Warning => Status::Warn,
+                };
+                records.push(PerRuleRecord {
+                    rule_id: rule_id.to_string(),
+                    engine: crate::verdict::Engine::Session,
+                    status,
+                    elapsed_ms: elapsed,
+                    reason: None,
+                });
+            }
+            Ok(None) => {
+                passed.push(rule_id.to_string());
+                self.append_semantic_verdict(rule_id, None, "pass");
+                records.push(PerRuleRecord {
+                    rule_id: rule_id.to_string(),
+                    engine: crate::verdict::Engine::Session,
+                    status: Status::Pass,
+                    elapsed_ms: elapsed,
+                    reason: None,
+                });
+            }
+            // P1-1: session-engine runtime errors are Engine::Internal.
+            Err(e) => {
+                violations.push(crate::verdict::Violation {
+                    rule_id: format!("{rule_id}__internal"),
+                    severity: crate::verdict::Severity::Error,
+                    engine: crate::verdict::Engine::Internal,
+                    file: "".to_string(),
+                    line: None,
+                    column: None,
+                    message: format!("{e:#}"),
+                    suggestion: None,
+                    context: None,
+                });
+                records.push(PerRuleRecord {
+                    rule_id: rule_id.to_string(),
+                    engine: crate::verdict::Engine::Session,
+                    status: Status::Block,
+                    elapsed_ms: elapsed,
+                    reason: Some("engine_error".into()),
+                });
+            }
+        }
     }
 
     pub fn check_session(
@@ -756,6 +915,7 @@ impl HectorEngine {
         let start = Instant::now();
         let mut violations = Vec::new();
         let mut passed = Vec::new();
+        let mut records: Vec<PerRuleRecord> = Vec::new();
         let session_engine = SessionEngine;
         for (rule_id, rule) in &self.config.rules {
             if rule.engine != crate::config::EngineKind::Session {
@@ -778,6 +938,13 @@ impl HectorEngine {
                 .collect();
             if filtered_edits.is_empty() {
                 passed.push(rule_id.clone());
+                records.push(PerRuleRecord {
+                    rule_id: rule_id.clone(),
+                    engine: crate::verdict::Engine::Session,
+                    status: Status::Pass,
+                    elapsed_ms: 0,
+                    reason: None,
+                });
                 continue;
             }
             let scoped_state = crate::session_state::SessionState {
@@ -788,22 +955,18 @@ impl HectorEngine {
             let llm = self.llm.as_deref().ok_or_else(|| {
                 anyhow::anyhow!("session check requires LlmClient; build engine with .with_llm()")
             })?;
-            match session_engine.evaluate(&scoped_state, rule_id, rule, llm) {
-                Ok(Some(v)) => violations.push(v),
-                Ok(None) => passed.push(rule_id.clone()),
-                // P1-1: session-engine runtime errors are Engine::Internal.
-                Err(e) => violations.push(crate::verdict::Violation {
-                    rule_id: format!("{rule_id}__internal"),
-                    severity: crate::verdict::Severity::Error,
-                    engine: crate::verdict::Engine::Internal,
-                    file: "".to_string(),
-                    line: None,
-                    column: None,
-                    message: format!("{e:#}"),
-                    suggestion: None,
-                    context: None,
-                }),
-            }
+            let rule_start = Instant::now();
+            let evaluation = session_engine.evaluate(&scoped_state, rule_id, rule, llm);
+            let rule_elapsed = rule_start.elapsed().as_millis() as u64;
+            self.absorb_session_outcome(
+                rule_id,
+                rule,
+                evaluation,
+                rule_elapsed,
+                &mut violations,
+                &mut passed,
+                &mut records,
+            );
         }
         let verdict = crate::verdict::Verdict::from_violations(
             violations,
@@ -813,14 +976,12 @@ impl HectorEngine {
         // P2-21: same rationale as the per-file append above.
         if let Err(e) = crate::telemetry::append(
             &self.config_dir.join(".hector/log.jsonl"),
-            &crate::telemetry::LogEntry {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                kind: "check_session".into(),
+            &LogEntry::Check {
+                ts: chrono::Utc::now().to_rfc3339(),
                 file: "".into(),
-                rule_id: None,
-                status: format!("{:?}", verdict.status).to_lowercase(),
+                status: verdict.status,
                 elapsed_ms: verdict.elapsed_ms,
-                reason: None,
+                rules: records,
             },
         ) {
             eprintln!("hector: telemetry append failed: {e:#}");

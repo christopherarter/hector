@@ -211,8 +211,9 @@ fn semantic_skipped_telemetry_recorded() {
         .unwrap();
 
     let log = std::fs::read_to_string(dir.path().join(".hector/log.jsonl")).unwrap();
+    // D1: typed shape with `type` discriminator.
     assert!(
-        log.contains("\"kind\":\"semantic_skipped\""),
+        log.contains("\"type\":\"semantic_skipped\""),
         "telemetry missing semantic_skipped record; log was:\n{log}"
     );
     assert!(
@@ -220,7 +221,54 @@ fn semantic_skipped_telemetry_recorded() {
         "telemetry missing whitespace_only reason; log was:\n{log}"
     );
     assert!(
-        log.contains("\"rule_id\":\"no-unwrap\""),
-        "telemetry missing rule_id; log was:\n{log}"
+        log.contains("\"rule\":\"no-unwrap\""),
+        "rule field, not rule_id; log:\n{log}"
+    );
+}
+
+#[test]
+fn semantic_skipped_telemetry_uses_typed_variant() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted_config(dir.path());
+    let file = dir.path().join("foo.rs");
+    std::fs::write(&file, "fn main() {}\n   \n").unwrap();
+
+    let diff = "\
+--- a/foo.rs
++++ b/foo.rs
+@@ -1,1 +1,2 @@
+ fn main() {}
++
+";
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let engine = HectorEngine::builder()
+        .with_llm(Box::new(CountingLlm {
+            calls: calls.clone(),
+        }))
+        .load(&cfg)
+        .unwrap();
+    engine
+        .check(CheckInput::Diff {
+            file,
+            unified_diff: diff.to_string(),
+        })
+        .unwrap();
+
+    let log = std::fs::read_to_string(dir.path().join(".hector/log.jsonl")).unwrap();
+    // D1: typed shape with `type` discriminator.
+    assert!(
+        log.contains("\"type\":\"semantic_skipped\""),
+        "log:\n{log}"
+    );
+    assert!(log.contains("\"reason\":\"whitespace_only\""), "log:\n{log}");
+    assert!(
+        log.contains("\"rule\":\"no-unwrap\""),
+        "rule field, not rule_id; log:\n{log}"
+    );
+    // Per-rule check still recorded.
+    assert!(
+        log.contains("\"type\":\"check\""),
+        "per-file Check record present; log:\n{log}"
     );
 }
