@@ -265,3 +265,58 @@ fn json_format_emits_sorted_rules_with_origin_field() {
 
     let _ = parent;
 }
+
+#[test]
+fn missing_config_exits_one_with_hint() {
+    let dir = tempdir().unwrap();
+    // No `.hector.yml` written; the path doesn't exist.
+    let absent = dir.path().join(".hector.yml");
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "show-resolved-config",
+            "--config",
+            absent.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.starts_with("ERROR: "),
+        "stderr must lead with ERROR: prefix: {stderr}"
+    );
+    assert!(
+        stderr.contains(".hector.yml"),
+        "stderr must name the absent file so the user can act on it: {stderr}"
+    );
+}
+
+#[test]
+fn invalid_format_value_is_rejected_by_clap() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted(
+        dir.path(),
+        "schema_version: 2\nrules:\n  alpha:\n    description: \"a\"\n    engine: script\n    scope: [\"*.rs\"]\n    severity: warning\n    script: \"true\"\n",
+    );
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "show-resolved-config",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--format",
+            "csv",
+        ])
+        .output()
+        .unwrap();
+    // clap exits with code 2 on argument-parse failure regardless of our
+    // app-level contract, because the user never reached our `run`.
+    assert_ne!(out.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.to_lowercase().contains("invalid")
+            || stderr.to_lowercase().contains("possible values"),
+        "clap should reject `csv` as an invalid format value: {stderr}"
+    );
+}
