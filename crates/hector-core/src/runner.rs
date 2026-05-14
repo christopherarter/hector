@@ -83,6 +83,7 @@ pub struct ScopeOutcomes {
 }
 
 /// C2: which skip pattern (built-in or user-supplied) matched the file.
+///
 /// `pattern` is the *raw* glob string the matcher was built from — what
 /// the author would put in `skip:` to reproduce or override the hit.
 #[derive(Debug, Clone)]
@@ -90,11 +91,13 @@ pub struct SkipHit {
     pub pattern: String,
 }
 
-/// C2: per-rule scope outcome. `engine`, `severity`, and `description`
-/// are mirrored here (cheap clones of `Copy` enums + a `String`) so
-/// `guide` can render its `<rule-id> [<severity>] <description>` line
-/// without re-borrowing the engine — that lets the helper be called once
-/// and the result rendered out into either format.
+/// C2: per-rule scope outcome.
+///
+/// `engine`, `severity`, and `description` are mirrored here (cheap
+/// clones of `Copy` enums + a `String`) so `guide` can render its
+/// `<rule-id> [<severity>] <description>` line without re-borrowing
+/// the engine — that lets the helper be called once and the result
+/// rendered out into either format.
 #[derive(Debug, Clone)]
 pub struct RuleScopeEntry {
     pub rule_id: String,

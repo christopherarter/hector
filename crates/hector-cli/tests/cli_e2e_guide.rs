@@ -75,7 +75,10 @@ fn guide_skipped_file_emits_banner_and_no_rules() {
         .stdout
         .clone();
     let stdout = String::from_utf8_lossy(&out);
-    assert!(stdout.contains("SKIPPED"), "expected SKIPPED banner: {stdout}");
+    assert!(
+        stdout.contains("SKIPPED"),
+        "expected SKIPPED banner: {stdout}"
+    );
     assert!(stdout.contains("Cargo.lock"));
     // No rule lines for skipped files.
     assert!(

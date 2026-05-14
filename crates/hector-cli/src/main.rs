@@ -53,12 +53,12 @@ fn main() -> Result<()> {
             file,
             format,
             config,
-        } => commands::explain::run(file, format, &config)?,
+        } => commands::explain::run(&file, format, &config)?,
         Command::Guide {
             file,
             format,
             config,
-        } => commands::guide::run(file, format, &config)?,
+        } => commands::guide::run(&file, format, &config)?,
     };
     std::process::exit(code);
 }

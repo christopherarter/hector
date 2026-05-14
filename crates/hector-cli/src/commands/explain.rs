@@ -17,7 +17,7 @@ use crate::cli::OutputFormat;
 use anyhow::Result;
 use hector_core::runner::{HectorEngine, ScopeMatch, ScopeOutcomes};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// JSON shape emitted by `--format json`. Stable for tooling.
 #[derive(Debug, Serialize)]
@@ -45,7 +45,7 @@ pub struct ExplainEntry {
     pub scopes: Option<Vec<String>>,
 }
 
-pub fn run(file: PathBuf, format: OutputFormat, config: &Path) -> Result<i32> {
+pub fn run(file: &Path, format: OutputFormat, config: &Path) -> Result<i32> {
     let engine = match HectorEngine::load(config) {
         Ok(e) => e,
         Err(e) => {
@@ -53,9 +53,9 @@ pub fn run(file: PathBuf, format: OutputFormat, config: &Path) -> Result<i32> {
             return Ok(1);
         }
     };
-    let outcomes = engine.scope_outcomes(&file);
+    let outcomes = engine.scope_outcomes(file);
     match format {
-        OutputFormat::Human => emit_human(&file, &outcomes),
+        OutputFormat::Human => emit_human(file, &outcomes),
         OutputFormat::Json => emit_json(&outcomes)?,
     }
     Ok(0)
