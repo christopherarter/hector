@@ -275,6 +275,81 @@ fn semantic_skipped_round_trips() {
     assert_eq!(back, entry);
 }
 
+// --- D1: insta snapshots, one per variant ---------------------------------
+
+use insta::assert_json_snapshot;
+
+#[test]
+fn snapshot_session_init() {
+    let entry = LogEntry::SessionInit {
+        ts: "2026-05-13T12:00:00Z".into(),
+        hector_version: "0.2.2".into(),
+        schema_version: 1,
+    };
+    assert_json_snapshot!(entry);
+}
+
+#[test]
+fn snapshot_check_with_rules() {
+    let entry = LogEntry::Check {
+        ts: "2026-05-13T12:00:01Z".into(),
+        file: "src/lib.rs".into(),
+        status: Status::Warn,
+        elapsed_ms: 42,
+        rules: vec![
+            PerRuleRecord {
+                rule_id: "no-unwrap".into(),
+                engine: Engine::Semantic,
+                status: Status::Pass,
+                elapsed_ms: 30,
+                reason: None,
+            },
+            PerRuleRecord {
+                rule_id: "no-todo".into(),
+                engine: Engine::Script,
+                status: Status::Warn,
+                elapsed_ms: 4,
+                reason: None,
+            },
+        ],
+    };
+    assert_json_snapshot!(entry);
+}
+
+#[test]
+fn snapshot_check_skip_pattern() {
+    let entry = LogEntry::Check {
+        ts: "2026-05-13T12:00:02Z".into(),
+        file: "Cargo.lock".into(),
+        status: Status::Pass,
+        elapsed_ms: 0,
+        rules: vec![],
+    };
+    assert_json_snapshot!(entry);
+}
+
+#[test]
+fn snapshot_semantic_verdict() {
+    let entry = LogEntry::SemanticVerdict {
+        ts: "2026-05-13T12:00:03Z".into(),
+        rule: "no-secrets".into(),
+        verdict: "pass".into(),
+        file: Some("src/auth.rs".into()),
+    };
+    assert_json_snapshot!(entry);
+}
+
+#[test]
+fn snapshot_semantic_skipped() {
+    let entry = LogEntry::SemanticSkipped {
+        ts: "2026-05-13T12:00:04Z".into(),
+        file: "src/lib.rs".into(),
+        rule: "no-unwrap".into(),
+        reason: "pure_deletion".into(),
+    };
+    assert_json_snapshot!(entry);
+}
+
 #[test]
 fn snake_case_field_names_match_spec() {
     // Spec §D1 says fields are snake_case. Pin against accidental rename.

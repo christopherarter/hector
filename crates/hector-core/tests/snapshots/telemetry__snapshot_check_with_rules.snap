@@ -1,0 +1,26 @@
+---
+source: crates/hector-core/tests/telemetry.rs
+assertion_line: 316
+expression: entry
+---
+{
+  "type": "check",
+  "ts": "2026-05-13T12:00:01Z",
+  "file": "src/lib.rs",
+  "status": "warn",
+  "elapsed_ms": 42,
+  "rules": [
+    {
+      "rule_id": "no-unwrap",
+      "engine": "semantic",
+      "status": "pass",
+      "elapsed_ms": 30
+    },
+    {
+      "rule_id": "no-todo",
+      "engine": "script",
+      "status": "warn",
+      "elapsed_ms": 4
+    }
+  ]
+}
