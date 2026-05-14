@@ -90,6 +90,63 @@ fn explain_emits_skipped_banner_for_lockfile() {
 }
 
 #[test]
+fn explain_format_json_shape_is_stable() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted(dir.path(), THREE_RULE_BODY);
+    let file = dir.path().join("docs/intro.md");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, "# hi\n").unwrap();
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "explain",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--format",
+            "json",
+            file.to_str().unwrap(),
+        ])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    // Parse-then-re-serialize so the snapshot is canonicalized; raw stdout
+    // contains tempdir paths we don't want in the snapshot.
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    insta::assert_json_snapshot!("explain_md_file_json", v);
+}
+
+#[test]
+fn explain_format_json_skipped_file_shape_is_stable() {
+    let dir = tempdir().unwrap();
+    let cfg = write_trusted(dir.path(), THREE_RULE_BODY);
+    let lock = dir.path().join("Cargo.lock");
+    std::fs::write(&lock, "# generated\n").unwrap();
+
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .args([
+            "explain",
+            "--config",
+            cfg.to_str().unwrap(),
+            "--format",
+            "json",
+            lock.to_str().unwrap(),
+        ])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    insta::assert_json_snapshot!("explain_lockfile_json", v);
+}
+
+#[test]
 fn explain_missing_config_exits_one() {
     let dir = tempdir().unwrap();
     let file = dir.path().join("foo.md");
