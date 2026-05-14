@@ -79,11 +79,7 @@ pub fn run(dir: &Path, format: OutputFormat) -> Result<i32> {
 }
 
 fn exit_code(report: &Report) -> i32 {
-    if report.checks.iter().any(|c| c.status == Status::Fail) {
-        1
-    } else {
-        0
-    }
+    i32::from(report.checks.iter().any(|c| c.status == Status::Fail))
 }
 
 fn emit(report: &Report, format: OutputFormat) -> Result<()> {
@@ -316,6 +312,7 @@ fn check_scope_globs(ctx: &DoctorContext) -> CheckResult {
 ///     `api_key_env` resolves to a non-empty value (Ollama is exempt
 ///     from the api-key requirement, mirroring `llm::build_from_config`).
 ///   - All-script / all-ast configs → trivially pass.
+///
 /// Decomposed via `llm_block_status` so this function stays cheap on
 /// cognitive complexity.
 fn check_engines(ctx: &DoctorContext) -> CheckResult {
@@ -398,7 +395,9 @@ fn llm_block_status(cfg: Option<&hector_core::config::LlmConfig>) -> CheckResult
         CheckResult {
             name: "engines",
             status: Status::Warn,
-            detail: format!("env var `{env_name}` not set; semantic/session rules will error at evaluation"),
+            detail: format!(
+                "env var `{env_name}` not set; semantic/session rules will error at evaluation"
+            ),
             remediation: Some(format!(
                 "export `{env_name}` with a valid {} API key",
                 llm.provider
@@ -411,8 +410,7 @@ fn llm_block_status(cfg: Option<&hector_core::config::LlmConfig>) -> CheckResult
 /// Returns `None` if the home dir is unresolvable or the file is absent —
 /// caller maps that to a `warn` row.
 fn load_claude_settings() -> Option<(PathBuf, serde_json::Value)> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))?;
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let path = PathBuf::from(home).join(".claude").join("settings.json");
     let raw = std::fs::read_to_string(&path).ok()?;
     let value = serde_json::from_str(&raw).ok()?;
@@ -509,7 +507,8 @@ fn check_adapter() -> CheckResult {
             status: Status::Warn,
             detail: "Claude Code adapter not detected (~/.claude/settings.json missing)".into(),
             remediation: Some(
-                "if you use Claude Code, install the adapter — see docs/adapters/claude-code.md".into(),
+                "if you use Claude Code, install the adapter — see docs/adapters/claude-code.md"
+                    .into(),
             ),
         };
     };
@@ -517,7 +516,10 @@ fn check_adapter() -> CheckResult {
         CheckResult {
             name: "adapter",
             status: Status::Pass,
-            detail: format!("Claude Code PostToolUse hook references hector ({})", path.display()),
+            detail: format!(
+                "Claude Code PostToolUse hook references hector ({})",
+                path.display()
+            ),
             remediation: None,
         }
     } else {
@@ -541,8 +543,18 @@ mod tests {
         let report = Report {
             hector_version: "0".into(),
             checks: vec![
-                CheckResult { name: "a", status: Status::Pass, detail: "".into(), remediation: None },
-                CheckResult { name: "b", status: Status::Warn, detail: "".into(), remediation: None },
+                CheckResult {
+                    name: "a",
+                    status: Status::Pass,
+                    detail: "".into(),
+                    remediation: None,
+                },
+                CheckResult {
+                    name: "b",
+                    status: Status::Warn,
+                    detail: "".into(),
+                    remediation: None,
+                },
             ],
         };
         assert_eq!(exit_code(&report), 0);
@@ -553,8 +565,18 @@ mod tests {
         let report = Report {
             hector_version: "0".into(),
             checks: vec![
-                CheckResult { name: "a", status: Status::Pass, detail: "".into(), remediation: None },
-                CheckResult { name: "b", status: Status::Fail, detail: "boom".into(), remediation: Some("fix it".into()) },
+                CheckResult {
+                    name: "a",
+                    status: Status::Pass,
+                    detail: "".into(),
+                    remediation: None,
+                },
+                CheckResult {
+                    name: "b",
+                    status: Status::Fail,
+                    detail: "boom".into(),
+                    remediation: Some("fix it".into()),
+                },
             ],
         };
         assert_eq!(exit_code(&report), 1);
@@ -580,7 +602,11 @@ mod tests {
     #[test]
     fn config_present_pass_when_file_exists() {
         let d = tempdir().unwrap();
-        fs::write(d.path().join(".hector.yml"), "schema_version: 2\nrules: {}\n").unwrap();
+        fs::write(
+            d.path().join(".hector.yml"),
+            "schema_version: 2\nrules: {}\n",
+        )
+        .unwrap();
         let r = check_config_present(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Pass);
     }
@@ -603,14 +629,25 @@ mod tests {
     #[test]
     fn schema_pass_on_v2() {
         let d = tempdir().unwrap();
-        fs::write(d.path().join(".hector.yml"), "schema_version: 2\nrules: {}\n").unwrap();
-        assert_eq!(check_schema_version(&ctx_with(d.path())).status, Status::Pass);
+        fs::write(
+            d.path().join(".hector.yml"),
+            "schema_version: 2\nrules: {}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            check_schema_version(&ctx_with(d.path())).status,
+            Status::Pass
+        );
     }
 
     #[test]
     fn schema_fail_on_v1_with_migrate_hint() {
         let d = tempdir().unwrap();
-        fs::write(d.path().join(".hector.yml"), "schema_version: 1\nrules: {}\n").unwrap();
+        fs::write(
+            d.path().join(".hector.yml"),
+            "schema_version: 1\nrules: {}\n",
+        )
+        .unwrap();
         let r = check_schema_version(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Fail);
         assert!(r.remediation.unwrap().contains("hector migrate"));
@@ -619,7 +656,11 @@ mod tests {
     #[test]
     fn schema_fail_on_unsupported_version() {
         let d = tempdir().unwrap();
-        fs::write(d.path().join(".hector.yml"), "schema_version: 99\nrules: {}\n").unwrap();
+        fs::write(
+            d.path().join(".hector.yml"),
+            "schema_version: 99\nrules: {}\n",
+        )
+        .unwrap();
         let r = check_schema_version(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Fail);
     }
@@ -685,7 +726,10 @@ mod tests {
         std::env::remove_var("HECTOR_DOCTOR_TEST_DEFINITELY_UNSET_AAA");
         let r = llm_block_status(Some(&cfg));
         assert_eq!(r.status, Status::Warn);
-        assert!(r.remediation.unwrap().contains("HECTOR_DOCTOR_TEST_DEFINITELY_UNSET_AAA"));
+        assert!(r
+            .remediation
+            .unwrap()
+            .contains("HECTOR_DOCTOR_TEST_DEFINITELY_UNSET_AAA"));
     }
 
     #[test]
@@ -745,7 +789,8 @@ mod tests {
     fn hook_wired_rejects_unrelated_command() {
         let v: serde_json::Value = serde_json::from_str(
             r#"{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!claude_hook_wired(&v));
     }
 
@@ -757,7 +802,7 @@ mod tests {
 
     #[test]
     fn hook_wired_rejects_empty_object() {
-        let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+        let v: serde_json::Value = serde_json::from_str(r"{}").unwrap();
         assert!(!claude_hook_wired(&v));
     }
 
@@ -766,7 +811,10 @@ mod tests {
         let d = tempdir().unwrap();
         let r = check_runtime_state(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Pass);
-        assert!(d.path().join(".hector").is_dir(), "hector dir created by probe");
+        assert!(
+            d.path().join(".hector").is_dir(),
+            "hector dir created by probe"
+        );
     }
 
     #[test]

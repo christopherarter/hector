@@ -38,8 +38,14 @@ fn doctor_runs_and_reports_binary_check() {
         .stdout
         .clone();
     let s = String::from_utf8_lossy(&out);
-    assert!(s.contains("binary"), "doctor output must mention the binary check: {s}");
-    assert!(s.contains(env!("CARGO_PKG_VERSION")), "doctor output must include the running hector version: {s}");
+    assert!(
+        s.contains("binary"),
+        "doctor output must mention the binary check: {s}"
+    );
+    assert!(
+        s.contains(env!("CARGO_PKG_VERSION")),
+        "doctor output must include the running hector version: {s}"
+    );
 }
 
 #[test]
@@ -54,8 +60,14 @@ fn doctor_fails_when_config_missing() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1), "missing config must exit 1");
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("config") && s.contains("fail"), "expected a failing `config` row: {s}");
-    assert!(s.contains("hector init"), "remediation must hint at `hector init`: {s}");
+    assert!(
+        s.contains("config") && s.contains("fail"),
+        "expected a failing `config` row: {s}"
+    );
+    assert!(
+        s.contains("hector init"),
+        "remediation must hint at `hector init`: {s}"
+    );
 }
 
 #[test]
@@ -74,10 +86,19 @@ fn doctor_fails_when_trust_fingerprint_broken() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("trust") && s.contains("fail"), "expected a failing `trust` row: {s}");
+    assert!(
+        s.contains("trust") && s.contains("fail"),
+        "expected a failing `trust` row: {s}"
+    );
     // Parses-OK before trust-FAIL: distinguish parse failures from trust failures.
-    assert!(s.contains("parses"), "parses check must still appear before trust: {s}");
-    assert!(s.contains("hector trust"), "remediation must hint at `hector trust`: {s}");
+    assert!(
+        s.contains("parses"),
+        "parses check must still appear before trust: {s}"
+    );
+    assert!(
+        s.contains("hector trust"),
+        "remediation must hint at `hector trust`: {s}"
+    );
 }
 
 #[test]
@@ -97,7 +118,10 @@ fn doctor_warns_on_legacy_schema_version_one() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("hector migrate"), "v1 remediation must hint at migrate: {s}");
+    assert!(
+        s.contains("hector migrate"),
+        "v1 remediation must hint at migrate: {s}"
+    );
 }
 
 #[test]
@@ -138,11 +162,18 @@ fn doctor_warns_when_semantic_rule_present_without_api_key() {
         .unwrap();
     // Missing API key for a configured semantic rule is a `warn`, not a
     // hard `fail` — the binary still works for non-LLM rules.
-    assert_eq!(out.status.code(), Some(0), "missing-key warn must keep exit 0");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "missing-key warn must keep exit 0"
+    );
     let s = String::from_utf8_lossy(&out.stdout);
     assert!(s.contains("engines"), "expected `engines` row in: {s}");
     assert!(s.contains("warn"), "expected a warn glyph in: {s}");
-    assert!(s.contains("HECTOR_DOCTOR_TEST_NO_SUCH_KEY"), "remediation must name the env var: {s}");
+    assert!(
+        s.contains("HECTOR_DOCTOR_TEST_NO_SUCH_KEY"),
+        "remediation must name the env var: {s}"
+    );
 }
 
 #[test]
@@ -162,7 +193,10 @@ fn doctor_pass_engines_when_no_llm_rules() {
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("engines") && s.contains("ok"), "engines should pass: {s}");
+    assert!(
+        s.contains("engines") && s.contains("ok"),
+        "engines should pass: {s}"
+    );
 }
 
 #[test]
@@ -181,7 +215,10 @@ fn doctor_adapter_warn_when_settings_missing() {
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("adapter") && s.contains("warn"), "expected `adapter warn`: {s}");
+    assert!(
+        s.contains("adapter") && s.contains("warn"),
+        "expected `adapter warn`: {s}"
+    );
 }
 
 #[test]
@@ -206,7 +243,10 @@ fn doctor_adapter_pass_when_hook_wired() {
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("adapter") && s.contains("ok"), "expected `adapter ok`: {s}");
+    assert!(
+        s.contains("adapter") && s.contains("ok"),
+        "expected `adapter ok`: {s}"
+    );
 }
 
 #[test]
@@ -231,8 +271,14 @@ fn doctor_adapter_warn_when_settings_present_but_no_hector_hook() {
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("adapter") && s.contains("warn"), "expected `adapter warn` when no hector hook: {s}");
-    assert!(s.contains("docs/adapters/claude-code.md") || s.contains("install"), "expected adapter install hint: {s}");
+    assert!(
+        s.contains("adapter") && s.contains("warn"),
+        "expected `adapter warn` when no hector hook: {s}"
+    );
+    assert!(
+        s.contains("docs/adapters/claude-code.md") || s.contains("install"),
+        "expected adapter install hint: {s}"
+    );
 }
 
 #[test]
@@ -251,8 +297,14 @@ fn doctor_runtime_state_pass_when_hector_dir_writable() {
         .unwrap();
     assert_eq!(out.status.code(), Some(0));
     let s = String::from_utf8_lossy(&out.stdout);
-    assert!(s.contains("runtime_state"), "expected runtime_state row: {s}");
-    assert!(s.contains("ok"), "runtime_state should pass on a fresh tempdir: {s}");
+    assert!(
+        s.contains("runtime_state"),
+        "expected runtime_state row: {s}"
+    );
+    assert!(
+        s.contains("ok"),
+        "runtime_state should pass on a fresh tempdir: {s}"
+    );
 }
 
 #[test]
@@ -268,28 +320,39 @@ fn doctor_json_output_snapshot_for_clean_v2_config() {
         .env("HOME", home.path())
         .args([
             "doctor",
-            "--dir", dir.path().to_str().unwrap(),
-            "--format", "json",
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--format",
+            "json",
         ])
         .assert()
         .code(0)
         .get_output()
         .stdout
         .clone();
-    let mut value: serde_json::Value = serde_json::from_slice(&out)
-        .expect("doctor --format json must produce valid JSON");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&out).expect("doctor --format json must produce valid JSON");
     // Redact volatile fields before snapshotting:
     //   - hector_version: changes every release
     //   - per-check `detail`: contains absolute paths and sizes
     if let Some(obj) = value.as_object_mut() {
-        obj.insert("hector_version".into(), serde_json::Value::String("[REDACTED]".into()));
+        obj.insert(
+            "hector_version".into(),
+            serde_json::Value::String("[REDACTED]".into()),
+        );
     }
     if let Some(checks) = value.get_mut("checks").and_then(|c| c.as_array_mut()) {
         for c in checks {
             if let Some(o) = c.as_object_mut() {
-                o.insert("detail".into(), serde_json::Value::String("[REDACTED]".into()));
+                o.insert(
+                    "detail".into(),
+                    serde_json::Value::String("[REDACTED]".into()),
+                );
                 if o.get("remediation").is_some_and(|r| !r.is_null()) {
-                    o.insert("remediation".into(), serde_json::Value::String("[REDACTED]".into()));
+                    o.insert(
+                        "remediation".into(),
+                        serde_json::Value::String("[REDACTED]".into()),
+                    );
                 }
             }
         }
