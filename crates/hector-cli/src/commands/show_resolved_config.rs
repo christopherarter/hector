@@ -190,3 +190,131 @@ fn format_json(
     // Trailing newline so `... | wc -l` includes the last line.
     Ok(format!("{body}\n"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn rule_for(scope: Vec<&str>, fix_hint: Option<&str>) -> hector_core::config::Rule {
+        hector_core::config::Rule {
+            description: "x".into(),
+            engine: hector_core::config::EngineKind::Script,
+            scope: scope.into_iter().map(|s| s.to_string()).collect(),
+            severity: hector_core::config::Severity::Warning,
+            script: Some("true".into()),
+            pattern: None,
+            language: None,
+            context: None,
+            capabilities: None,
+            fix_hint: fix_hint.map(|s| s.to_string()),
+        }
+    }
+
+    fn cfg_with(rules: Vec<(&str, hector_core::config::Rule)>) -> hector_core::config::Config {
+        let mut map = std::collections::BTreeMap::new();
+        for (id, r) in rules {
+            map.insert(id.to_string(), r);
+        }
+        hector_core::config::Config {
+            schema_version: 2,
+            llm: None,
+            extends: vec![],
+            trust: None,
+            skip: vec![],
+            execution: None,
+            rules: map,
+        }
+    }
+
+    fn origins_for(pairs: Vec<(&str, &str)>) -> BTreeMap<String, PathBuf> {
+        pairs
+            .into_iter()
+            .map(|(id, path)| (id.to_string(), PathBuf::from(path)))
+            .collect()
+    }
+
+    #[test]
+    fn tsv_emits_six_tab_separated_columns_per_row() {
+        let cfg = cfg_with(vec![
+            ("alpha", rule_for(vec!["*.rs", "*.txt"], Some("hint"))),
+            ("zeta", rule_for(vec!["*.md"], None)),
+        ]);
+        let origins = origins_for(vec![
+            ("alpha", "/path/to/.hector.yml"),
+            ("zeta", "/path/to/parent.yml"),
+        ]);
+        let out = format_tsv(&cfg, &origins);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2);
+        // Sorted by id: alpha first.
+        assert_eq!(
+            lines[0],
+            "alpha\tscript\twarning\t*.rs,*.txt\thint\t/path/to/.hector.yml"
+        );
+        // Empty fix_hint becomes an empty cell, not a missing column.
+        assert_eq!(
+            lines[1],
+            "zeta\tscript\twarning\t*.md\t\t/path/to/parent.yml"
+        );
+    }
+
+    #[test]
+    fn yaml_strips_trust_and_extends_and_inserts_origin_comments() {
+        let mut cfg = cfg_with(vec![("alpha", rule_for(vec!["*.rs"], None))]);
+        // Even if a Config carries trust/extends, the view must drop them.
+        cfg.trust = Some(hector_core::config::TrustBlock {
+            fingerprint: "deadbeef".into(),
+        });
+        cfg.extends = vec!["should-not-leak.yml".into()];
+        let origins = origins_for(vec![("alpha", "/path/to/.hector.yml")]);
+        let out = format_yaml(&cfg, &origins).unwrap();
+        assert!(!out.contains("trust:"));
+        assert!(!out.contains("fingerprint:"));
+        assert!(!out.contains("extends:"));
+        assert!(out.contains("# origin: /path/to/.hector.yml"));
+        assert!(out.contains("alpha:"));
+    }
+
+    #[test]
+    fn json_serializes_rules_sorted_by_id_with_origin() {
+        let cfg = cfg_with(vec![
+            ("zeta", rule_for(vec!["*.md"], None)),
+            ("alpha", rule_for(vec!["*.rs"], None)),
+        ]);
+        let origins = origins_for(vec![
+            ("alpha", "/a/.hector.yml"),
+            ("zeta", "/a/parent.yml"),
+        ]);
+        let out = format_json(&cfg, &origins).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let keys: Vec<&str> = v["rules"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        assert_eq!(keys, vec!["alpha", "zeta"]);
+        assert_eq!(v["rules"]["alpha"]["origin"], "/a/.hector.yml");
+        assert_eq!(v["rules"]["zeta"]["origin"], "/a/parent.yml");
+        assert!(v.get("trust").is_none());
+        assert!(v.get("extends").is_none());
+    }
+
+    #[test]
+    fn yaml_origin_comment_only_inside_rules_block() {
+        // A rule body field happens to be named the same as a rule id —
+        // the annotator must not treat it as a new rule.
+        let mut cfg = cfg_with(vec![("alpha", rule_for(vec!["*.rs"], None))]);
+        // Force a `language:` field in the rule body to ensure the
+        // annotator doesn't misinterpret deeper-indented lines.
+        if let Some(r) = cfg.rules.get_mut("alpha") {
+            r.language = Some("rust".into());
+        }
+        let origins = origins_for(vec![("alpha", "/p/.hector.yml")]);
+        let out = format_yaml(&cfg, &origins).unwrap();
+        // Exactly one origin comment for one rule.
+        assert_eq!(out.matches("# origin:").count(), 1);
+    }
+}
