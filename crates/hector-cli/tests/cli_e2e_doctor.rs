@@ -234,3 +234,23 @@ fn doctor_adapter_warn_when_settings_present_but_no_hector_hook() {
     assert!(s.contains("adapter") && s.contains("warn"), "expected `adapter warn` when no hector hook: {s}");
     assert!(s.contains("docs/adapters/claude-code.md") || s.contains("install"), "expected adapter install hint: {s}");
 }
+
+#[test]
+fn doctor_runtime_state_pass_when_hector_dir_writable() {
+    let dir = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    write_trusted(
+        dir.path(),
+        "schema_version: 2\nrules:\n  r:\n    description: \"x\"\n    engine: script\n    scope: [\"*\"]\n    severity: error\n    script: \"true\"\n",
+    );
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .env("HOME", home.path())
+        .args(["doctor", "--dir", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("runtime_state"), "expected runtime_state row: {s}");
+    assert!(s.contains("ok"), "runtime_state should pass on a fresh tempdir: {s}");
+}

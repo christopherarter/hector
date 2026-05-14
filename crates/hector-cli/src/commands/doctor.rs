@@ -68,6 +68,7 @@ pub fn run(dir: &Path, format: OutputFormat) -> Result<i32> {
         check_scope_globs(&ctx),
         check_engines(&ctx),
         check_adapter(),
+        check_runtime_state(&ctx),
     ];
     let report = Report {
         hector_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -444,6 +445,59 @@ fn claude_hook_wired(settings: &serde_json::Value) -> bool {
     })
 }
 
+/// `<dir>/.hector/` is writable. Probes by creating the dir if absent,
+/// writing a marker file, then deleting it. We DO create `.hector/` —
+/// that's the same kind of side effect as `init` writing `.hector.yml`,
+/// and "doctor never modifies state" is about *policy* state (configs,
+/// baselines, telemetry), not about the run-state directory itself.
+///
+/// Also reports current sizes of `baseline.json`, `session.json`, and
+/// `log.jsonl` if present, so the human checklist surfaces "your
+/// telemetry log has grown to 200MB" without forcing the user to
+/// `du -sh .hector/`.
+fn check_runtime_state(ctx: &DoctorContext) -> CheckResult {
+    let hector_dir = ctx.dir.join(".hector");
+    if let Err(e) = std::fs::create_dir_all(&hector_dir) {
+        return CheckResult {
+            name: "runtime_state",
+            status: Status::Fail,
+            detail: format!("cannot create {}: {e}", hector_dir.display()),
+            remediation: Some(format!(
+                "ensure {} is writable (chmod / ownership)",
+                ctx.dir.display()
+            )),
+        };
+    }
+    let probe = hector_dir.join(".doctor-write-probe");
+    if let Err(e) = std::fs::write(&probe, b"ok") {
+        return CheckResult {
+            name: "runtime_state",
+            status: Status::Fail,
+            detail: format!("cannot write to {}: {e}", hector_dir.display()),
+            remediation: Some(format!("chmod u+w {}", hector_dir.display())),
+        };
+    }
+    let _ = std::fs::remove_file(&probe);
+
+    let mut sizes: Vec<String> = Vec::new();
+    for name in ["baseline.json", "session.json", "log.jsonl"] {
+        if let Ok(meta) = std::fs::metadata(hector_dir.join(name)) {
+            sizes.push(format!("{name}={}b", meta.len()));
+        }
+    }
+    let detail = if sizes.is_empty() {
+        format!("{} writable (empty)", hector_dir.display())
+    } else {
+        format!("{} writable ({})", hector_dir.display(), sizes.join(", "))
+    };
+    CheckResult {
+        name: "runtime_state",
+        status: Status::Pass,
+        detail,
+        remediation: None,
+    }
+}
+
 /// Adapter presence is best-effort: missing `~/.claude/settings.json`
 /// is `warn` (not every user runs Claude Code); present-without-hector
 /// is `warn`; wired is `pass`. Never `fail` — hector is editor-agnostic
@@ -705,5 +759,26 @@ mod tests {
     fn hook_wired_rejects_empty_object() {
         let v: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
         assert!(!claude_hook_wired(&v));
+    }
+
+    #[test]
+    fn runtime_state_pass_creates_hector_dir() {
+        let d = tempdir().unwrap();
+        let r = check_runtime_state(&ctx_with(d.path()));
+        assert_eq!(r.status, Status::Pass);
+        assert!(d.path().join(".hector").is_dir(), "hector dir created by probe");
+    }
+
+    #[test]
+    fn runtime_state_reports_existing_state_files_sizes() {
+        let d = tempdir().unwrap();
+        let h = d.path().join(".hector");
+        fs::create_dir_all(&h).unwrap();
+        fs::write(h.join("baseline.json"), "[]").unwrap();
+        fs::write(h.join("log.jsonl"), "{}\n").unwrap();
+        let r = check_runtime_state(&ctx_with(d.path()));
+        assert_eq!(r.status, Status::Pass);
+        assert!(r.detail.contains("baseline.json"));
+        assert!(r.detail.contains("log.jsonl"));
     }
 }
