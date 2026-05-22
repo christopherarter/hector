@@ -4,6 +4,25 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
 ## Unreleased
 
+### Script engine — `output: parsed | passthrough` (E2)
+
+- New per-rule `output:` field on `Rule`. `Parsed` (default) feeds the chosen stream through `engine::output::parse`, which extracts `file:line:col: msg` structure from canonical lint output (clippy `--message-format short`, `ruff`, `eslint --format compact`) and the `grep -n` `<line>:<text>` shape — populating `Violation.line` / `Violation.column`. `Passthrough` preserves the 0.1 behaviour: stdout+stderr land verbatim in `message` with `line: None`.
+- Parsed mode emits one `Violation` per record, so a multi-hit lint run no longer collapses into a single concatenated message.
+- **Breaking (library):** `engine::script::run_script_rule` now returns `Result<Vec<Violation>>` (was `Result<Option<Violation>>`). The trait impl was already vec-shaped; only direct callers of the free function change.
+- New parser guard: `file:line: msg` mode now requires a path separator in the file capture, so `example.com:42: msg` and `grep -n` `<line>:<text>` no longer mis-parse as `{ file: "example.com", line: 42 }`. Windows drive paths (`C:\foo.rs:14:5: msg`) parse correctly.
+
+### OpenCode adapter — pre-flight gating
+
+- The adapter now hooks `tool.execute.before` (was `.after`) and shadow-writes the proposed file content before invoking `hector check --file`, then restores the pre-edit state regardless of verdict. A `block` verdict throws so opencode never executes the tool — previously the write had already landed before hector saw it.
+- `tool.execute.after` is still used for `hector session record` (best-effort cross-edit tracking).
+- Late-init fix: hooks register unconditionally and re-check `.hector.yml` per invocation, so `hector init` mid-session starts gating without an opencode restart.
+- Recognises opencode's native `find` / `replace` / `replaceAll` edit-arg shape (with legacy `oldString` / `newString` as fallback for older opencode versions).
+- Module exposes both `default` and named `HectorPlugin` exports so neither loader pattern silently no-ops.
+
+### Capability sandbox — macOS warning dedup
+
+- The "capability enforcement is best-effort on this platform" stderr line now fires at most once per process (was: once per script rule invocation). Extracted into a testable `should_warn_macos_with` helper.
+
 ### Telemetry — typed records (D1)
 
 - `.hector/log.jsonl` now carries typed records: `session_init`, `check`, `semantic_verdict`, `semantic_skipped`. Each line has a `type` discriminator. Per-rule outcomes (`PerRuleRecord`) are nested under `Check.rules` instead of being one-line-per-(file,rule). `hector_version` and a telemetry `schema_version` are stamped in every `session_init`.
