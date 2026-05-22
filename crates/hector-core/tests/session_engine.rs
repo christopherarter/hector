@@ -73,6 +73,7 @@ fn make_session_rule() -> Rule {
         context: Some(ContextScope::Repo),
         capabilities: None,
         fix_hint: None,
+        output: hector_core::config::OutputMode::default(),
     }
 }
 

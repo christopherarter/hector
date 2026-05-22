@@ -383,6 +383,7 @@ mod tests {
             context: None,
             capabilities: None,
             fix_hint: None,
+            output: crate::config::OutputMode::default(),
         }
     }
 }

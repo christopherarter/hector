@@ -16,6 +16,7 @@ fn make_semantic_rule() -> Rule {
         context: None,
         capabilities: None,
         fix_hint: None,
+        output: hector_core::config::OutputMode::default(),
     }
 }
 

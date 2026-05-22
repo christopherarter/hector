@@ -201,6 +201,7 @@ mod tests {
             context: None,
             capabilities: None,
             fix_hint: fix_hint.map(|s| s.to_string()),
+            output: hector_core::config::OutputMode::default(),
         }
     }
 

@@ -3,6 +3,7 @@
 pub mod ast;
 pub mod capability;
 pub mod context;
+pub mod output;
 pub mod script;
 pub mod semantic;
 pub mod session;

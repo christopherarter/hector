@@ -1,4 +1,4 @@
-use hector_core::config::{Capabilities, EngineKind, Rule, Severity, WritesPolicy};
+use hector_core::config::{Capabilities, EngineKind, OutputMode, Rule, Severity, WritesPolicy};
 use hector_core::engine::script::ScriptEngine;
 use hector_core::engine::{RuleContext, RuleEngine};
 use tempfile::tempdir;
@@ -18,6 +18,7 @@ fn make_rule(script: &str) -> Rule {
             writes: WritesPolicy::None,
         }),
         fix_hint: None,
+        output: OutputMode::default(),
     }
 }
 

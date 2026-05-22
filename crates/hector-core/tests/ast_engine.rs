@@ -1,4 +1,4 @@
-use hector_core::config::{EngineKind, Rule, Severity};
+use hector_core::config::{EngineKind, OutputMode, Rule, Severity};
 use hector_core::engine::ast::AstEngine;
 use hector_core::engine::{RuleContext, RuleEngine};
 use tempfile::tempdir;
@@ -15,6 +15,7 @@ fn make_ast_rule(pattern: &str, language: &str) -> Rule {
         context: None,
         capabilities: None,
         fix_hint: None,
+        output: OutputMode::default(),
     }
 }
 
@@ -80,6 +81,7 @@ fn ast_violation_populates_column_and_context() {
         context: None,
         capabilities: None,
         fix_hint: None,
+        output: OutputMode::default(),
     };
     let content = "fn a() {\n    foo();\n    bar.unwrap();\n    baz();\n}\n";
     let ctx = RuleContext {
@@ -184,6 +186,7 @@ fn ast_returns_every_match_not_just_first() {
         context: None,
         capabilities: None,
         fix_hint: None,
+        output: OutputMode::default(),
     };
     let content = "fn a() { x.unwrap(); y.unwrap(); z.unwrap(); }\n";
     let ctx = RuleContext {

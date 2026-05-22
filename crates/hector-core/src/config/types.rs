@@ -66,6 +66,32 @@ pub struct Rule {
     pub capabilities: Option<Capabilities>,
     #[serde(default)]
     pub fix_hint: Option<String>,
+
+    /// E2 (bully parity): how to interpret the script's stdout/stderr.
+    ///
+    /// `Parsed` (default) runs the output through
+    /// [`crate::engine::output::parse`], which extracts `file:line:col`
+    /// structure from canonical lint output (ruff, eslint --format
+    /// compact, clippy --message-format short, …) and the `grep -n` shape.
+    /// `Passthrough` keeps the historical 0.1 behaviour: the chosen
+    /// stream lands verbatim in `Violation.message` with `line: None`,
+    /// for cases where the script already formats its own diagnostic.
+    ///
+    /// Only consulted by the script engine. Other engines ignore this
+    /// field — they construct violations from in-process structure.
+    #[serde(default)]
+    pub output: OutputMode,
+}
+
+/// E2: per-rule script-output interpretation. Default is [`OutputMode::Parsed`]
+/// to match bully — most lint tools emit canonical `file:line:col: msg`
+/// and authors expect Hector to surface that structure.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputMode {
+    #[default]
+    Parsed,
+    Passthrough,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -66,6 +66,7 @@ fn semantic_rule(desc: &str) -> Rule {
         context: Some(ContextScope::File),
         capabilities: None,
         fix_hint: None,
+        output: hector_core::config::OutputMode::default(),
     }
 }
 
@@ -204,5 +205,6 @@ fn sample_rule(desc: &str) -> Rule {
         context: None,
         capabilities: None,
         fix_hint: None,
+        output: hector_core::config::OutputMode::default(),
     }
 }

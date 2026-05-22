@@ -1,4 +1,4 @@
-use hector_core::config::{Capabilities, EngineKind, Rule, Severity, WritesPolicy};
+use hector_core::config::{Capabilities, EngineKind, OutputMode, Rule, Severity, WritesPolicy};
 use hector_core::engine::script::run_script_rule;
 use tempfile::tempdir;
 
@@ -17,6 +17,7 @@ fn make_rule(script: &str) -> Rule {
             writes: WritesPolicy::None,
         }),
         fix_hint: None,
+        output: OutputMode::default(),
     }
 }
 
@@ -27,7 +28,7 @@ fn passing_script_produces_no_violation() {
     std::fs::write(&file, "clean\n").unwrap();
     let rule = make_rule("grep -nE 'forbidden' {file} && exit 1 || exit 0");
     let res = run_script_rule("ok-rule", &rule, &file, "", dir.path()).expect("run");
-    assert!(res.is_none(), "no violation expected");
+    assert!(res.is_empty(), "no violation expected, got {res:?}");
 }
 
 #[test]
@@ -37,7 +38,8 @@ fn failing_script_produces_violation() {
     std::fs::write(&file, "forbidden\n").unwrap();
     let rule = make_rule("grep -nE 'forbidden' {file} && exit 1 || exit 0");
     let res = run_script_rule("no-forbidden", &rule, &file, "", dir.path()).expect("run");
-    let v = res.expect("violation expected");
+    assert_eq!(res.len(), 1, "expected exactly one violation, got {res:?}");
+    let v = &res[0];
     assert_eq!(v.rule_id, "no-forbidden");
     assert_eq!(v.severity, hector_core::verdict::Severity::Error);
     assert_eq!(v.engine, hector_core::verdict::Engine::Script);
@@ -46,8 +48,6 @@ fn failing_script_produces_violation() {
 
 #[test]
 fn script_engine_quotes_file_path_with_shell_metacharacters() {
-    use hector_core::config::{EngineKind, Rule, Severity};
-    use hector_core::engine::script::run_script_rule;
     let tmp = tempdir().unwrap();
     let cwd = tmp.path();
     // Filename that, if interpolated unquoted into the shell, would `touch PWNED`.
@@ -73,6 +73,7 @@ fn script_engine_quotes_file_path_with_shell_metacharacters() {
             writes: WritesPolicy::Unrestricted,
         }),
         fix_hint: None,
+        output: OutputMode::default(),
     };
     let _ = run_script_rule("evil", &rule, &evil, "", cwd);
     assert!(
