@@ -66,6 +66,12 @@ fn main() -> Result<()> {
         Command::ShowResolvedConfig { config, format } => {
             commands::show_resolved_config::run(&config, format)?
         }
+        Command::RecordVerdict {
+            rule,
+            verdict,
+            file,
+            dir,
+        } => commands::record_verdict::run(rule, verdict, file, &dir)?,
     };
     std::process::exit(code);
 }

@@ -137,6 +137,26 @@ pub enum Command {
         #[arg(long, default_value = "tsv")]
         format: ShowFormat,
     },
+    /// Append one `semantic_verdict` record to `.hector/log.jsonl`.
+    ///
+    /// Adapter-internal: consumed by the Claude Code interpreter skill
+    /// after a subagent evaluates a deferred semantic rule. See
+    /// `docs/record-verdict.md` for the wire-format contract.
+    RecordVerdict {
+        /// Rule id this verdict is for (single occurrence — one verdict per call).
+        #[arg(long = "rule")]
+        rule: String,
+        /// Verdict value: `pass` or `violation`. Other values rejected at parse time.
+        #[arg(long = "verdict", value_enum)]
+        verdict: crate::commands::record_verdict::VerdictValue,
+        /// Optional file path the verdict pertains to. When omitted, the
+        /// appended record has `file: null`.
+        #[arg(long = "file")]
+        file: Option<String>,
+        /// Directory containing `.hector/log.jsonl`. Defaults to cwd.
+        #[arg(long = "dir", default_value = ".")]
+        dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Subcommand)]
