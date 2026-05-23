@@ -254,5 +254,61 @@ fi
 echo "PASS test 7: hook skips self-check of .bully.yml"
 rm -f "${OUT}" "${ERR}"
 
+# ----------------------------------------------------------------------
+# Test 8 (R7): deterministic block emits exactly one block message.
+# The audit (transcript 2) showed two `PostToolUse:Edit hook returned
+# blocking error` headers per block; investigation traced that to a
+# second plugin (`bully`) installed alongside hector in the user's
+# Claude Code session, not to hector double-emitting. This test pins
+# the contract on hector's side: one block per hook invocation, on
+# stderr, in the canonical verdict JSON shape. The formatted "AGENTIC
+# LINT -- blocked" string that appeared in the transcript is a bully
+# artifact and does not appear in hector's output.
+# ----------------------------------------------------------------------
+cat > "${PROJECT}/.hector.yml" <<'YAML'
+schema_version: 2
+rules:
+  no-debug:
+    description: "no DEBUG markers in source"
+    engine: script
+    scope: ["*.txt"]
+    severity: error
+    script: "grep -nE 'DEBUG' {file} && exit 1 || exit 0"
+YAML
+hector trust --config "${PROJECT}/.hector.yml" >/dev/null
+echo "this has DEBUG" > one_block.txt
+EVENT='{"tool_input": {"file_path": "'"${PROJECT}"'/one_block.txt", "new_string": "this has DEBUG"}}'
+OUT=$(mktemp); ERR=$(mktemp)
+EC=0
+echo "${EVENT}" | "${HOOK}" post-tool-use > "${OUT}" 2> "${ERR}" || EC=$?
+if [[ "${EC}" -ne 2 ]]; then
+  echo "FAIL test 8: expected exit 2, got ${EC}"
+  cat "${ERR}"
+  exit 1
+fi
+# Exactly one verdict JSON on stderr. Counting `"status":` occurrences
+# is more robust than counting `{` because the verdict carries nested
+# objects (violations[]).
+STATUS_COUNT=$(grep -c '"status":' "${ERR}" || true)
+if [[ "${STATUS_COUNT}" -ne 1 ]]; then
+  echo "FAIL test 8: expected exactly one verdict JSON on stderr, got ${STATUS_COUNT}"
+  cat "${ERR}"
+  exit 1
+fi
+# Hector never emits the bully-style "AGENTIC LINT -- blocked" string;
+# if this ever appears it means two plugin paths converged.
+if grep -q "AGENTIC LINT -- blocked" "${ERR}"; then
+  echo "FAIL test 8: hook stderr contains a bully-style block summary (cross-plugin contamination)"
+  cat "${ERR}"
+  exit 1
+fi
+if [[ -s "${OUT}" ]]; then
+  echo "FAIL test 8: deterministic block must not emit on stdout"
+  cat "${OUT}"
+  exit 1
+fi
+echo "PASS test 8: deterministic block emits exactly one verdict on stderr (R7)"
+rm -f "${OUT}" "${ERR}"
+
 echo ""
 echo "All subagent-mode hook tests passed."

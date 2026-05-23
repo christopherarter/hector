@@ -113,37 +113,43 @@ fn run_linux(
 fn run_best_effort_macos(
     cmd: &str,
     cwd: &Path,
-    caps: &Capabilities,
+    _caps: &Capabilities,
     env: &[(&str, &str)],
 ) -> Result<ExecOutcome> {
-    use std::sync::atomic::AtomicBool;
-    static WARNED: AtomicBool = AtomicBool::new(false);
-    if should_warn_macos_with(caps, &WARNED) {
-        eprintln!(
-            "hector: capability enforcement is best-effort on this platform (see docs/security.md); running command unrestricted"
-        );
-    }
+    // R7 (2026-05-23): no eprintln here. The platform-best-effort
+    // story is surfaced by `hector doctor` (see `platform_capability_status`
+    // and `commands::doctor::check_capabilities`) rather than by every
+    // `check` invocation. Pre-R7 we deduped per-process via a static
+    // AtomicBool, but the Claude Code adapter hook spawns ~3 hector
+    // processes per edit so the warning still leaked to users.
     spawn_with_timeout(cmd, cwd, env)
 }
 
-/// Decide whether the macOS best-effort warning should fire for `caps`.
+/// Platform-level capability story, exposed for the `hector doctor`
+/// surface (and any other diagnostic consumer).
 ///
-/// Returns `true` exactly once across all calls that share `warned`, and only
-/// when at least one capability would have been enforced on Linux. Pulled out
-/// of [`run_best_effort_macos`] so the dedup behaviour can be tested without
-/// stderr capture, and so callers can supply their own flag in tests.
+/// Returns `None` on platforms that enforce the requested capability
+/// constraints (today: Linux via namespaces). Returns `Some(message)` on
+/// platforms where the enforcement is best-effort. The message is a
+/// short human-readable sentence safe to embed in a doctor row's
+/// `detail` field; it does not end with a period so the doctor renderer
+/// can chain text after it.
 ///
-/// Uses `Ordering::Relaxed` for the swap — same as the Linux warning path —
-/// because correctness here only requires "fires at most once," not any
-/// happens-before relationship with surrounding loads.
-#[cfg(not(target_os = "linux"))]
-fn should_warn_macos_with(caps: &Capabilities, warned: &std::sync::atomic::AtomicBool) -> bool {
-    use crate::config::WritesPolicy;
-    use std::sync::atomic::Ordering;
-    if caps.network && matches!(caps.writes, WritesPolicy::Unrestricted) {
-        return false;
+/// Kept here (not in `commands::doctor`) so platform knowledge lives
+/// next to the runner that depends on it — if a future platform gains
+/// real enforcement, the one place to update is this file.
+#[must_use]
+pub fn platform_capability_status() -> Option<&'static str> {
+    #[cfg(target_os = "linux")]
+    {
+        None
     }
-    !warned.swap(true, Ordering::Relaxed)
+    #[cfg(not(target_os = "linux"))]
+    {
+        Some(
+            "capability enforcement is best-effort on this platform; script rules run unrestricted",
+        )
+    }
 }
 
 /// Spawn `sh -c <cmd>` in `cwd` with `env` overrides, enforcing both a
@@ -203,29 +209,36 @@ fn spawn_with_timeout(cmd: &str, cwd: &Path, env: &[(&str, &str)]) -> Result<Exe
     })
 }
 
-#[cfg(all(test, not(target_os = "linux")))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::WritesPolicy;
-    use std::sync::atomic::{AtomicBool, Ordering};
 
+    #[cfg(target_os = "linux")]
     #[test]
-    fn macos_warning_fires_once_then_dedupes() {
-        let warned = AtomicBool::new(false);
-        let caps = Capabilities::default();
-        assert!(should_warn_macos_with(&caps, &warned));
-        assert!(!should_warn_macos_with(&caps, &warned));
-        assert!(!should_warn_macos_with(&caps, &warned));
+    fn platform_capability_status_is_none_on_linux() {
+        // Linux enforces network isolation via CLONE_NEWNET. The doctor
+        // row collapses to a pass with no message when there's nothing
+        // to advise about.
+        assert!(platform_capability_status().is_none());
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
-    fn macos_warning_skipped_when_unrestricted() {
-        let warned = AtomicBool::new(false);
-        let caps = Capabilities {
-            network: true,
-            writes: WritesPolicy::Unrestricted,
-        };
-        assert!(!should_warn_macos_with(&caps, &warned));
-        assert!(!warned.load(Ordering::Relaxed));
+    fn platform_capability_status_is_some_on_macos() {
+        // macOS (and any non-Linux target) cannot enforce the requested
+        // capability constraints today. Doctor surfaces this via a
+        // `capabilities` row whose `detail` includes the returned
+        // message verbatim. Pre-R7 the same message was eprintln!'d
+        // from every script-rule invocation; consolidating it here
+        // keeps routine `check` runs quiet on stderr.
+        let msg = platform_capability_status().expect("non-linux platform reports a message");
+        assert!(
+            msg.contains("best-effort"),
+            "message should describe the limitation: {msg}"
+        );
+        assert!(
+            !msg.ends_with('.'),
+            "message should not end with a period (the doctor row appends context): {msg}"
+        );
     }
 }

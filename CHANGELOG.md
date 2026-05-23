@@ -4,6 +4,13 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
 ## Unreleased
 
+### Hook output + capability warning quieted (R7)
+
+- Claude Code adapter hook emits exactly one block message per block — verdict JSON on stderr — confirmed by piping a synthesized `PostToolUse` event through `adapters/claude-code/hooks/hook.sh`. The doubled `PostToolUse:Edit hook returned blocking error` headers seen in the audit transcript came from a second plugin (`bully`) installed alongside `hector` in the same Claude Code session, not from Hector emitting twice. No Hector-side change required for this half.
+- macOS "capability enforcement is best-effort" advisory is no longer printed from `engine::capability::run_best_effort_macos` on every script-rule run. Routine `hector check` invocations now keep stderr empty on macOS, both from a terminal and through the adapter hook (which spawns ~3 hector processes per edit, bypassing the per-process dedup landed in `f47ef82`).
+- The platform-capability story moves to a new `capabilities` doctor row (`hector doctor`): `pass` on Linux (CLONE_NEWNET enforces `network: false`); `warn` on macOS and other non-Linux targets with a `docs/security.md` pointer. Library helper `hector_core::engine::capability::platform_capability_status()` is the single source of truth.
+- Doctor JSON shape stays additive: new `capabilities` row lands between `engines` and `adapter`. Schema is additive-only per `docs/doctor.md`.
+
 ### `hector init` — workspace & linter detection (R1)
 
 - Scaffolds scopes from the detected workspace shape (`pnpm-workspace.yaml`, `package.json` `workspaces`, Cargo `[workspace] members`, `go.work`). Single-package repos still get `src/**/*.<ext>`; monorepos get per-workspace globs like `apps/**/src/**/*.ts`.

@@ -54,6 +54,7 @@ These are emitted in this order:
 | `schema` | `schema_version` is a supported value (currently `2`). `fail` on `1` (legacy bully — remediation: `hector migrate`). |
 | `scope_globs` | Every rule's `scope:` constructs a valid glob matcher. `fail` lists the offending rule(s). |
 | `engines` | If any rule is `engine: semantic` or `engine: session`, an `llm:` block is present and `api_key_env` resolves to a non-empty value. `provider: ollama` exempts the api-key requirement. `warn` (not `fail`) on missing key — the binary still works for non-LLM rules. |
+| `capabilities` | Platform-level capability sandbox status. `pass` on Linux (CLONE_NEWNET enforces `network: false`). `warn` on macOS and other non-Linux targets where the sandbox is best-effort (script rules run unrestricted). Routine `hector check` no longer logs the best-effort advisory to stderr — this row is the single source of truth. |
 | `adapter` | `~/.claude/settings.json` exists and a PostToolUse hook references `hector` or the adapter's `hook.sh`. Missing settings file is `warn` (not every user runs Claude Code). |
 | `runtime_state` | `<dir>/.hector/` is writable (probed by writing+deleting a marker file). Reports sizes of `baseline.json`, `session.json`, `log.jsonl` if present. |
 

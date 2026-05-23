@@ -67,6 +67,7 @@ pub fn run(dir: &Path, format: OutputFormat) -> Result<i32> {
         check_schema_version(&ctx),
         check_scope_globs(&ctx),
         check_engines(&ctx),
+        check_capabilities(),
         check_adapter(),
         check_runtime_state(&ctx),
     ];
@@ -507,6 +508,45 @@ fn check_runtime_state(ctx: &DoctorContext) -> CheckResult {
     }
 }
 
+/// R7: surfaces the capability-sandbox story for the running platform.
+///
+/// Linux enforces `network: false` via `CLONE_NEWNET` (best-effort
+/// fallback on EPERM, which still warns at runtime because the user
+/// asked for isolation and didn't get it). macOS and other non-Linux
+/// targets have no equivalent — they run script rules unrestricted.
+///
+/// Pre-R7 the macOS situation was advertised by an `eprintln!` from
+/// inside `engine::capability::run_best_effort_macos` on every script
+/// rule. That leaked into the user's terminal on every direct `hector
+/// check` (and survived the per-process dedup landed in `f47ef82`
+/// because the Claude Code adapter hook spawns ~3 hector processes per
+/// edit). Doctor is the right home for it: a one-shot diagnostic row
+/// the user sees when they go looking for "is this set up right?".
+///
+/// Status is `warn` (not `fail`) on best-effort platforms because the
+/// limitation is platform reality, not a misconfiguration the user can
+/// remediate. Status is `pass` on Linux.
+fn check_capabilities() -> CheckResult {
+    match hector_core::engine::capability::platform_capability_status() {
+        None => CheckResult {
+            name: "capabilities",
+            status: Status::Pass,
+            detail: "namespace isolation available (CLONE_NEWNET enforces `network: false`)"
+                .into(),
+            remediation: None,
+        },
+        Some(msg) => CheckResult {
+            name: "capabilities",
+            status: Status::Warn,
+            detail: format!("{msg} (see docs/security.md)"),
+            remediation: Some(
+                "for adversarial workloads run hector under Linux where namespace isolation enforces `network: false`"
+                    .into(),
+            ),
+        },
+    }
+}
+
 /// Adapter presence is best-effort: missing `~/.claude/settings.json`
 /// is `warn` (not every user runs Claude Code); present-without-hector
 /// is `warn`; wired is `pass`. Never `fail` — hector is editor-agnostic
@@ -819,6 +859,47 @@ mod tests {
     fn hook_wired_rejects_empty_object() {
         let v: serde_json::Value = serde_json::from_str(r"{}").unwrap();
         assert!(!claude_hook_wired(&v));
+    }
+
+    // R7: doctor's `capabilities` row reflects the platform's sandbox story.
+    // Linux passes (CLONE_NEWNET enforces network: false); non-Linux warns
+    // (sandbox is best-effort, runtime never blocks the script).
+    #[test]
+    fn capabilities_pass_on_linux_warn_elsewhere() {
+        let r = check_capabilities();
+        assert_eq!(r.name, "capabilities");
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(r.status, Status::Pass);
+            assert!(r.remediation.is_none(), "pass rows carry no remediation");
+            assert!(
+                r.detail.contains("namespace"),
+                "linux detail should mention namespaces: {}",
+                r.detail
+            );
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            assert_eq!(
+                r.status,
+                Status::Warn,
+                "non-linux platforms must warn (sandbox is best-effort)"
+            );
+            assert!(
+                r.detail.contains("best-effort"),
+                "non-linux detail should mention best-effort: {}",
+                r.detail
+            );
+            assert!(
+                r.detail.contains("docs/security.md"),
+                "non-linux detail should point at the security doc: {}",
+                r.detail
+            );
+            assert!(
+                r.remediation.is_some(),
+                "warn rows must carry a remediation hint"
+            );
+        }
     }
 
     #[test]

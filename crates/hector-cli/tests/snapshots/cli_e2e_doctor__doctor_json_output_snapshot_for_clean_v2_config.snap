@@ -48,6 +48,12 @@ expression: value
     },
     {
       "detail": "[REDACTED]",
+      "name": "capabilities",
+      "remediation": "[REDACTED]",
+      "status": "warn"
+    },
+    {
+      "detail": "[REDACTED]",
       "name": "adapter",
       "remediation": "[REDACTED]",
       "status": "warn"
