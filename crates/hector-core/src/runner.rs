@@ -401,7 +401,7 @@ impl HectorEngine {
     /// H1: lookup a rule by id from the loaded config. Used to resolve
     /// `DeferredRule` ids back to their full definitions when building
     /// the evaluator-input string.
-    pub fn config_rule(&self, id: &str) -> Option<&crate::config::Rule> {
+    pub(crate) fn config_rule(&self, id: &str) -> Option<&crate::config::Rule> {
         self.config.rules.get(id)
     }
 
