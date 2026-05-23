@@ -5,6 +5,7 @@ pub mod explain;
 pub mod guide;
 pub mod init;
 pub mod migrate;
+pub mod record_verdict;
 pub mod session;
 pub mod show_resolved_config;
 pub mod trust;
