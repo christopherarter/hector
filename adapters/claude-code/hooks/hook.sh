@@ -103,6 +103,12 @@ case "${MODE}" in
     #    1 = internal error.
     TMP_VERDICT=$(mktemp -t hector-verdict.XXXXXX)
     EC=0
+    # Both branches suppress hector's own stderr so the verdict JSON we
+    # later cat to stderr on block (exit 2) parses cleanly. The macOS
+    # capability sandbox emits a per-process advisory warning that would
+    # otherwise prepend to the verdict stream. Real internal errors still
+    # surface via the explicit `echo` on the `*)` arm + the verdict
+    # contents if hector wrote anything before erroring.
     if [[ "${PROVIDER}" == "claude-code-subagent" ]]; then
       # Subagent mode: ask core to emit a deferred-semantic payload instead
       # of dispatching to an LLM.
@@ -135,7 +141,7 @@ case "${MODE}" in
     else
       # Direct-API mode (anthropic / openrouter / ollama / no llm at all).
       # Unchanged from pre-H3 behaviour.
-      hector check --file "${FILE}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" || EC=$?
+      hector check --file "${FILE}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" 2>/dev/null || EC=$?
       case "${EC}" in
         0) exit 0 ;;
         2)
