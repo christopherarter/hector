@@ -42,6 +42,14 @@ pub trait LlmClient: Send + Sync {
 ///
 /// Errors when the provider name is unknown.
 pub fn build_from_config(cfg: &LlmConfig) -> Result<Option<Box<dyn LlmClient>>> {
+    // H1 short-circuit: the subagent path neither needs nor reads
+    // api_key_env. Returning early before `read_api_key` avoids the
+    // "env var unset" stderr warning that would otherwise fire for
+    // a user who copy-pasted an Anthropic config and only switched
+    // `provider:`.
+    if cfg.provider == "claude-code-subagent" {
+        return Ok(None);
+    }
     let api_key = read_api_key(cfg);
     match cfg.provider.as_str() {
         "anthropic" => {
@@ -77,12 +85,12 @@ pub fn build_from_config(cfg: &LlmConfig) -> Result<Option<Box<dyn LlmClient>>> 
             ))))
         }
         "claude-code-subagent" => {
-            // H1: the deferred-payload path. No LLM client is constructed;
-            // the runner detects None and emits a DeferredVerdict that the
-            // Claude Code adapter routes to an in-session subagent. We do
-            // NOT emit the missing-API-key warning here — that path is for
-            // misconfiguration; this is an opt-in routing choice.
-            Ok(None)
+            // H1 follow-up: handled by the early-return above so that
+            // `read_api_key` never runs for this provider (no spurious
+            // "env var unset" warning). This arm is kept for match
+            // exhaustiveness signalling and so the bail arm's error
+            // message stays accurate.
+            unreachable!("handled by the early-return above");
         }
         other => {
             bail!("unknown LLM provider `{other}`. Supported: anthropic, claude-code-subagent, ollama, openrouter")
