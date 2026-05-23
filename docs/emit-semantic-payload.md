@@ -17,7 +17,7 @@ Activated by either:
 {
   "schema_version": 1,
   "deferred": true,
-  "hector_version": "0.2.x",
+  "hector_version": "0.1.0",
   "passed_checks": ["det-rule-1", "det-rule-2"],
   "payload": {
     "file": "src/foo.rs",
