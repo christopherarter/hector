@@ -20,6 +20,7 @@ fn main() -> Result<()> {
             explain,
             print_prompt,
             emit_semantic_payload,
+            allow_external_paths,
         } => commands::check::run(
             file,
             diff,
@@ -30,6 +31,7 @@ fn main() -> Result<()> {
             explain,
             print_prompt,
             emit_semantic_payload,
+            allow_external_paths,
         )?,
         Command::Trust { config } => commands::trust::run(&config)?,
         Command::Validate { config } => commands::validate::run(&config)?,

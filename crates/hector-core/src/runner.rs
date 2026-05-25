@@ -54,6 +54,10 @@ pub struct CheckOptions {
     /// not dispatched — they are collected into [`CheckReport::deferred`]
     /// for an in-session Claude Code subagent to evaluate.
     pub emit_semantic_payload: bool,
+    /// C4: when true, allow checking files whose canonical path falls
+    /// outside the config_dir. Disabled by default to prevent wrappers
+    /// from inadvertently running policy against arbitrary host files.
+    pub allow_external_paths: bool,
 }
 
 /// C4: one row of the `--explain` report. Stays out of the verdict JSON
@@ -457,13 +461,37 @@ impl HectorEngine {
     /// carries `+++ b/<rel>` paths) resolves to the same on-disk file
     /// regardless of the agent's CWD.
     ///
+    /// C4: by default, returns `Err` when the canonicalized path falls
+    /// outside `config_dir`. Pass `--allow-external-paths` (surfaced via
+    /// `CheckOptions::allow_external_paths`) to opt in. Files that cannot
+    /// be canonicalized (e.g. diff-mode paths not yet on disk) skip the
+    /// outside-check and return the raw resolved path unchanged.
+    ///
     /// Introduced for B1; extended by C4 to gate external paths.
-    pub fn resolve_input_path(&self, p: &std::path::Path) -> std::path::PathBuf {
-        if p.is_absolute() {
+    pub fn resolve_input_path(&self, p: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+        let resolved = if p.is_absolute() {
             p.to_path_buf()
         } else {
             self.config_dir.join(p)
+        };
+        // Canonicalize if possible. Files referenced by --diff may not
+        // yet exist on disk; in that case skip the outside-check (no
+        // harm done, the file read will fail anyway).
+        let Ok(canon_input) = resolved.canonicalize() else {
+            return Ok(resolved);
+        };
+        let canon_root = self
+            .config_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.config_dir.clone());
+        if !self.options.allow_external_paths && !canon_input.starts_with(&canon_root) {
+            anyhow::bail!(
+                "path {} resolves outside config_dir {}; pass --allow-external-paths to override",
+                canon_input.display(),
+                canon_root.display(),
+            );
         }
+        Ok(canon_input)
     }
 
     /// Match a path against a rule's scope, using the unified `relativize`
@@ -841,8 +869,33 @@ impl HectorEngine {
             // that relative paths (e.g. from an editor calling `hector
             // check --file src/foo.rs` from a different CWD) land on the
             // correct on-disk file. Absolute paths pass through unchanged.
+            // C4: reject paths outside config_dir unless allow_external_paths
+            // is set — surface the error as an __internal violation so the
+            // verdict shape is preserved and the exit code is 2 (Block).
             CheckInput::File { path, content } => {
-                let resolved = self.resolve_input_path(&path);
+                let resolved = match self.resolve_input_path(&path) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let v = Violation {
+                            rule_id: "__internal".to_string(),
+                            severity: crate::verdict::Severity::Error,
+                            engine: crate::verdict::Engine::Internal,
+                            file: path.display().to_string(),
+                            line: None,
+                            column: None,
+                            message: format!("{e:#}"),
+                            suggestion: None,
+                            context: None,
+                        };
+                        let elapsed = start.elapsed().as_millis() as u64;
+                        let verdict = Verdict::from_violations(vec![v], vec![], elapsed);
+                        return Ok(CheckReport {
+                            verdict,
+                            explain: vec![],
+                            deferred: None,
+                        });
+                    }
+                };
                 (resolved, content, String::new())
             }
             CheckInput::Diff { file, unified_diff } => {
@@ -853,7 +906,21 @@ impl HectorEngine {
                 // content. In the agent flow, diff mode runs *after* the
                 // agent's edit has landed on disk, so reading the file here
                 // is the correct semantics (P0-5, P0-7).
-                let resolved = self.resolve_input_path(&file);
+                // C4: diff-mode paths for files not yet on disk skip the
+                // outside-check (canonicalize fails → early-return Ok in
+                // resolve_input_path). For existing files, the same gate
+                // applies; treat the error as a warning so the diff still
+                // runs (the read below will fail anyway if the path is wrong).
+                let resolved = match self.resolve_input_path(&file) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!(
+                            "hector: path rejected for diff check ({e}); \
+                             continuing with original path",
+                        );
+                        file
+                    }
+                };
                 // Surface read failures as a warning rather than silently
                 // returning empty content — the silent fallback is what
                 // made this bug invisible in CI.

@@ -42,6 +42,7 @@ fn deferred_mode_collects_semantic_rule() {
         rules: HashSet::new(),
         explain: false,
         emit_semantic_payload: true,
+        ..CheckOptions::default()
     };
     let engine = HectorEngine::builder()
         .with_options(opts)
@@ -96,6 +97,7 @@ fn deferred_mode_envelope_carries_diff_in_diff_input() {
         rules: HashSet::new(),
         explain: true,
         emit_semantic_payload: true,
+        ..CheckOptions::default()
     };
     let engine = HectorEngine::builder()
         .with_options(opts)
@@ -167,6 +169,7 @@ rules:
         rules: HashSet::new(),
         explain: false,
         emit_semantic_payload: true,
+        ..CheckOptions::default()
     };
     let engine = HectorEngine::builder()
         .with_options(opts)
@@ -245,6 +248,7 @@ rules:
         rules: HashSet::new(),
         explain: false,
         emit_semantic_payload: true,
+        ..CheckOptions::default()
     };
     let engine = HectorEngine::builder()
         .with_options(opts)

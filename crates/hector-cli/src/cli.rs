@@ -46,6 +46,12 @@ pub enum Command {
             conflicts_with = "print_prompt"
         )]
         emit_semantic_payload: bool,
+        /// C4: allow checking files whose canonical path falls outside
+        /// the directory containing the config file. Disabled by default
+        /// to prevent wrappers from inadvertently running policy against
+        /// arbitrary host files.
+        #[arg(long, default_value_t = false)]
+        allow_external_paths: bool,
     },
     /// Compute the trust fingerprint and write it to the config.
     Trust {

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 // `run` is the single entry point dispatched from `main` — its argument
-// list mirrors the clap variant. Refactoring the four flag bools into a
+// list mirrors the clap variant. Refactoring the flag bools into a
 // flags struct would scatter the call-site without simplifying the
 // branching here, so the lint is suppressed locally.
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
@@ -20,6 +20,7 @@ pub fn run(
     explain: bool,
     print_prompt: bool,
     emit_semantic_payload: bool,
+    allow_external_paths: bool,
 ) -> Result<i32> {
     // First load without options so we can validate `--rule` against the
     // resolved rule list at the CLI boundary. The trust-and-parse work is
@@ -41,6 +42,7 @@ pub fn run(
         rules: rule_set,
         explain,
         emit_semantic_payload,
+        allow_external_paths,
     };
     let engine = match HectorEngine::builder().with_options(options).load(config) {
         Ok(e) => e,

@@ -79,6 +79,7 @@ rules:
         rules: HashSet::new(),
         explain: false,
         emit_semantic_payload: true,
+        ..CheckOptions::default()
     };
     let engine = HectorEngine::builder()
         .with_options(opts)
@@ -131,6 +132,7 @@ rules:
         rules: HashSet::new(),
         explain: false,
         emit_semantic_payload: true,
+        ..CheckOptions::default()
     };
     let engine = HectorEngine::builder()
         .with_options(opts)

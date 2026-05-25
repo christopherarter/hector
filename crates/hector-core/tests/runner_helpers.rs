@@ -1,27 +1,86 @@
-use hector_core::runner::HectorEngine;
+use hector_core::runner::{CheckOptions, HectorEngine};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
+/// C4: an absolute path that doesn't exist on disk fails canonicalize, so
+/// resolve_input_path returns Ok(resolved) via the early-return branch —
+/// preserving the original absolute path for diff-mode callers that
+/// reference files not yet on disk.
 #[test]
-fn resolve_input_path_returns_absolute_unchanged() {
+fn resolve_input_path_returns_absolute_unchanged_when_not_on_disk() {
     let tmp = tempdir().unwrap();
     let config = write_trusted_minimal_config(tmp.path());
     let engine = HectorEngine::load(&config).expect("load");
     let abs = PathBuf::from("/some/absolute/path.rs");
-    // For now, returns as-is. C4 (Phase 2 Task 2.3) will add the
-    // outside-config_dir error gate.
-    let resolved = engine.resolve_input_path(&abs);
+    // File doesn't exist → canonicalize fails → early-return Ok(resolved).
+    let resolved = engine.resolve_input_path(&abs).unwrap();
     assert_eq!(resolved, abs);
 }
 
+/// C4: a relative path is joined onto config_dir. Since the joined path
+/// doesn't exist on disk here, canonicalize fails and we get the raw joined
+/// path back via the early-return branch.
 #[test]
 fn resolve_input_path_joins_relative_onto_config_dir() {
     let tmp = tempdir().unwrap();
     let config = write_trusted_minimal_config(tmp.path());
     let engine = HectorEngine::load(&config).expect("load");
     let rel = PathBuf::from("src/lib.rs");
-    let resolved = engine.resolve_input_path(&rel);
+    let resolved = engine.resolve_input_path(&rel).unwrap();
     assert_eq!(resolved, tmp.path().join("src/lib.rs"));
+}
+
+/// C4: a file that exists inside config_dir is accepted (no error).
+#[test]
+fn resolve_input_path_accepts_file_inside_config_dir() {
+    let tmp = tempdir().unwrap();
+    let config = write_trusted_minimal_config(tmp.path());
+    let engine = HectorEngine::load(&config).expect("load");
+    // Write an actual file inside the config dir so canonicalize succeeds.
+    let inside = tmp.path().join("src").join("lib.rs");
+    std::fs::create_dir_all(inside.parent().unwrap()).unwrap();
+    std::fs::write(&inside, "fn main() {}").unwrap();
+    let resolved = engine.resolve_input_path(&inside).unwrap();
+    assert_eq!(resolved, inside.canonicalize().unwrap());
+}
+
+/// C4: a file that exists outside config_dir is rejected by default.
+#[test]
+fn resolve_input_path_rejects_external_path_by_default() {
+    let tmp = tempdir().unwrap();
+    let config = write_trusted_minimal_config(tmp.path());
+    let engine = HectorEngine::load(&config).expect("load");
+    // Write a file in a *different* temp dir (guaranteed external).
+    let external_dir = tempdir().unwrap();
+    let external = external_dir.path().join("target.rs");
+    std::fs::write(&external, "x").unwrap();
+    let result = engine.resolve_input_path(&external);
+    assert!(result.is_err(), "expected Err for external path");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("outside") || msg.contains("external"),
+        "error must mention 'outside' or 'external', got: {msg}"
+    );
+}
+
+/// C4: with allow_external_paths=true, a file outside config_dir is accepted.
+#[test]
+fn resolve_input_path_allows_external_path_when_opted_in() {
+    let tmp = tempdir().unwrap();
+    let config = write_trusted_minimal_config(tmp.path());
+    let options = CheckOptions {
+        allow_external_paths: true,
+        ..CheckOptions::default()
+    };
+    let engine = HectorEngine::builder()
+        .with_options(options)
+        .load(&config)
+        .expect("load");
+    let external_dir = tempdir().unwrap();
+    let external = external_dir.path().join("target.rs");
+    std::fs::write(&external, "x").unwrap();
+    let resolved = engine.resolve_input_path(&external).unwrap();
+    assert_eq!(resolved, external.canonicalize().unwrap());
 }
 
 fn write_trusted_minimal_config(dir: &std::path::Path) -> std::path::PathBuf {
