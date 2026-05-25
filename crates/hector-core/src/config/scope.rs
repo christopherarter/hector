@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct ScopeMatcher {
     set: GlobSet,
 }

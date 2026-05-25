@@ -5,7 +5,7 @@ use crate::telemetry::{LogEntry, PerRuleRecord};
 use crate::verdict::{Status, Verdict, Violation};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -215,9 +215,18 @@ struct CheckInputs<'a> {
 pub struct HectorEngine {
     config: Config,
     config_dir: PathBuf,
+    /// D4: canonical form of `config_dir`, computed once at load time.
+    /// `relativize` calls `root.canonicalize()` on every invocation; caching
+    /// the result eliminates a syscall from every `rule_matches_path` call.
+    config_dir_canon: PathBuf,
     llm: Option<Box<dyn crate::llm::LlmClient>>,
     skip: SkipMatcher,
     options: CheckOptions,
+    /// D4: per-rule ScopeMatcher cache, keyed by rule id. Populated once at
+    /// load time so `rule_matches_path` avoids rebuilding a GlobSet on every
+    /// (rule, file) pair. BTreeMap order mirrors `config.rules` iteration
+    /// order, keeping parallel dispatch deterministic.
+    scope_matchers: BTreeMap<String, crate::config::scope::ScopeMatcher>,
 }
 
 /// Resolve the current user's home directory from environment variables.
@@ -402,10 +411,12 @@ impl HectorEngine {
         self.config.rules.keys().map(|k| k.as_str())
     }
 
-    /// H1: lookup a rule by id from the loaded config. Used to resolve
-    /// `DeferredRule` ids back to their full definitions when building
-    /// the evaluator-input string.
-    pub(crate) fn config_rule(&self, id: &str) -> Option<&crate::config::Rule> {
+    /// Lookup a rule by id from the loaded config.
+    ///
+    /// H1: used to resolve `DeferredRule` ids back to their full definitions
+    /// when building the evaluator-input string.
+    /// B5: also used by callers that need the full Rule after filtering by id.
+    pub fn config_rule(&self, id: &str) -> Option<&crate::config::Rule> {
         self.config.rules.get(id)
     }
 
@@ -497,12 +508,32 @@ impl HectorEngine {
     /// Match a path against a rule's scope, using the unified `relativize`
     /// step shared with `check_inner`.
     ///
-    /// Introduced for B2 and reused by D4's memoization.
-    pub fn rule_matches_path(&self, rule: &crate::config::Rule, file: &std::path::Path) -> bool {
-        let match_path = relativize(file, &self.config_dir);
-        let matcher =
-            crate::config::scope::ScopeMatcher::new(&rule.scope).expect("scope validated at load");
-        matcher.matches(&match_path)
+    /// D4: looks up the pre-built `ScopeMatcher` from the load-time cache
+    /// instead of constructing a new GlobSet. Uses the pre-computed
+    /// `config_dir_canon` to avoid a `canonicalize` syscall on the root on
+    /// every call. Relative paths are matched directly without a syscall (they
+    /// are already config-dir-relative). Returns `false` for an unknown rule
+    /// id (defensive; callers only pass ids that came from the config).
+    ///
+    /// Introduced for B2 and extended by D4 to use the memoized cache.
+    pub fn rule_matches_path(&self, rule_id: &str, file: &std::path::Path) -> bool {
+        // D4 fast path: relative paths are already config-dir-relative — skip
+        // the canonicalize syscall entirely. Absolute paths go through the
+        // strip-prefix dance so that adapter payloads (which carry absolute
+        // paths) still match correctly.
+        let match_path: PathBuf = if file.is_relative() {
+            PathBuf::from(file)
+        } else {
+            let canon_file = file.canonicalize().unwrap_or_else(|_| PathBuf::from(file));
+            canon_file
+                .strip_prefix(&self.config_dir_canon)
+                .map(PathBuf::from)
+                .unwrap_or(canon_file)
+        };
+        self.scope_matchers
+            .get(rule_id)
+            .map(|m| m.matches(&match_path))
+            .unwrap_or(false)
     }
 
     fn load_with(
@@ -518,9 +549,14 @@ impl HectorEngine {
         let config = crate::config::extends::resolve_trusted(config_path)?;
 
         // Validate every rule's scope by constructing the matcher up front.
+        // D4: also cache the matcher so rule_matches_path never rebuilds a
+        // GlobSet — one build per rule at load time instead of per (rule, file).
+        let mut scope_matchers: BTreeMap<String, crate::config::scope::ScopeMatcher> =
+            BTreeMap::new();
         for (rule_id, rule) in &config.rules {
-            crate::config::scope::ScopeMatcher::new(&rule.scope)
+            let matcher = crate::config::scope::ScopeMatcher::new(&rule.scope)
                 .with_context(|| format!("rule `{rule_id}` has invalid scope glob"))?;
+            scope_matchers.insert(rule_id.clone(), matcher);
         }
 
         // If no explicit override, auto-construct from config.llm.
@@ -550,12 +586,20 @@ impl HectorEngine {
         }
         let skip = SkipMatcher::with_built_ins(&skip_extras)?;
 
+        // D4: cache the canonical config_dir once so rule_matches_path never
+        // calls canonicalize() on the root on every invocation.
+        let config_dir_canon = config_dir
+            .canonicalize()
+            .unwrap_or_else(|_| config_dir.clone());
+
         Ok(Self {
             config,
             config_dir,
+            config_dir_canon,
             llm,
             skip,
             options,
+            scope_matchers,
         })
     }
 
@@ -599,9 +643,8 @@ impl HectorEngine {
         rule: &Rule,
         inputs: &CheckInputs<'_>,
     ) -> RuleOutcome {
-        let matcher =
-            crate::config::scope::ScopeMatcher::new(&rule.scope).expect("scope validated at load");
-        if !matcher.matches(inputs.match_path) {
+        // D4: use the load-time cached matcher — no GlobSet rebuild per call.
+        if !self.rule_matches_path(rule_id, inputs.match_path) {
             return RuleOutcome {
                 violations: vec![],
                 passed: None,
@@ -1012,9 +1055,8 @@ impl HectorEngine {
                 continue;
             }
             if should_defer(rule.engine, &self.options) {
-                let matcher = crate::config::scope::ScopeMatcher::new(&rule.scope)
-                    .expect("scope validated at load");
-                if !matcher.matches(&match_path) {
+                // D4: use the load-time cached matcher — no GlobSet rebuild per call.
+                if !self.rule_matches_path(rule_id, &match_path) {
                     continue;
                 }
                 deferred_rules.push(crate::verdict_deferred::DeferredRule {
@@ -1229,9 +1271,8 @@ impl HectorEngine {
             if rule.engine != EngineKind::Semantic {
                 continue;
             }
-            let matcher = crate::config::scope::ScopeMatcher::new(&rule.scope)
-                .expect("scope validated at load");
-            if !matcher.matches(&match_path) {
+            // D4: use the load-time cached matcher — no GlobSet rebuild per call.
+            if !self.rule_matches_path(rule_id, &match_path) {
                 continue;
             }
             let scope = rule.context.unwrap_or(crate::config::ContextScope::Diff);
@@ -1388,7 +1429,8 @@ impl HectorEngine {
             let filtered_edits: Vec<crate::session_state::EditRecord> = state
                 .edits
                 .iter()
-                .filter(|e| self.rule_matches_path(rule, std::path::Path::new(&e.file)))
+                // D4: rule_id is in scope from self.config.rules.iter() above.
+                .filter(|e| self.rule_matches_path(rule_id, std::path::Path::new(&e.file)))
                 .cloned()
                 .collect();
             if filtered_edits.is_empty() {
