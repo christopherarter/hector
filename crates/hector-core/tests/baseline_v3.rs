@@ -1,5 +1,29 @@
 use hector_core::baseline::Baseline;
 
+/// A1 follow-up: refresh() does NOT upgrade v2 file-level entries to
+/// v3. File-level entries don't have a line to re-hash; their body
+/// hash can only come from a fresh `hector baseline record` call.
+/// This test documents the actual behavior so future engineers don't
+/// confuse "no upgrade" with "bug to fix."
+#[test]
+fn refresh_does_not_upgrade_v2_file_level_entries() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("v2.json");
+    std::fs::write(&path, r#"{"entries":{"[\"r\",\"f.rs\",null]":null}}"#).unwrap();
+    let mut b = hector_core::baseline::Baseline::load(&path).expect("v2 grace load");
+    let report = b.refresh(tmp.path()).expect("refresh ok");
+    assert_eq!(report.refreshed, 0, "no line-bearing entry to refresh");
+    assert_eq!(report.dropped, 0, "no entry should be dropped");
+    let meta = b
+        .entries
+        .get("[\"r\",\"f.rs\",null]")
+        .expect("entry preserved");
+    assert!(
+        meta.body_sha256.is_none(),
+        "refresh leaves v2 file-level body_sha256 as None; use `hector baseline record` to upgrade"
+    );
+}
+
 #[test]
 fn loads_v3_fixture() {
     let path = std::path::Path::new("tests/fixtures/baseline_v3.json");

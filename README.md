@@ -41,8 +41,8 @@ All three honor `--config <path>` (default `.hector.yml`).
 baselined `line: None` violations are matched on both their fingerprint
 and a normalized hash of the violation message. Old (v2) baselines
 continue to match on fingerprint alone during a grace period — run
-`hector baseline refresh` to upgrade. Normalization strips ISO-8601
-timestamps and ANSI color escapes.
+`hector baseline record` to re-record entries under the new schema.
+Normalization strips ISO-8601 timestamps and ANSI color escapes.
 
 ## Specs
 

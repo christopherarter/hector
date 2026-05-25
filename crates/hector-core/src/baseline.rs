@@ -259,8 +259,11 @@ impl Baseline {
                 }
                 i = j;
             } else {
-                out.push(bytes[i] as char);
-                i += 1;
+                // Advance by the byte length of the current UTF-8 char, not by
+                // a single byte cast to char (which corrupts multi-byte sequences).
+                let ch_len = s[i..].chars().next().map_or(1, |c| c.len_utf8());
+                out.push_str(&s[i..i + ch_len]);
+                i += ch_len;
             }
         }
         out

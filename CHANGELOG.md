@@ -9,8 +9,8 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   both fingerprint AND normalized body match. The prior behavior turned
   baseline into a per-file disable for passthrough script rules (the
   default since R4). v2 baselines continue to match on fingerprint
-  alone during a grace period; run `hector baseline refresh` to
-  upgrade. Storage schema bumped v2 → v3.
+  alone during a grace period; run `hector baseline record` to
+  re-record entries under the new schema. Storage schema bumped v2 → v3.
 
 ### Hook output + capability warning quieted (R7)
 

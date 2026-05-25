@@ -548,3 +548,50 @@ fn add_with_content_line_zero_records_no_checksum() {
         "line == Some(0) must produce no body_sha256: {stored:?}"
     );
 }
+
+/// A1 follow-up: strip_timestamps must preserve multi-byte UTF-8
+/// characters intact. Earlier byte-to-char casts exploded them into
+/// separate per-byte chars, which was self-consistent but a forward
+/// compatibility hazard for any future change to the normalization
+/// pipeline.
+#[test]
+fn body_checksum_preserves_non_ascii_characters() {
+    use hector_core::baseline::Baseline;
+    // Two messages differing only in a non-ASCII character must hash
+    // differently (proving the char wasn't corrupted into bytes).
+    let with_euro = "cost was €5 at 2026-05-24T12:00:00";
+    let with_pound = "cost was £5 at 2026-05-24T12:00:00";
+    let h_euro = Baseline::body_checksum(with_euro);
+    let h_pound = Baseline::body_checksum(with_pound);
+    assert_ne!(
+        h_euro, h_pound,
+        "different non-ASCII chars must produce different hashes"
+    );
+
+    // The same message hashed twice must produce the same hash (the
+    // function is deterministic). The timestamp inside must still
+    // be stripped, so this also hashes equal to the same message at
+    // a different timestamp.
+    let with_euro_2 = "cost was €5 at 2026-05-25T09:30:11";
+    let h_euro_2 = Baseline::body_checksum(with_euro_2);
+    assert_eq!(
+        h_euro, h_euro_2,
+        "timestamps must still be stripped from non-ASCII strings"
+    );
+
+    // Pin the exact hash so we detect any regression in the normalization
+    // pipeline. normalize_body for "cost was €5 at 2026-05-24T12:00:00":
+    //   1. strip_ansi — no change
+    //   2. strip_timestamps — removes "2026-05-24T12:00:00", leaving "cost was €5 at "
+    //   3. lines().map(trim_end).join("\n") — trims trailing space -> "cost was €5 at"
+    // sha256("cost was €5 at") = 09d918d8b04de137d6886c8d5cb5c3226c282d3d49bd5c3840a31b51198c9bfd
+    //
+    // The buggy byte-cast path inflated €'s bytes (E2 82 AC) into three
+    // separate Unicode scalars (U+00E2, U+0082, U+00AC), producing a
+    // different hash. Pinning this exact expected value catches regressions
+    // in either direction.
+    assert_eq!(
+        h_euro, "09d918d8b04de137d6886c8d5cb5c3226c282d3d49bd5c3840a31b51198c9bfd",
+        "body_checksum must hash the true UTF-8 encoding of €, not per-byte scalars"
+    );
+}
