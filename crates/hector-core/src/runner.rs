@@ -472,8 +472,8 @@ impl HectorEngine {
     /// Introduced for B2 and reused by D4's memoization.
     pub fn rule_matches_path(&self, rule: &crate::config::Rule, file: &std::path::Path) -> bool {
         let match_path = relativize(file, &self.config_dir);
-        let matcher = crate::config::scope::ScopeMatcher::new(&rule.scope)
-            .expect("scope validated at load");
+        let matcher =
+            crate::config::scope::ScopeMatcher::new(&rule.scope).expect("scope validated at load");
         matcher.matches(&match_path)
     }
 
@@ -837,17 +837,38 @@ impl HectorEngine {
         use crate::disable::DisableMap;
         let start = Instant::now();
         let (path, content, diff) = match input {
-            CheckInput::File { path, content } => (path, content, String::new()),
+            // B1: resolve the caller-supplied path through config_dir so
+            // that relative paths (e.g. from an editor calling `hector
+            // check --file src/foo.rs` from a different CWD) land on the
+            // correct on-disk file. Absolute paths pass through unchanged.
+            CheckInput::File { path, content } => {
+                let resolved = self.resolve_input_path(&path);
+                (resolved, content, String::new())
+            }
             CheckInput::Diff { file, unified_diff } => {
-                // Read the post-edit file from disk so AST rules, disable
-                // directives, and any other content-based engine see real
+                // B1: the `+++ b/<rel>` path in a unified diff is relative
+                // to the repo root, not to the agent's CWD. Resolve against
+                // config_dir before reading so AST rules, disable
+                // directives, and semantic-context: file all see real
                 // content. In the agent flow, diff mode runs *after* the
                 // agent's edit has landed on disk, so reading the file here
-                // is the correct semantics (P0-5, P0-7). A missing file
-                // falls back to empty content — AST will then no-op rather
-                // than crashing the runner.
-                let content = std::fs::read_to_string(&file).unwrap_or_default();
-                (file, content, unified_diff)
+                // is the correct semantics (P0-5, P0-7).
+                let resolved = self.resolve_input_path(&file);
+                // Surface read failures as a warning rather than silently
+                // returning empty content — the silent fallback is what
+                // made this bug invisible in CI.
+                let content = match std::fs::read_to_string(&resolved) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!(
+                            "hector: failed to read {} for diff check ({e}); \
+                             rules requiring file content will be skipped",
+                            resolved.display()
+                        );
+                        String::new()
+                    }
+                };
+                (resolved, content, unified_diff)
             }
         };
 
