@@ -203,6 +203,7 @@ rules:
         .as_str()
         .is_some_and(|s| !s.is_empty()));
 
-    // Schema version was bumped 2 → 3 for the additive field.
-    assert_eq!(v["schema_version"], serde_json::Value::Number(3.into()));
+    // C6 (2026-05-25): additive fields (skip_serializing_if) do NOT bump
+    // SCHEMA_VERSION. The R6 bump 2 → 3 was reverted; schema_version stays 2.
+    assert_eq!(v["schema_version"], serde_json::Value::Number(2.into()));
 }

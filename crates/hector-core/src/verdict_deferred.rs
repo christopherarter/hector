@@ -17,10 +17,21 @@ use serde::{Deserialize, Serialize};
 /// Schema version for the deferred-evaluation envelope. Independent of
 /// [`crate::verdict::SCHEMA_VERSION`] — the two schemas evolve separately.
 ///
-/// **2 (R5, 2026-05-23):** new optional `payload.evaluator_model` field.
-/// `#[serde(skip_serializing_if = "Option::is_none")]` keeps envelopes
-/// without the field byte-compatible with the v1 shape, so existing
-/// consumers that don't read the field do not break.
+/// **Policy (C6, 2026-05-25):** same additive-no-bump policy as
+/// `SCHEMA_VERSION`. Bumps only on field removals, type changes, or
+/// semantic re-interpretations. Additive fields with
+/// `skip_serializing_if` do NOT bump.
+///
+/// History:
+/// - v1: initial deferred-verdict shape (`schema_version`, `deferred`,
+///   `hector_version`, `passed_checks`, `payload`, `elapsed_ms`).
+/// - v2 (R5, 2026-05-23): new optional `payload.evaluator_model` field.
+///   `#[serde(skip_serializing_if = "Option::is_none")]` keeps envelopes
+///   without the field byte-compatible with the v1 shape, so existing
+///   consumers that don't read the field do not break.
+///
+/// **Note:** Task 5.3 will bump this to 3 when B4+B5 ship non-additive
+/// changes to the `_evaluator_input` shape.
 pub const DEFERRED_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
