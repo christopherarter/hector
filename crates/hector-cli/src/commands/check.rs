@@ -289,6 +289,19 @@ fn header_path(line: &str) -> Option<&str> {
     })
 }
 
+/// Extract the path from a `--- a/<path>[\t<timestamp>]` header line.
+///
+/// Symmetric to `header_path`: strips the `--- a/` prefix, splits at the
+/// first tab (POSIX timestamp), and trims trailing `\r`/`\n`.
+fn minus_header_path(line: &str) -> Option<&str> {
+    line.strip_prefix("--- a/").map(|p| {
+        p.split('\t')
+            .next()
+            .unwrap_or(p)
+            .trim_end_matches(['\n', '\r'])
+    })
+}
+
 /// Slice a multi-file unified diff down to the hunks for a single file.
 ///
 /// A file's section starts at the `--- a/<path>` header that precedes its
@@ -296,6 +309,10 @@ fn header_path(line: &str) -> Option<&str> {
 /// scan for the matching `+++ b/<path>` and, when found, walk backwards to
 /// include the preceding `--- a/...` line so the slice is a syntactically
 /// well-formed diff in its own right.
+///
+/// C2: only include the preceding `--- a/` line when its path matches the
+/// target. On mismatch (e.g. a foreign `--- a/<other>` bleeds in from the
+/// previous file), omit it — `parse_unified` tolerates absent `---` headers.
 fn build_single_file_diff(full: &str, file: &Path) -> String {
     let target = file.display().to_string();
     // `split_inclusive` preserves line terminators so we can round-trip the
@@ -311,13 +328,15 @@ fn build_single_file_diff(full: &str, file: &Path) -> String {
         return String::new();
     };
 
-    // Include the preceding `--- a/...` header if it sits immediately above
-    // the `+++ b/...` line, so the slice is a syntactically well-formed diff.
-    let header_idx = if plus_idx > 0 && lines[plus_idx - 1].starts_with("--- ") {
-        plus_idx - 1
-    } else {
-        plus_idx
-    };
+    // Include the preceding `--- a/...` header only when its parsed path
+    // matches the target (C2). A foreign header from the previous file would
+    // otherwise corrupt this slice.
+    let header_idx =
+        if plus_idx > 0 && minus_header_path(lines[plus_idx - 1]).is_some_and(|p| p == target) {
+            plus_idx - 1
+        } else {
+            plus_idx
+        };
 
     // Walk forward until the next `--- ` header (start of another file) or
     // end of input.
@@ -376,6 +395,31 @@ mod tests {
         let full = "--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n+x\n";
         let slice = build_single_file_diff(full, &PathBuf::from("src/missing.rs"));
         assert_eq!(slice, "");
+    }
+
+    /// C2 regression: `build_single_file_diff` must not include a foreign
+    /// `--- a/<other>` header in the slice when it doesn't match the target.
+    ///
+    /// Pre-fix: the preceding line is included unconditionally if it starts
+    /// with `--- `, so `--- a/src/a.rs` bleeds into the slice for `src/b.rs`.
+    /// Post-fix: the header is only included when its path matches the target.
+    #[test]
+    fn slice_drops_mismatched_minus_header() {
+        let diff = "--- a/src/a.rs\n+++ b/src/b.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+        let slice = build_single_file_diff(diff, &PathBuf::from("src/b.rs"));
+        // The foreign `--- a/src/a.rs` header must not appear in the slice.
+        assert!(
+            !slice.starts_with("--- a/src/a.rs"),
+            "slice must not include the mismatched --- header; got: {slice:?}"
+        );
+        // The slice must still be parseable and yield exactly src/b.rs.
+        let files = hector_core::diff::parser::parse_unified(&slice).expect("re-parse");
+        assert_eq!(
+            files.len(),
+            1,
+            "mismatched --- header must not introduce a phantom file"
+        );
+        assert_eq!(files[0].path, PathBuf::from("src/b.rs"));
     }
 
     // P2-12: session.json must persist across a Block verdict so the user
