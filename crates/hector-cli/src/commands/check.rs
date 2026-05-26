@@ -79,13 +79,17 @@ pub fn run(
                 print_explain(&report.explain);
             }
             if let Some(d) = &report.deferred {
-                // Deterministic block still wins — never emit deferred on
-                // top of an error-severity violation. (Verdict::status was
-                // built from the deterministic violations only; semantic/
-                // session were collected, not dispatched.)
-                if matches!(report.verdict.status, Status::Block) {
+                // Deterministic block or engine failure wins — never emit
+                // deferred on top of an error-severity violation or an
+                // internal engine error. (Verdict::status was built from the
+                // deterministic violations only; semantic/session were
+                // collected, not dispatched.)
+                if matches!(
+                    report.verdict.status,
+                    Status::Block | Status::InternalError
+                ) {
                     emit(&report.verdict, format)?;
-                    return Ok(2);
+                    return Ok(exit_code(&report.verdict));
                 }
                 emit_deferred(d, format)?;
                 return Ok(0);
@@ -241,13 +245,17 @@ fn run_print_prompt(
 
 fn exit_code(v: &Verdict) -> i32 {
     match v.status {
-        Status::Pass | Status::Warn => 0,
         Status::Block => 2,
+        Status::InternalError => 3,
+        // Pass, Warn, and any future #[non_exhaustive] variants all exit 0
+        // (fail-open): unknown status values must never accidentally block.
+        _ => 0,
     }
 }
 
-/// P2-12: only clear the session file on Pass/Warn so a Block verdict
-/// leaves `.hector/session.json` intact for re-inspection.
+/// P2-12: only clear the session file on Pass/Warn so a Block or
+/// InternalError verdict leaves `.hector/session.json` intact for
+/// re-inspection.
 fn should_clear_session(status: Status) -> bool {
     matches!(status, Status::Pass | Status::Warn)
 }
@@ -289,6 +297,9 @@ fn emit(v: &Verdict, format: OutputFormat) -> Result<()> {
                     Status::Pass => "pass",
                     Status::Warn => "warn",
                     Status::Block => "block",
+                    Status::InternalError => "internal_error",
+                    // #[non_exhaustive]: future variants surface as "unknown".
+                    _ => "unknown",
                 }
             );
         }
@@ -450,5 +461,8 @@ mod tests {
         assert!(should_clear_session(Status::Pass));
         assert!(should_clear_session(Status::Warn));
         assert!(!should_clear_session(Status::Block));
+        // B7: InternalError must not clear session — the edit is unresolved
+        // and session context should be preserved for re-inspection.
+        assert!(!should_clear_session(Status::InternalError));
     }
 }

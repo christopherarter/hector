@@ -61,7 +61,10 @@ Three load-time invariants enforced by `HectorEngine::load` (`crates/hector-core
 
 - `0` — Pass or Warn
 - `1` — internal/config error (untrusted, parse failure, missing file)
-- `2` — Block (≥1 error-severity violation)
+- `2` — Block (≥1 error-severity policy violation)
+- `3` — InternalError (≥1 engine runtime error; `__internal` violations present — e.g. missing API key, AST refused diff, script spawn failure)
+
+Adapters fail-open on exit 3 by default; opt-in fail-closed via `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
 
 Consumed by CI and editor adapters — do not break.
 

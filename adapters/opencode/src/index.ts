@@ -103,13 +103,26 @@ export const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
       // Exit code contract (commands/check.rs):
       //   0 → pass or warn  (allow opencode to run the tool)
       //   2 → block         (throw — opencode cancels the tool call)
-      //   1 → internal      (log to stderr, allow — agent shouldn't be
-      //                      blocked by an unrelated hector failure)
+      //   3 → engine internal error (missing API key, spawn failure, etc.)
+      //       fail-open by default; HECTOR_FAIL_CLOSED_ON_INTERNAL=1 to block
+      //   1 → config/load error (log to stderr, allow)
       if (result.exitCode === 2) {
         const verdict = result.stdout.toString().trim() || "rule violation"
         throw new Error(`hector blocked this edit:\n${verdict}`)
       }
-      if (result.exitCode !== 0) {
+      if (result.exitCode === 3) {
+        // B7: engine runtime error — the gate is broken, not the policy.
+        const stderr = result.stderr.toString().trim()
+        if (process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] === "1") {
+          console.error(
+            `hector: internal error — failing closed (HECTOR_FAIL_CLOSED_ON_INTERNAL=1)${stderr ? `: ${stderr}` : ""}`,
+          )
+          throw new Error(`hector: internal error during check — failing closed`)
+        }
+        console.error(
+          `hector: internal error checking ${filePath} — allowing edit; see .hector/log.jsonl${stderr ? `: ${stderr}` : ""}`,
+        )
+      } else if (result.exitCode !== 0) {
         const stderr = result.stderr.toString().trim()
         console.error(
           `hector: internal error checking ${filePath} (exit ${result.exitCode})${stderr ? `: ${stderr}` : ""}`,
@@ -172,7 +185,19 @@ export const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
           console.error(`hector: session check blocked:\n${verdict}`)
           throw new Error(`hector session check blocked:\n${verdict}`)
         }
-        if (result.exitCode !== 0) {
+        if (result.exitCode === 3) {
+          // B7: engine runtime error during session check.
+          const stderr = result.stderr.toString().trim()
+          if (process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] === "1") {
+            console.error(
+              `hector: internal error — failing closed (HECTOR_FAIL_CLOSED_ON_INTERNAL=1)${stderr ? `: ${stderr}` : ""}`,
+            )
+            throw new Error(`hector: internal error during session check — failing closed`)
+          }
+          console.error(
+            `hector: internal error during session check — allowing; see .hector/log.jsonl${stderr ? `: ${stderr}` : ""}`,
+          )
+        } else if (result.exitCode !== 0) {
           const stderr = result.stderr.toString().trim()
           console.error(
             `hector: internal error during session check (exit ${result.exitCode})${stderr ? `: ${stderr}` : ""}`,

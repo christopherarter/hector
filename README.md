@@ -23,6 +23,17 @@ cargo build --release
 
 See [docs/quickstart.md](docs/quickstart.md).
 
+## Exit codes (`hector check`)
+
+| Code | Meaning |
+|------|---------|
+| 0 | Pass or Warn — all rules evaluated cleanly |
+| 1 | Config error — untrusted fingerprint, parse failure, missing file |
+| 2 | Block — ≥1 error-severity policy violation |
+| 3 | InternalError — ≥1 engine runtime error (`__internal` violations present); e.g. missing API key, AST refused diff, script spawn failure |
+
+Adapters fail-open on exit 3 by default. Opt-in fail-closed: `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
+
 ## Inspect
 
 Read-only commands that never run engines, call LLMs, or write telemetry. Exit `0` on success, `1` on config error — never `2`.

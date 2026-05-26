@@ -79,7 +79,8 @@ fn verdict_with_internal_engine_violation_serializes() {
         vec![],
         7,
     );
-    assert_eq!(v.status, Status::Block);
+    // B7: internal engine violations now resolve to InternalError, not Block.
+    assert_eq!(v.status, Status::InternalError);
     insta::assert_json_snapshot!(v, { ".hector_version" => "[VERSION]" });
 }
 

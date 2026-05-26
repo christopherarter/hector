@@ -76,10 +76,18 @@ pub struct DeferredRuleRef {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Status {
     Pass,
     Warn,
     Block,
+    /// B7 (2026-05-25): at least one rule failed to evaluate due to an
+    /// engine-internal error (LLM unavailable, AST refused diff, script
+    /// spawn failure). Surfaces in `Violation::engine = Internal` rows.
+    /// CLI maps to exit code 3 so adapters can distinguish "config
+    /// wrong" from "policy violated" (exit 2).
+    #[serde(rename = "internal_error")]
+    InternalError,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,7 +160,13 @@ impl Verdict {
         passed: Vec<String>,
         elapsed_ms: u64,
     ) -> Self {
-        let status = if violations.iter().any(|v| v.severity == Severity::Error) {
+        let has_internal = violations.iter().any(|v| v.engine == Engine::Internal);
+        let has_error = violations
+            .iter()
+            .any(|v| v.engine != Engine::Internal && v.severity == Severity::Error);
+        let status = if has_internal {
+            Status::InternalError
+        } else if has_error {
             Status::Block
         } else if violations.is_empty() {
             Status::Pass
