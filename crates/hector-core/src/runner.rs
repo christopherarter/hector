@@ -47,6 +47,33 @@ fn severity_string(s: crate::config::Severity) -> String {
 /// Block-severity violations are left in place; the CLI also suppresses
 /// the deferred envelope in that case (the verdict's block is the
 /// terminal signal).
+/// fix(3): translate expansion failures into `__internal` violations and
+/// push them onto `violations`. Free function (not a method) because it needs
+/// no `HectorEngine` state. Extracted from `check_inner` to keep that
+/// function's cognitive complexity below the workspace cap (the for-loop +
+/// struct construction was nudging the count).
+fn push_expansion_failures_into_violations(
+    failures: &[(String, anyhow::Error)],
+    path: &Path,
+    violations: &mut Vec<Violation>,
+) {
+    for (rule_id, err) in failures {
+        violations.push(Violation {
+            rule_id: "__internal".to_string(),
+            severity: crate::verdict::Severity::Error,
+            engine: crate::verdict::Engine::Internal,
+            file: path.display().to_string(),
+            line: None,
+            column: None,
+            message: format!(
+                "deferred context expansion failed for rule `{rule_id}`: {err:#}"
+            ),
+            suggestion: None,
+            context: None,
+        });
+    }
+}
+
 fn build_deferred_warnings(verdict: &Verdict) -> Vec<crate::verdict_deferred::DeferredWarning> {
     verdict
         .violations
@@ -210,6 +237,15 @@ struct RuleOutcome {
     /// when the rule was out-of-scope (won't appear in the Check.rules
     /// array, matches "rule didn't run for this file" semantics).
     record: Option<PerRuleRecord>,
+}
+
+/// fix(3): result of pre-expanding deferred rule contexts before the
+/// verdict is finalised. Failures become `__internal` violations; only
+/// successes are threaded into the deferred envelope.
+struct DeferredExpansion<'a> {
+    successes: Vec<(crate::llm::prompt::RuleRef<'a>, String, Option<String>)>,
+    /// `(rule_id, error)` pairs for rules whose context could not expand.
+    failures: Vec<(String, anyhow::Error)>,
 }
 
 /// D1: per-call accumulators for `check_session`. Bundled into a single
@@ -1169,6 +1205,35 @@ impl HectorEngine {
         // tuple-only match — see `Baseline::contains_with_content`.
         violations.retain(|v| !baseline.contains_with_content(v, Some(&content)));
 
+        // fix(3): pre-expand deferred rule contexts BEFORE the verdict is
+        // finalised. Failures become __internal violations → InternalError
+        // verdict under B7, matching the direct-API path. __internal
+        // violations are never in a baseline (rule_id "==__internal" won't
+        // match any operator-authored fingerprint), so the retain above
+        // has no effect on them.
+        //
+        // `evaluator_input` is computed here, before `deferred_rules` is
+        // moved into `build_deferred_envelope`, to avoid a borrow-after-move
+        // (the expansion tuples borrow `&DeferredRule` for `RuleRef::id`).
+        let deferred_evaluator_input: Option<String>;
+        {
+            let deferred_expansion = self.expand_deferred_contexts(&deferred_rules, &path, &diff);
+            push_expansion_failures_into_violations(
+                &deferred_expansion.failures,
+                &path,
+                &mut violations,
+            );
+            let sentinel = crate::llm::prompt::Sentinel::new_random();
+            deferred_evaluator_input = if deferred_rules.is_empty() {
+                None
+            } else {
+                Some(crate::llm::prompt::build_evaluator_input(
+                    &deferred_expansion.successes,
+                    &sentinel,
+                ))
+            };
+        }
+
         let mut verdict =
             Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64);
         // R6 (2026-05-23): when a deterministic block fires alongside an
@@ -1208,8 +1273,13 @@ impl HectorEngine {
         ) {
             eprintln!("hector: telemetry append failed: {e:#}");
         }
-        let deferred =
-            self.build_deferred_envelope(deferred_rules, &path, &content, &diff, &verdict);
+        let deferred = self.build_deferred_envelope(
+            deferred_rules,
+            &path,
+            &diff,
+            &verdict,
+            deferred_evaluator_input,
+        );
         Ok(CheckReport {
             verdict,
             explain,
@@ -1235,16 +1305,14 @@ impl HectorEngine {
         &self,
         deferred_rules: Vec<crate::verdict_deferred::DeferredRule>,
         path: &Path,
-        content: &str,
         diff: &str,
         verdict: &Verdict,
+        evaluator_input: Option<String>,
     ) -> Option<crate::verdict_deferred::DeferredVerdict> {
         if deferred_rules.is_empty() {
             return None;
         }
-        let tuples = self.collect_deferred_rule_tuples(&deferred_rules, path, content, diff);
-        let sentinel = crate::llm::prompt::Sentinel::new_random();
-        let evaluator_input = crate::llm::prompt::build_evaluator_input(&tuples, &sentinel);
+        let evaluator_input = evaluator_input.unwrap_or_default();
 
         // R5: thread the optional evaluator_model override from the
         // loaded `llm:` block into the payload. Only the subagent
@@ -1280,28 +1348,28 @@ impl HectorEngine {
         })
     }
 
-    /// B5: for each deferred rule, call `engine::context::expand_context`
+    /// B5 / fix(3): for each deferred rule, call `engine::context::expand_context`
     /// directly — the same function used by `render_semantic_prompts` —
     /// so the deferred envelope's `evaluator_input` and the direct-API
     /// prompt produce byte-identical evidence for the same `(rule, input)`.
     ///
-    /// Rules whose context can't be expanded (e.g. `context: diff` with no
-    /// diff, or an unreadable file) are skipped with a warning; this matches
-    /// the direct-API path, which would never produce a violation for such a
-    /// rule.
+    /// Unlike the old `collect_deferred_rule_tuples`, expansion errors are
+    /// NOT silently dropped. They are returned in `failures` so the caller
+    /// can thread them into violations as `__internal` entries before the
+    /// verdict is finalised. This matches the direct-API path (B7 / exit 3).
     ///
     /// The lifetime constraint is "borrows from `deferred_rules` and
     /// `self` for the same duration `'a`" — `RuleRef::id` points into
     /// the `DeferredRule` slice, and `RuleRef::rule` points into the
     /// config map. Both must outlive the returned tuples.
-    fn collect_deferred_rule_tuples<'a>(
+    fn expand_deferred_contexts<'a>(
         &'a self,
         deferred_rules: &'a [crate::verdict_deferred::DeferredRule],
         path: &Path,
-        _content: &str,
         diff: &str,
-    ) -> Vec<(crate::llm::prompt::RuleRef<'a>, String, Option<String>)> {
-        let mut tuples = Vec::with_capacity(deferred_rules.len());
+    ) -> DeferredExpansion<'a> {
+        let mut successes = Vec::with_capacity(deferred_rules.len());
+        let mut failures: Vec<(String, anyhow::Error)> = Vec::new();
         for d in deferred_rules {
             let Some(rule) = self.config_rule(&d.id) else {
                 continue;
@@ -1313,23 +1381,23 @@ impl HectorEngine {
                 Some(path),
                 &self.config_dir,
             );
-            let (primary, context_text) = match expansion {
-                Ok(pair) => pair,
-                Err(e) => {
-                    eprintln!(
-                        "hector: deferred context expansion failed for rule `{}`: {e:#}; skipping",
-                        d.id
-                    );
-                    continue;
+            match expansion {
+                Ok((primary, context_text)) => {
+                    successes.push((
+                        crate::llm::prompt::RuleRef { id: &d.id, rule },
+                        primary,
+                        context_text,
+                    ));
                 }
-            };
-            tuples.push((
-                crate::llm::prompt::RuleRef { id: &d.id, rule },
-                primary,
-                context_text,
-            ));
+                Err(e) => {
+                    failures.push((d.id.clone(), e));
+                }
+            }
         }
-        tuples
+        DeferredExpansion {
+            successes,
+            failures,
+        }
     }
 
     /// C4: render the LLM prompts that *would* be sent for every in-scope

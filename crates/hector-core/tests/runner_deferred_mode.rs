@@ -152,6 +152,7 @@ rules:
     engine: semantic
     scope: ["**/*.rs"]
     severity: warning
+    context: file
 "#;
     let cfg_path = tmp.path().join(".hector.yml");
     fs::write(&cfg_path, cfg_yaml).unwrap();

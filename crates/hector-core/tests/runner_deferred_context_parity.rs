@@ -54,46 +54,32 @@ fn deferred_evaluator_input_matches_direct_path_for_context_diff() {
     let tmp = tempdir().unwrap();
     let cfg = write_cfg(tmp.path(), "diff");
     let src = tmp.path().join("foo.rs");
-    fs::write(&src, "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+    fs::write(&src, "fn main() {}\n").unwrap();
 
     let engine = HectorEngine::builder()
         .with_options(opts())
         .load(&cfg)
         .unwrap();
-    let diff = "--- a/foo.rs\n+++ b/foo.rs\n@@ -1,1 +1,2 @@\n fn main() {}\n+println!(\"x\");\n"
-        .to_string();
+    let diff =
+        "--- a/foo.rs\n+++ b/foo.rs\n@@ -1,1 +1,2 @@\n fn main() {}\n+let MARKER_DIFF = 1;\n"
+            .to_string();
     let report = engine
         .check_with_explain(CheckInput::Diff {
             file: src.clone(),
-            unified_diff: diff.clone(),
-        })
-        .unwrap();
-    let deferred = report.deferred.expect("envelope present");
-
-    let direct = engine
-        .render_semantic_prompts(CheckInput::Diff {
-            file: src,
             unified_diff: diff,
         })
         .unwrap();
-    assert_eq!(direct.len(), 1, "exactly one semantic rule rendered");
-    // The deferred envelope embeds the same evidence; the direct
-    // prompt's `user` half is what the LLM sees. They must agree on
-    // the evidence body (a substring that must appear in both).
+    let deferred = report.deferred.expect("envelope present");
+    // context: diff must put the diff body in evaluator_input.
     assert!(
-        deferred
-            .payload
-            .evaluator_input
-            .contains(direct[0].user.split("<UE-").next().unwrap())
-            || direct[0].user.contains(
-                deferred
-                    .payload
-                    .evaluator_input
-                    .split("<UE-")
-                    .next()
-                    .unwrap()
-            ),
-        "deferred + direct policy framing must align (context: diff)"
+        deferred.payload.evaluator_input.contains("MARKER_DIFF"),
+        "context: diff must include the diff body in evaluator_input; got:\n{}",
+        deferred.payload.evaluator_input
+    );
+    // Negative: must NOT carry the repo or file stubs.
+    assert!(
+        !deferred.payload.evaluator_input.contains("using file"),
+        "context: diff must NOT carry a repo/file stub"
     );
 }
 
@@ -126,6 +112,47 @@ fn deferred_evaluator_input_matches_direct_path_for_context_file() {
     assert!(
         !deferred.payload.evaluator_input.contains("using file `"),
         "context: file must NOT carry the repo-scope stub"
+    );
+}
+
+/// TDD anchor for fix (3): expansion failures must surface as __internal
+/// violations → InternalError verdict, not be silently dropped.
+#[test]
+fn deferred_expansion_failure_surfaces_as_internal_error() {
+    // A `context: diff` rule running against `CheckInput::File` (no diff)
+    // causes expand_context to error. Under the old behavior this rule
+    // was silently dropped from the envelope. Now it must surface as an
+    // __internal violation → InternalError verdict.
+    let tmp = tempdir().unwrap();
+    let cfg = write_cfg(tmp.path(), "diff");
+    let src = tmp.path().join("foo.rs");
+    fs::write(&src, "fn main() {}\n").unwrap();
+
+    let engine = HectorEngine::builder()
+        .with_options(opts())
+        .load(&cfg)
+        .unwrap();
+    // File input → no diff → context: diff cannot expand → __internal.
+    let report = engine
+        .check_with_explain(CheckInput::File {
+            path: src,
+            content: "fn main() {}\n".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        report.verdict.status,
+        hector_core::verdict::Status::InternalError,
+        "expansion failure must surface as InternalError, not Pass with a silently-dropped rule; got verdict={:?}",
+        report.verdict
+    );
+    let has_internal = report
+        .verdict
+        .violations
+        .iter()
+        .any(|v| v.rule_id == "__internal" && v.message.contains("semantic-check"));
+    assert!(
+        has_internal,
+        "must include an __internal violation naming the failed rule"
     );
 }
 
