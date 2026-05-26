@@ -63,42 +63,6 @@ fn build_deferred_warnings(verdict: &Verdict) -> Vec<crate::verdict_deferred::De
         .collect()
 }
 
-/// B5 (2026-05-25): expand a single deferred rule's context the same
-/// way `engine::semantic::run` does for the direct-API path, so the
-/// envelope's `_evaluator_input` and the LLM prompt converge to the
-/// same string for the same `(rule, input)`. Reading the file from
-/// disk mirrors `engine::context::expand_context` — we re-use it
-/// directly when possible and fall back to in-memory content otherwise.
-fn expand_for_deferred(
-    rule: &Rule,
-    path: &Path,
-    content: &str,
-    diff: &str,
-) -> (String, Option<String>) {
-    let scope = rule.context.unwrap_or(crate::config::ContextScope::Diff);
-    match scope {
-        crate::config::ContextScope::Diff => {
-            // For diff scope: if we have a diff use it; otherwise fall
-            // back to the file content (file-mode check on a `context:
-            // diff` rule used to thread the file body too).
-            let primary = if diff.is_empty() {
-                content.to_string()
-            } else {
-                diff.to_string()
-            };
-            (primary, None)
-        }
-        crate::config::ContextScope::File => (content.to_string(), None),
-        crate::config::ContextScope::Repo => (
-            content.to_string(),
-            Some(format!(
-                "(repo-context expansion deferred; using file `{}` content only)",
-                path.display()
-            )),
-        ),
-    }
-}
-
 /// C4: optional per-run knobs for `HectorEngine::check`. Plumbed via
 /// `HectorEngine::builder().with_options(...)` so the public `check`
 /// signature stays stable across additions.
@@ -1316,11 +1280,15 @@ impl HectorEngine {
         })
     }
 
-    /// B5: for each deferred rule, run `expand_context` so the
-    /// envelope's `_evaluator_input` reflects the rule's declared
-    /// context scope (Diff / File / Repo). Returns owned strings so the
-    /// caller can build the `RuleRef` tuples without borrowing through
-    /// `self`.
+    /// B5: for each deferred rule, call `engine::context::expand_context`
+    /// directly — the same function used by `render_semantic_prompts` —
+    /// so the deferred envelope's `evaluator_input` and the direct-API
+    /// prompt produce byte-identical evidence for the same `(rule, input)`.
+    ///
+    /// Rules whose context can't be expanded (e.g. `context: diff` with no
+    /// diff, or an unreadable file) are skipped with a warning; this matches
+    /// the direct-API path, which would never produce a violation for such a
+    /// rule.
     ///
     /// The lifetime constraint is "borrows from `deferred_rules` and
     /// `self` for the same duration `'a`" — `RuleRef::id` points into
@@ -1330,7 +1298,7 @@ impl HectorEngine {
         &'a self,
         deferred_rules: &'a [crate::verdict_deferred::DeferredRule],
         path: &Path,
-        content: &str,
+        _content: &str,
         diff: &str,
     ) -> Vec<(crate::llm::prompt::RuleRef<'a>, String, Option<String>)> {
         let mut tuples = Vec::with_capacity(deferred_rules.len());
@@ -1338,7 +1306,23 @@ impl HectorEngine {
             let Some(rule) = self.config_rule(&d.id) else {
                 continue;
             };
-            let (primary, context_text) = expand_for_deferred(rule, path, content, diff);
+            let scope = rule.context.unwrap_or(crate::config::ContextScope::Diff);
+            let expansion = crate::engine::context::expand_context(
+                scope,
+                if diff.is_empty() { None } else { Some(diff) },
+                Some(path),
+                &self.config_dir,
+            );
+            let (primary, context_text) = match expansion {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!(
+                        "hector: deferred context expansion failed for rule `{}`: {e:#}; skipping",
+                        d.id
+                    );
+                    continue;
+                }
+            };
             tuples.push((
                 crate::llm::prompt::RuleRef { id: &d.id, rule },
                 primary,

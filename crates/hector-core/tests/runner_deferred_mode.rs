@@ -19,6 +19,7 @@ rules:
     engine: semantic
     scope: ["**/*.rs"]
     severity: error
+    context: file
 "#;
 
 fn write_trusted_config(dir: &std::path::Path) -> std::path::PathBuf {
