@@ -79,11 +79,12 @@ pub fn run(
                 print_explain(&report.explain);
             }
             if let Some(d) = &report.deferred {
-                // Deterministic block or engine failure wins — never emit
-                // deferred on top of an error-severity violation or an
-                // internal engine error. (Verdict::status was built from the
-                // deterministic violations only; semantic/session were
-                // collected, not dispatched.)
+                // Defense in depth: the runner already gates envelope
+                // construction on Block / InternalError (runner.rs's
+                // build_deferred_envelope returns None in those cases),
+                // so this branch is unreachable today — kept as a
+                // belt-and-braces check so future runner changes can't
+                // silently leak an envelope alongside a terminal verdict.
                 if matches!(report.verdict.status, Status::Block | Status::InternalError) {
                     emit(&report.verdict, format)?;
                     return Ok(exit_code(&report.verdict));

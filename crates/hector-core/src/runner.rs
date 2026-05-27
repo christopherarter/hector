@@ -1222,7 +1222,11 @@ impl HectorEngine {
                 &mut violations,
             );
             let sentinel = crate::llm::prompt::Sentinel::new_random();
-            deferred_evaluator_input = if deferred_rules.is_empty() {
+            // Guard on successes (not `deferred_rules`) so an all-failures
+            // case yields None rather than `Some("")` — the resulting
+            // verdict is InternalError and the envelope is suppressed
+            // either way, but the intent reads correctly.
+            deferred_evaluator_input = if deferred_expansion.successes.is_empty() {
                 None
             } else {
                 Some(crate::llm::prompt::build_evaluator_input(
