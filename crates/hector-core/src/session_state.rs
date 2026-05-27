@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::Path;
 
 /// Maximum number of edit records persisted to `session.json` (P2-18).
@@ -64,13 +65,33 @@ impl SessionState {
             self.edits.drain(..drop);
         }
 
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let temp = path.with_extension("json.tmp");
+        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        std::fs::create_dir_all(parent)?;
+
+        // Place the temp alongside the target so `rename` stays on the
+        // same filesystem (cross-fs rename is not atomic). Include the
+        // PID to keep concurrent `save` invocations from clobbering each
+        // other's temp files.
+        let tmp_name = match path.file_name() {
+            Some(n) => format!("{}.tmp.{}", n.to_string_lossy(), std::process::id()),
+            None => format!("session.tmp.{}", std::process::id()),
+        };
+        let tmp_path = parent.join(tmp_name);
+
         let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(&temp, json)?;
-        std::fs::rename(&temp, path)?;
+        {
+            let mut f = std::fs::File::create(&tmp_path)?;
+            f.write_all(json.as_bytes())?;
+            // sync_all flushes data + metadata so the rename below
+            // promotes only fully-durable bytes onto the target.
+            f.sync_all()?;
+        }
+        // If rename fails, do best-effort cleanup of the temp so we
+        // don't litter the parent directory.
+        if let Err(e) = std::fs::rename(&tmp_path, path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(e.into());
+        }
         Ok(())
     }
 

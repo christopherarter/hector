@@ -470,6 +470,15 @@ impl HectorEngine {
         self.config.rules.keys().map(|k| k.as_str())
     }
 
+    /// D5: replace the rule-id filter on an already-loaded engine. The CLI
+    /// uses this to avoid a second load: it loads once, validates `--rule`
+    /// args against the loaded config, then stores the validated set here.
+    /// `pub` — only the CLI adapter calls this; library callers set
+    /// the filter at build time via `HectorEngineBuilder::with_options`.
+    pub fn set_rule_filter(&mut self, rules: HashSet<String>) {
+        self.options.rules = rules;
+    }
+
     /// Lookup a rule by id from the loaded config.
     ///
     /// H1: used to resolve `DeferredRule` ids back to their full definitions
@@ -600,6 +609,15 @@ impl HectorEngine {
         llm_override: Option<Box<dyn crate::llm::LlmClient>>,
         options: CheckOptions,
     ) -> Result<Self> {
+        // Debug hook: counts engine loads per process. Gated on the env var so
+        // it is invisible in production; integration tests set it to assert
+        // that `hector check` loads the engine exactly once.
+        static LOAD_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = LOAD_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if std::env::var("HECTOR_DEBUG_LOAD_COUNT").is_ok() {
+            eprintln!("hector_load_count={n}");
+        }
+
         // `resolve_trusted` verifies the trust block of the root and every
         // transitive ancestor reachable through `extends:`. This is the only
         // gate before `script:` rules may run, so the trust chain must be
