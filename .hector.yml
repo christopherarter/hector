@@ -48,4 +48,4 @@ rules:
     severity: warning
     script: grep -nE 'eprintln!\("DEBUG' {file} && exit 1 || exit 0
 trust:
-  fingerprint: sha256:43cf7a20e2a3400b3c470189197d2860d17a418a92968be575f26a1e9e3de259
+  fingerprint: sha256:8798ad5a0ab624c9a5d56b87372cdaf1fdd3ccc5339fe2573b82b26be28b9f36

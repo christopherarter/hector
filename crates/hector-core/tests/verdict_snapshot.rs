@@ -11,14 +11,13 @@ fn engine_enum_separates_trust_from_internal() {
 }
 
 #[test]
-fn schema_version_is_three() {
+fn schema_version_is_two() {
     // P1-1: bumped 1 → 2 when Engine::Internal split out of Engine::Trust.
-    // R6 (2026-05-23): bumped 2 → 3 for the additive `deferred_rules`
-    // field on `Verdict` (surfaces deferred semantic rules when a
-    // deterministic block fires). The field uses
-    // `skip_serializing_if = "Vec::is_empty"`, so verdicts without
-    // deferred rules stay byte-compatible with v2.
-    assert_eq!(SCHEMA_VERSION, 3);
+    // R6 (2026-05-23): added additive `deferred_rules` field with
+    // `skip_serializing_if = "Vec::is_empty"` — no bump per C6 policy.
+    // SCHEMA_VERSION was briefly 3 and reverted (C6, 2026-05-25) because
+    // additive fields must NOT increment SCHEMA_VERSION.
+    assert_eq!(SCHEMA_VERSION, 2);
 }
 
 #[test]
@@ -80,7 +79,8 @@ fn verdict_with_internal_engine_violation_serializes() {
         vec![],
         7,
     );
-    assert_eq!(v.status, Status::Block);
+    // B7: internal engine violations now resolve to InternalError, not Block.
+    assert_eq!(v.status, Status::InternalError);
     insta::assert_json_snapshot!(v, { ".hector_version" => "[VERSION]" });
 }
 

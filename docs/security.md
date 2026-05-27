@@ -8,6 +8,35 @@
 | macOS    | Best-effort (advisory, logged) | Best-effort (advisory, logged) |
 | Windows  | Not supported in 0.1 | Not supported in 0.1 |
 
+## Trust Gate
+
+`hector trust <path>` computes a SHA-256 fingerprint of the config and embeds
+it in the `trust:` block. The loader verifies the fingerprint before executing
+any rule.
+
+### Fingerprint algorithm (0.2+)
+
+Canonicalization route: raw YAML → `serde_yaml::Value` (trust block stripped)
+→ `serde_json::Value` (via a recursive `yaml_to_json` conversion) → recursive
+key sort via `BTreeMap` → `serde_json::to_string`. SHA-256 of the resulting
+UTF-8 bytes.
+
+RFC 8259 normatively specifies the JSON byte form, so this output is stable
+across `serde_yaml` version bumps. The old route (`serde_yaml::to_string` of a
+sorted Value) was not normative — scalar style and indent choices varied across
+serde_yaml 0.8/0.9/0.10 minor releases.
+
+Unsupported YAML features in a config being trusted: YAML anchors/aliases
+(`&name`/`*name`), non-string mapping keys, and non-finite numbers all produce
+an error rather than a silent hash.
+
+**Migration:** anyone upgrading from 0.1 must re-sign their `.hector.yml`:
+```
+hector trust <path-to-.hector.yml>
+```
+A fingerprint mismatch error from `hector check` after an upgrade will include
+a re-sign hint.
+
 ## Threat model
 
 Capabilities protect against accidental damage from misconfigured `script:` rules, not against adversarial rule authors. The `trust` gate is the primary defense: rules cannot run until the user reviews and trusts the config.

@@ -2,7 +2,57 @@
 
 Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
-## Unreleased
+## Unreleased — 0.2 wire-format coordination
+
+This release batches all four contract-shaped changes from
+`docs/audits/2026-05-24-check-end-to-end-audit.md` into one CHANGELOG
+section so adapters and consumers see them together. Skip to
+**Migrating to 0.2** below for the upgrade checklist.
+
+### Breaking
+
+- **C1 (trust):** the trust fingerprint now canonicalizes through
+  `serde_json::Value` (RFC 8259) instead of `serde_yaml`'s emitter.
+  `serde_yaml`'s output is not normative — scalar style and indent width
+  changed across 0.8/0.9/0.10, so a `cargo update` could invalidate every
+  checked-in fingerprint with no actual config change. Every checked-in
+  `.hector.yml` must be re-signed: `hector trust <path>`. Old fingerprint
+  mismatch errors now include a re-sign hint. YAML anchors/aliases are
+  rejected with a clear error rather than silently hashed.
+- **C5 (prompt sentinel):** the deferred envelope's `evaluator_input`
+  now wraps trusted-policy and untrusted-evidence in **per-call random
+  delimiters** (`<TP-{32 hex}>…</TP-{token}>`, `<UE-{token}>…`). The
+  previous fixed `<TRUSTED_POLICY>`/`<UNTRUSTED_EVIDENCE>` tags were
+  guessable, letting attacker-supplied content forge a close-tag and
+  inject a fake policy section. Anything parsing the prompt structure
+  (interpreter skill, `hector-evaluator` subagent) must read the
+  boundaries from the rendered prompt, not assume the literal tags.
+- **`DEFERRED_SCHEMA_VERSION` bumped 2 → 3** (non-additive: `evaluator_input`
+  shape changed from a single string built without per-rule context to a
+  per-rule structure threading `context: file`/`context: repo`; see B5).
+
+### Added
+- **B7 (`Status::InternalError`):** new verdict status + CLI exit code
+  **3** for engine-level errors (LLM key missing, AST refused diff,
+  script spawn failure, context expansion failure). Previously these
+  surfaced as `Block` with a confusing `__internal` violation. Adapter
+  policy: default to **allow** on exit 3 (fail-open); opt into
+  fail-closed via `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`. Both the
+  Claude Code hook (`adapters/claude-code/hooks/hook.sh`) and the
+  OpenCode plugin honor this.
+- **B4 (deferred warnings):** the deferred envelope's
+  `payload.warnings` now carries deterministic Warn-severity violations
+  the deferred branch used to drop on the floor. Operators were
+  silently losing every script/AST warning whenever the deferred
+  branch fired.
+- **B3 (`claude-code-subagent` + `engine: session` stop path):**
+  `hector check --session` under the subagent provider used to print
+  *"internal error during session check"* — `check_session`
+  hard-required an `LlmClient` and `build_from_config` returns `None`
+  for the subagent provider. Now emits a session-aggregate
+  `DeferredVerdict` (`file: ""`, `diff: <per-edit framing>`); the
+  Claude Code stop hook wraps it in `hookSpecificOutput.additionalContext`
+  exactly like the `PostToolUse` per-file branch.
 
 ### Changed
 - **A1 (baseline)**: file-level violations (`line: None`) now require
@@ -11,6 +61,16 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   default since R4). v2 baselines continue to match on fingerprint
   alone during a grace period; run `hector baseline record` to
   re-record entries under the new schema. Storage schema bumped v2 → v3.
+- **B5 (per-rule context expansion):** the deferred envelope's
+  `evaluator_input` is now per-rule. Each rule's slice uses the rule's
+  declared `context:` scope (`diff` / `file` / `repo`) — `context: file`
+  threads the full file body; `context: repo` threads the canonical
+  repo-expansion stub. The previous single-string render meant a
+  `context: file` rule would silently see only the diff under the
+  subagent route while the direct-API route saw the file. Direct-API
+  and subagent now produce byte-identical evidence modulo the C5
+  per-call sentinel. Session rules also see per-rule scoped aggregates
+  (only edits matching the rule's scope).
 
 ### Fixed
 - **A2 (diff parser)**: POSIX `diff -u` patches with `\t<timestamp>`
@@ -20,6 +80,29 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   any non-git patch. `build_single_file_diff` had the symmetric bug;
   both call sites are fixed and regression-tested at parser and CLI
   levels.
+
+### Policy
+- **C6 (version bump policy):** `SCHEMA_VERSION` only bumps on field
+  *removals*, type changes, or semantic re-interpretations — additive
+  fields gated by `skip_serializing_if` do not bump. R6's spurious
+  `Verdict::SCHEMA_VERSION` 2 → 3 bump (it added the optional
+  `deferred_rules` field) is reverted to **2**.
+  `DEFERRED_SCHEMA_VERSION` advances to **3** because B5's
+  `evaluator_input` shape change is non-additive.
+
+### Migrating to 0.2
+1. Pull main and run `hector trust <path>` against every `.hector.yml`
+   in your repo — the trust fingerprint algorithm changed (C1).
+2. If you have CI that asserts `Verdict::schema_version == 3`, accept
+   `>= 2` instead (C6 reverts the spurious bump). The deferred-envelope
+   `schema_version` is now `3`.
+3. If your CI parses the deferred envelope, update for v3:
+   - `payload.warnings` is now present (B4)
+   - `payload.evaluator_input` is per-rule (B5)
+   - prompt sentinel tags carry a per-call random suffix (C5)
+4. If you script around exit codes, add a case for **3** (engine
+   internal error, B7). Default to allow; opt into fail-closed via
+   `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
 
 ### Hook output + capability warning quieted (R7)
 

@@ -19,6 +19,7 @@ rules:
     engine: semantic
     scope: ["**/*.rs"]
     severity: error
+    context: file
 "#;
 
 fn write_trusted_config(dir: &std::path::Path) -> std::path::PathBuf {
@@ -151,6 +152,7 @@ rules:
     engine: semantic
     scope: ["**/*.rs"]
     severity: warning
+    context: file
 "#;
     let cfg_path = tmp.path().join(".hector.yml");
     fs::write(&cfg_path, cfg_yaml).unwrap();

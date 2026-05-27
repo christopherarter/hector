@@ -3,9 +3,9 @@ source: crates/hector-core/tests/verdict_snapshot.rs
 expression: v
 ---
 {
-  "schema_version": 3,
+  "schema_version": 2,
   "hector_version": "[VERSION]",
-  "status": "block",
+  "status": "internal_error",
   "violations": [
     {
       "rule_id": "no-derived-state__internal",

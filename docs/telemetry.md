@@ -136,6 +136,22 @@ Written every time the A3 diff pre-filter short-circuits a semantic rule before 
 
 ---
 
+## Schema versioning policy
+
+`SCHEMA_VERSION` bumps **only** on:
+
+- field removals or type changes,
+- enum variant removals,
+- semantic re-interpretations of existing fields.
+
+Additive changes (new optional field with `skip_serializing_if`, new enum variant marked `#[non_exhaustive]`) do **not** bump.
+
+Consumers wanting backward compatibility should read `MIN_REQUIRED_SCHEMA_VERSION` and accept anything `>=`.
+
+This policy was codified in C6 (2026-05-25) when R6's additive `deferred_rules` field was found to have incorrectly bumped `SCHEMA_VERSION` from 2 to 3, causing strict consumers to reject every new verdict despite zero wire-format change. The bump was reverted and the policy documented here to prevent recurrence.
+
+---
+
 ## Atomicity and concurrency
 
 `telemetry::append` opens with `O_APPEND`, takes an advisory `flock(LOCK_EX)`, writes one buffered line in a single `write_all`, then releases the lock. Concurrent `hector` invocations (e.g. parallel rules in a future B1 work-stealing pool) cannot interleave bytes. The kernel's `O_APPEND` atomicity guarantee covers writes below `PIPE_BUF`; the `flock` covers larger lines.

@@ -38,6 +38,56 @@ fn severity_string(s: crate::config::Severity) -> String {
     }
 }
 
+/// B4 (2026-05-25): sweep warn-severity deterministic violations off the
+/// verdict so the deferred envelope can carry them on
+/// [`crate::verdict_deferred::DeferredPayload::warnings`]. The CLI's
+/// deferred branch suppresses the standard `Verdict` JSON, so before B4
+/// these violations vanished from stdout entirely.
+///
+/// Block-severity violations are left in place; the CLI also suppresses
+/// the deferred envelope in that case (the verdict's block is the
+/// terminal signal).
+/// fix(3): translate expansion failures into `__internal` violations and
+/// push them onto `violations`. Free function (not a method) because it needs
+/// no `HectorEngine` state. Extracted from `check_inner` to keep that
+/// function's cognitive complexity below the workspace cap (the for-loop +
+/// struct construction was nudging the count).
+fn push_expansion_failures_into_violations(
+    failures: &[(String, anyhow::Error)],
+    path: &Path,
+    violations: &mut Vec<Violation>,
+) {
+    for (rule_id, err) in failures {
+        violations.push(Violation {
+            rule_id: "__internal".to_string(),
+            severity: crate::verdict::Severity::Error,
+            engine: crate::verdict::Engine::Internal,
+            file: path.display().to_string(),
+            line: None,
+            column: None,
+            message: format!("deferred context expansion failed for rule `{rule_id}`: {err:#}"),
+            suggestion: None,
+            context: None,
+        });
+    }
+}
+
+fn build_deferred_warnings(verdict: &Verdict) -> Vec<crate::verdict_deferred::DeferredWarning> {
+    verdict
+        .violations
+        .iter()
+        .filter(|v| v.severity == crate::verdict::Severity::Warning)
+        .map(|v| crate::verdict_deferred::DeferredWarning {
+            rule_id: v.rule_id.clone(),
+            engine: v.engine,
+            file: v.file.clone(),
+            line: v.line,
+            column: v.column,
+            message: v.message.clone(),
+        })
+        .collect()
+}
+
 /// C4: optional per-run knobs for `HectorEngine::check`. Plumbed via
 /// `HectorEngine::builder().with_options(...)` so the public `check`
 /// signature stays stable across additions.
@@ -185,6 +235,15 @@ struct RuleOutcome {
     /// when the rule was out-of-scope (won't appear in the Check.rules
     /// array, matches "rule didn't run for this file" semantics).
     record: Option<PerRuleRecord>,
+}
+
+/// fix(3): result of pre-expanding deferred rule contexts before the
+/// verdict is finalised. Failures become `__internal` violations; only
+/// successes are threaded into the deferred envelope.
+struct DeferredExpansion<'a> {
+    successes: Vec<(crate::llm::prompt::RuleRef<'a>, String, Option<String>)>,
+    /// `(rule_id, error)` pairs for rules whose context could not expand.
+    failures: Vec<(String, anyhow::Error)>,
 }
 
 /// D1: per-call accumulators for `check_session`. Bundled into a single
@@ -1144,6 +1203,39 @@ impl HectorEngine {
         // tuple-only match — see `Baseline::contains_with_content`.
         violations.retain(|v| !baseline.contains_with_content(v, Some(&content)));
 
+        // fix(3): pre-expand deferred rule contexts BEFORE the verdict is
+        // finalised. Failures become __internal violations → InternalError
+        // verdict under B7, matching the direct-API path. __internal
+        // violations are never in a baseline (rule_id "==__internal" won't
+        // match any operator-authored fingerprint), so the retain above
+        // has no effect on them.
+        //
+        // `evaluator_input` is computed here, before `deferred_rules` is
+        // moved into `build_deferred_envelope`, to avoid a borrow-after-move
+        // (the expansion tuples borrow `&DeferredRule` for `RuleRef::id`).
+        let deferred_evaluator_input: Option<String>;
+        {
+            let deferred_expansion = self.expand_deferred_contexts(&deferred_rules, &path, &diff);
+            push_expansion_failures_into_violations(
+                &deferred_expansion.failures,
+                &path,
+                &mut violations,
+            );
+            let sentinel = crate::llm::prompt::Sentinel::new_random();
+            // Guard on successes (not `deferred_rules`) so an all-failures
+            // case yields None rather than `Some("")` — the resulting
+            // verdict is InternalError and the envelope is suppressed
+            // either way, but the intent reads correctly.
+            deferred_evaluator_input = if deferred_expansion.successes.is_empty() {
+                None
+            } else {
+                Some(crate::llm::prompt::build_evaluator_input(
+                    &deferred_expansion.successes,
+                    &sentinel,
+                ))
+            };
+        }
+
         let mut verdict =
             Verdict::from_violations(violations, passed, start.elapsed().as_millis() as u64);
         // R6 (2026-05-23): when a deterministic block fires alongside an
@@ -1183,8 +1275,13 @@ impl HectorEngine {
         ) {
             eprintln!("hector: telemetry append failed: {e:#}");
         }
-        let deferred =
-            self.build_deferred_envelope(deferred_rules, &path, &content, &diff, &verdict);
+        let deferred = self.build_deferred_envelope(
+            deferred_rules,
+            &path,
+            &diff,
+            &verdict,
+            deferred_evaluator_input,
+        );
         Ok(CheckReport {
             verdict,
             explain,
@@ -1192,35 +1289,42 @@ impl HectorEngine {
         })
     }
 
-    /// H1: assemble the `DeferredVerdict` envelope from the rules that
-    /// were short-circuited by `should_defer`. Returns `None` when the
-    /// list is empty so the CLI can branch on a single `Option`. Lives
-    /// outside `check_inner` to keep that function's cognitive
-    /// complexity below the workspace cap.
+    /// H1 / B4 / B5 / C5: assemble the `DeferredVerdict` envelope from
+    /// the rules that were short-circuited by `should_defer`. Returns
+    /// `None` when the list is empty so the CLI can branch on a single
+    /// `Option`. Lives outside `check_inner` to keep that function's
+    /// cognitive complexity below the workspace cap.
+    ///
+    /// - B4 (2026-05-25): sweeps warn-severity deterministic violations
+    ///   off the verdict and onto `payload.warnings`. The CLI suppresses
+    ///   verdict output when it emits a deferred envelope, so before B4
+    ///   these violations vanished from stdout.
+    /// - B5: threads `expand_context` per rule so a rule authoring
+    ///   `context: file` sees the full file in `evaluator_input` (the
+    ///   subagent and direct-API routes now read the same prompt).
+    /// - C5: rolls a fresh random sentinel for each envelope.
     fn build_deferred_envelope(
         &self,
         deferred_rules: Vec<crate::verdict_deferred::DeferredRule>,
         path: &Path,
-        content: &str,
         diff: &str,
         verdict: &Verdict,
+        evaluator_input: Option<String>,
     ) -> Option<crate::verdict_deferred::DeferredVerdict> {
         if deferred_rules.is_empty() {
             return None;
         }
-        // Resolve each deferred id back to its full `Rule` so the
-        // evaluator-input string sees the same `(id, &Rule)` slice the
-        // direct-API path would have seen.
-        let rule_refs: Vec<(&str, &crate::config::Rule)> = deferred_rules
-            .iter()
-            .filter_map(|d| self.config_rule(&d.id).map(|r| (d.id.as_str(), r)))
-            .collect();
-        let primary = if diff.is_empty() {
-            content.to_string()
-        } else {
-            diff.to_string()
-        };
-        let evaluator_input = crate::llm::prompt::build_evaluator_input(&rule_refs, &primary, None);
+        // Suppress the envelope on terminal verdict states. The CLI does
+        // this too (check.rs gates on Block | InternalError), but pinning
+        // it at the runner level means library callers see the same
+        // contract: no envelope when the verdict already says "stop."
+        // Block: R6 surfaces deferred rules on `Verdict.deferred_rules`.
+        // InternalError: an engine-level failure short-circuits the LLM
+        // dispatch the envelope was built to enable.
+        if matches!(verdict.status, Status::Block | Status::InternalError) {
+            return None;
+        }
+        let evaluator_input = evaluator_input.unwrap_or_default();
 
         // R5: thread the optional evaluator_model override from the
         // loaded `llm:` block into the payload. Only the subagent
@@ -1231,6 +1335,12 @@ impl HectorEngine {
             .llm
             .as_ref()
             .and_then(|l| l.evaluator_model.clone());
+
+        // B4: sweep warn-severity deterministic violations onto the
+        // envelope so the operator (and the in-session subagent) sees
+        // them. Block-severity violations stay on `verdict.violations`;
+        // the CLI suppresses the deferred envelope in that case anyway.
+        let warnings = build_deferred_warnings(verdict);
 
         Some(crate::verdict_deferred::DeferredVerdict {
             schema_version: crate::verdict_deferred::DEFERRED_SCHEMA_VERSION,
@@ -1244,9 +1354,62 @@ impl HectorEngine {
                 evaluate: deferred_rules,
                 evaluator_input,
                 evaluator_model,
+                warnings,
             },
             elapsed_ms: verdict.elapsed_ms,
         })
+    }
+
+    /// B5 / fix(3): for each deferred rule, call `engine::context::expand_context`
+    /// directly — the same function used by `render_semantic_prompts` —
+    /// so the deferred envelope's `evaluator_input` and the direct-API
+    /// prompt produce byte-identical evidence for the same `(rule, input)`.
+    ///
+    /// Unlike the old `collect_deferred_rule_tuples`, expansion errors are
+    /// NOT silently dropped. They are returned in `failures` so the caller
+    /// can thread them into violations as `__internal` entries before the
+    /// verdict is finalised. This matches the direct-API path (B7 / exit 3).
+    ///
+    /// The lifetime constraint is "borrows from `deferred_rules` and
+    /// `self` for the same duration `'a`" — `RuleRef::id` points into
+    /// the `DeferredRule` slice, and `RuleRef::rule` points into the
+    /// config map. Both must outlive the returned tuples.
+    fn expand_deferred_contexts<'a>(
+        &'a self,
+        deferred_rules: &'a [crate::verdict_deferred::DeferredRule],
+        path: &Path,
+        diff: &str,
+    ) -> DeferredExpansion<'a> {
+        let mut successes = Vec::with_capacity(deferred_rules.len());
+        let mut failures: Vec<(String, anyhow::Error)> = Vec::new();
+        for d in deferred_rules {
+            let Some(rule) = self.config_rule(&d.id) else {
+                continue;
+            };
+            let scope = rule.context.unwrap_or(crate::config::ContextScope::Diff);
+            let expansion = crate::engine::context::expand_context(
+                scope,
+                if diff.is_empty() { None } else { Some(diff) },
+                Some(path),
+                &self.config_dir,
+            );
+            match expansion {
+                Ok((primary, context_text)) => {
+                    successes.push((
+                        crate::llm::prompt::RuleRef { id: &d.id, rule },
+                        primary,
+                        context_text,
+                    ));
+                }
+                Err(e) => {
+                    failures.push((d.id.clone(), e));
+                }
+            }
+        }
+        DeferredExpansion {
+            successes,
+            failures,
+        }
     }
 
     /// C4: render the LLM prompts that *would* be sent for every in-scope
@@ -1481,5 +1644,149 @@ impl HectorEngine {
             eprintln!("hector: telemetry append failed: {e:#}");
         }
         Ok(verdict)
+    }
+
+    /// B3: session-stop path for the Claude Code subagent provider.
+    ///
+    /// When `options.emit_semantic_payload` is true AND at least one
+    /// `engine: session` rule is in scope for at least one edit, this
+    /// method emits a [`CheckReport`] whose `deferred` field carries a
+    /// [`crate::verdict_deferred::DeferredVerdict`] with:
+    /// - `file: ""` (session-level, not per-file)
+    /// - `diff: <framed aggregate>` (every in-scope edit framed via
+    ///   `engine::session::framed_aggregate`)
+    ///
+    /// When no session rule is in scope, or `emit_semantic_payload` is
+    /// false, falls through to `check_session` and wraps the result in
+    /// a `CheckReport` with `deferred: None`.
+    pub fn check_session_with_options(
+        &self,
+        state: &crate::session_state::SessionState,
+    ) -> Result<CheckReport> {
+        use crate::engine::session::framed_aggregate;
+
+        // B3: if emit_semantic_payload is set, collect in-scope session
+        // rules into a deferred envelope instead of requiring an LlmClient.
+        if self.options.emit_semantic_payload {
+            let start = Instant::now();
+            let mut deferred_rules: Vec<crate::verdict_deferred::DeferredRule> = Vec::new();
+            let mut passed: Vec<String> = Vec::new();
+            let filter: &HashSet<String> = &self.options.rules;
+
+            for (rule_id, rule) in &self.config.rules {
+                if rule.engine != crate::config::EngineKind::Session {
+                    continue;
+                }
+                if !filter.is_empty() && !filter.contains(rule_id.as_str()) {
+                    continue;
+                }
+                // Per-edit scope filter: the rule must match at least one
+                // edit's file path to be considered in scope.
+                let any_in_scope = state
+                    .edits
+                    .iter()
+                    .any(|e| self.rule_matches_path(rule_id, std::path::Path::new(&e.file)));
+                if !any_in_scope {
+                    passed.push(rule_id.clone());
+                    continue;
+                }
+                deferred_rules.push(crate::verdict_deferred::DeferredRule {
+                    id: rule_id.clone(),
+                    description: rule.description.clone(),
+                    severity: severity_string(rule.severity),
+                    engine: "session".into(),
+                });
+            }
+
+            if !deferred_rules.is_empty() {
+                // payload.diff is the FULL session aggregate (every edit) —
+                // surfaced to the operator and the in-session subagent as
+                // session-level meta-context. The per-rule evaluator slice
+                // below is what the subagent actually evaluates with.
+                let aggregate_diff = framed_aggregate(state);
+
+                // Build the per-rule evaluator input. Each session rule
+                // sees only the edits matching its own scope — same
+                // contract as the LLM path (check_session at ~1592-1614
+                // builds a scoped_state per rule before calling
+                // framed_aggregate). The "direct-API and subagent see the
+                // same evidence" invariant requires this per-rule scoping.
+                let sentinel = crate::llm::prompt::Sentinel::new_random();
+                let evaluator_tuples: Vec<(
+                    crate::llm::prompt::RuleRef<'_>,
+                    String,
+                    Option<String>,
+                )> = deferred_rules
+                    .iter()
+                    .filter_map(|d| {
+                        let rule = self.config_rule(&d.id)?;
+                        let scoped_state = crate::session_state::SessionState {
+                            session_id: state.session_id.clone(),
+                            started_at: state.started_at.clone(),
+                            edits: state
+                                .edits
+                                .iter()
+                                .filter(|e| {
+                                    self.rule_matches_path(&d.id, std::path::Path::new(&e.file))
+                                })
+                                .cloned()
+                                .collect(),
+                        };
+                        let scoped_diff = framed_aggregate(&scoped_state);
+                        Some((
+                            crate::llm::prompt::RuleRef { id: &d.id, rule },
+                            scoped_diff,
+                            None,
+                        ))
+                    })
+                    .collect();
+                let evaluator_input =
+                    crate::llm::prompt::build_evaluator_input(&evaluator_tuples, &sentinel);
+
+                let evaluator_model = self
+                    .config
+                    .llm
+                    .as_ref()
+                    .and_then(|l| l.evaluator_model.clone());
+
+                let verdict = crate::verdict::Verdict::from_violations(
+                    vec![],
+                    passed,
+                    start.elapsed().as_millis() as u64,
+                );
+
+                let deferred = Some(crate::verdict_deferred::DeferredVerdict {
+                    schema_version: crate::verdict_deferred::DEFERRED_SCHEMA_VERSION,
+                    deferred: true,
+                    hector_version: env!("CARGO_PKG_VERSION").to_string(),
+                    passed_checks: verdict.passed_checks.clone(),
+                    payload: crate::verdict_deferred::DeferredPayload {
+                        file: "".to_string(),
+                        diff: aggregate_diff,
+                        passed_checks: verdict.passed_checks.clone(),
+                        evaluate: deferred_rules,
+                        evaluator_input,
+                        evaluator_model,
+                        warnings: vec![],
+                    },
+                    elapsed_ms: verdict.elapsed_ms,
+                });
+
+                return Ok(CheckReport {
+                    verdict,
+                    explain: vec![],
+                    deferred,
+                });
+            }
+        }
+
+        // Fallback: no deferred session rules in scope (or not in deferred
+        // mode). Delegate to the existing LLM-dispatch path.
+        let verdict = self.check_session(state)?;
+        Ok(CheckReport {
+            verdict,
+            explain: vec![],
+            deferred: None,
+        })
     }
 }

@@ -2,19 +2,38 @@ use serde::{Deserialize, Serialize};
 
 /// Verdict JSON schema version.
 ///
+/// **Policy (C6, 2026-05-25):**
+/// `SCHEMA_VERSION` bumps ONLY on:
+/// - field removals or type changes,
+/// - enum variant removals,
+/// - semantic re-interpretations of existing fields.
+///
+/// Additive changes (new optional field with `skip_serializing_if`,
+/// new enum variant marked `#[non_exhaustive]`) do NOT bump.
+/// Consumers wanting backward compatibility should read
+/// `MIN_REQUIRED_SCHEMA_VERSION` and accept anything `>=`.
+///
 /// History:
 /// - v1: initial 0.1 shape with five `Engine` variants (`Script`, `Ast`,
 ///   `Semantic`, `Session`, `Trust`).
 /// - v2 (P1-1): split overloaded `Engine::Trust` into `Engine::Trust`
 ///   (true trust-gate failures) and `Engine::Internal` (engine runtime
 ///   errors). Wire format for the new variant is `"internal"`.
-/// - v3 (R6, 2026-05-23): added optional `deferred_rules: [{rule_id,
-///   severity, reason}]` field that surfaces semantic/session rules
-///   suppressed by a deterministic block under `--emit-semantic-payload`.
-///   Additive: serialized with `skip_serializing_if = "Vec::is_empty"`
-///   so verdicts without deferred rules are byte-compatible with v2.
-///   See `docs/audits/2026-05-23-first-run-dx-audit.md#r6`.
-pub const SCHEMA_VERSION: u32 = 3;
+/// - v2 retained (R6, 2026-05-23): added optional `deferred_rules:
+///   [{rule_id, severity, reason}]` field with
+///   `skip_serializing_if = "Vec::is_empty"`. Additive — verdicts
+///   without deferred rules are byte-compatible with the original v2
+///   shape. SCHEMA_VERSION was briefly bumped to 3 and reverted here
+///   (C6, 2026-05-25) because strict consumers rejected every new
+///   verdict despite zero wire-format change.
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// Floor schema version that all current verdicts satisfy.
+///
+/// Consumers should assert `schema_version >= MIN_REQUIRED_SCHEMA_VERSION`
+/// rather than `schema_version == <constant>`, so they remain compatible
+/// with future additive bumps.
+pub const MIN_REQUIRED_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verdict {
@@ -57,10 +76,18 @@ pub struct DeferredRuleRef {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Status {
     Pass,
     Warn,
     Block,
+    /// B7 (2026-05-25): at least one rule failed to evaluate due to an
+    /// engine-internal error (LLM unavailable, AST refused diff, script
+    /// spawn failure). Surfaces in `Violation::engine = Internal` rows.
+    /// CLI maps to exit code 3 so adapters can distinguish "config
+    /// wrong" from "policy violated" (exit 2).
+    #[serde(rename = "internal_error")]
+    InternalError,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,7 +160,13 @@ impl Verdict {
         passed: Vec<String>,
         elapsed_ms: u64,
     ) -> Self {
-        let status = if violations.iter().any(|v| v.severity == Severity::Error) {
+        let has_internal = violations.iter().any(|v| v.engine == Engine::Internal);
+        let has_error = violations
+            .iter()
+            .any(|v| v.engine != Engine::Internal && v.severity == Severity::Error);
+        let status = if has_internal {
+            Status::InternalError
+        } else if has_error {
             Status::Block
         } else if violations.is_empty() {
             Status::Pass
