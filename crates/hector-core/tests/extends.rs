@@ -168,3 +168,93 @@ fn extends_chain_rejects_untrusted_parent() {
         "error should reference trust; got: {msg}"
     );
 }
+
+/// D6: multi-parent `extends:` precedence is **first-parent-wins** on
+/// `llm:` and rule-id collisions. Pinned per Phase 0 decision in
+/// `docs/audits/2026-05-24-check-end-to-end-audit.md#d6`. Local
+/// declarations in the child always win over both inherited copies.
+#[test]
+fn extends_first_parent_llm_wins_on_multi_parent_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.yml");
+    let b = dir.path().join("b.yml");
+    std::fs::write(
+        &a,
+        "schema_version: 2\nllm:\n  provider: anthropic\n  model: claude-from-a\nrules: {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &b,
+        "schema_version: 2\nllm:\n  provider: openai-compat\n  model: gpt-from-b\nrules: {}\n",
+    )
+    .unwrap();
+    let child = dir.path().join("child.yml");
+    std::fs::write(
+        &child,
+        "schema_version: 2\nextends: [\"./a.yml\", \"./b.yml\"]\nrules: {}\n",
+    )
+    .unwrap();
+    let cfg = parse_file_with_extends(&child).expect("parse");
+    let llm = cfg.llm.expect("llm should be inherited");
+    assert_eq!(
+        llm.provider, "anthropic",
+        "first-parent-wins: a.yml's llm.provider must beat b.yml's"
+    );
+    assert_eq!(llm.model.as_deref(), Some("claude-from-a"));
+}
+
+#[test]
+fn extends_first_parent_rule_wins_on_multi_parent_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.yml");
+    let b = dir.path().join("b.yml");
+    std::fs::write(
+        &a,
+        "schema_version: 2\nrules:\n  collide:\n    description: \"from a\"\n    engine: script\n    scope: [\"*\"]\n    severity: warning\n    script: \"echo a\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &b,
+        "schema_version: 2\nrules:\n  collide:\n    description: \"from b\"\n    engine: script\n    scope: [\"*\"]\n    severity: error\n    script: \"echo b\"\n",
+    )
+    .unwrap();
+    let child = dir.path().join("child.yml");
+    std::fs::write(
+        &child,
+        "schema_version: 2\nextends: [\"./a.yml\", \"./b.yml\"]\nrules: {}\n",
+    )
+    .unwrap();
+    let cfg = parse_file_with_extends(&child).expect("parse");
+    assert_eq!(
+        cfg.rules["collide"].description, "from a",
+        "first-parent-wins: a.yml's `collide` rule must beat b.yml's"
+    );
+}
+
+#[test]
+fn extends_child_local_rule_beats_both_parents_on_multi_parent_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.yml");
+    let b = dir.path().join("b.yml");
+    std::fs::write(
+        &a,
+        "schema_version: 2\nrules:\n  collide:\n    description: \"from a\"\n    engine: script\n    scope: [\"*\"]\n    severity: warning\n    script: \"echo a\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &b,
+        "schema_version: 2\nrules:\n  collide:\n    description: \"from b\"\n    engine: script\n    scope: [\"*\"]\n    severity: error\n    script: \"echo b\"\n",
+    )
+    .unwrap();
+    let child = dir.path().join("child.yml");
+    std::fs::write(
+        &child,
+        "schema_version: 2\nextends: [\"./a.yml\", \"./b.yml\"]\nrules:\n  collide:\n    description: \"from child\"\n    engine: script\n    scope: [\"*\"]\n    severity: error\n    script: \"echo child\"\n",
+    )
+    .unwrap();
+    let cfg = parse_file_with_extends(&child).expect("parse");
+    assert_eq!(
+        cfg.rules["collide"].description, "from child",
+        "child-local rule must win over both parents' `collide`"
+    );
+}
