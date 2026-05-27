@@ -4,6 +4,17 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
 ## Unreleased
 
+### Breaking
+
+- **C1 (trust):** the trust fingerprint now canonicalizes through
+  `serde_json::Value` (RFC 8259) instead of `serde_yaml`'s emitter.
+  `serde_yaml`'s output is not normative — scalar style and indent width
+  changed across 0.8/0.9/0.10, so a `cargo update` could invalidate every
+  checked-in fingerprint with no actual config change. Every checked-in
+  `.hector.yml` must be re-signed: `hector trust <path>`. Old fingerprint
+  mismatch errors now include a re-sign hint. YAML anchors/aliases are
+  rejected with a clear error rather than silently hashed.
+
 ### Changed
 - **A1 (baseline)**: file-level violations (`line: None`) now require
   both fingerprint AND normalized body match. The prior behavior turned
