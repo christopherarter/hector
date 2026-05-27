@@ -1699,37 +1699,45 @@ impl HectorEngine {
             }
 
             if !deferred_rules.is_empty() {
-                // Build the aggregate diff from edits that are in scope for
-                // at least one deferred session rule.
+                // payload.diff is the FULL session aggregate (every edit) —
+                // surfaced to the operator and the in-session subagent as
+                // session-level meta-context. The per-rule evaluator slice
+                // below is what the subagent actually evaluates with.
                 let aggregate_diff = framed_aggregate(state);
 
-                // Build a simple evaluator input. Session rules use the
-                // aggregate diff as primary evidence; no per-rule context
-                // expansion is needed (session rules have no `context:`
-                // field; they operate on the aggregate).
+                // Build the per-rule evaluator input. Each session rule
+                // sees only the edits matching its own scope — same
+                // contract as the LLM path (check_session at ~1592-1614
+                // builds a scoped_state per rule before calling
+                // framed_aggregate). The "direct-API and subagent see the
+                // same evidence" invariant requires this per-rule scoping.
                 let sentinel = crate::llm::prompt::Sentinel::new_random();
-                let rule_tuples: Vec<crate::llm::prompt::RuleRef<'_>> = deferred_rules
-                    .iter()
-                    .filter_map(|d| {
-                        self.config_rule(&d.id)
-                            .map(|rule| crate::llm::prompt::RuleRef { id: &d.id, rule })
-                    })
-                    .collect();
                 let evaluator_tuples: Vec<(
                     crate::llm::prompt::RuleRef<'_>,
                     String,
                     Option<String>,
-                )> = rule_tuples
+                )> = deferred_rules
                     .iter()
-                    .map(|rr| {
-                        (
-                            crate::llm::prompt::RuleRef {
-                                id: rr.id,
-                                rule: rr.rule,
-                            },
-                            aggregate_diff.clone(),
+                    .filter_map(|d| {
+                        let rule = self.config_rule(&d.id)?;
+                        let scoped_state = crate::session_state::SessionState {
+                            session_id: state.session_id.clone(),
+                            started_at: state.started_at.clone(),
+                            edits: state
+                                .edits
+                                .iter()
+                                .filter(|e| {
+                                    self.rule_matches_path(&d.id, std::path::Path::new(&e.file))
+                                })
+                                .cloned()
+                                .collect(),
+                        };
+                        let scoped_diff = framed_aggregate(&scoped_state);
+                        Some((
+                            crate::llm::prompt::RuleRef { id: &d.id, rule },
+                            scoped_diff,
                             None,
-                        )
+                        ))
                     })
                     .collect();
                 let evaluator_input =
