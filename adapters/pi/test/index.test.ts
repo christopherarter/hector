@@ -713,3 +713,47 @@ test("tool_call: exit-3 fails closed under HECTOR_FAIL_CLOSED_ON_INTERNAL=1", ()
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("agent_end: never blocks on session check exit 3, even under fail-closed", () => {
+  // The session check runs after the turn finishes, so agent_end is advisory:
+  // even an engine internal error (exit 3) with HECTOR_FAIL_CLOSED_ON_INTERNAL=1
+  // must NOT return a block — it can only surface the error. A fake `hector`
+  // forces exit 3 deterministically.
+  const dir = mkdtempSync(join(tmpdir(), "hector-pi-agentend3-"))
+  const bin = mkdtempSync(join(tmpdir(), "hector-pi-fakebin3-"))
+  const origPath = process.env["PATH"] ?? ""
+  const hadClosed = process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+  const origErr = console.error
+  const errs: string[] = []
+  try {
+    mkdirSync(join(dir, ".hector"), { recursive: true })
+    writeFileSync(
+      join(dir, ".hector", "session.json"),
+      JSON.stringify({ session_id: "s", started_at: "t", edits: [] }),
+    )
+    const fake = join(bin, "hector")
+    writeFileSync(fake, "#!/bin/sh\necho 'engine error' 1>&2\nexit 3\n")
+    chmodSync(fake, 0o755)
+    process.env["PATH"] = bin + delimiter + origPath
+    process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] = "1"
+    console.error = (...args: unknown[]) => {
+      errs.push(args.map(String).join(" "))
+    }
+
+    const handlers = loadExtension(dir)
+    const notified: string[] = []
+    const result = handlers.agent_end!({}, { ui: { notify: (m: string) => notified.push(m) } })
+
+    // Advisory: never a block, even under fail-closed. Only an internal-error log.
+    assert.equal(result, undefined)
+    assert.equal(notified.length, 0)
+    assert.ok(errs.join("\n").includes("internal error"))
+  } finally {
+    console.error = origErr
+    process.env["PATH"] = origPath
+    if (hadClosed === undefined) delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+    else process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] = hadClosed
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(bin, { recursive: true, force: true })
+  }
+})
