@@ -405,4 +405,32 @@ mod parse_verdict_tests {
         let err = parse_verdicts("the model refused to answer").expect_err("no array");
         assert!(format!("{err:#}").to_lowercase().contains("json"));
     }
+
+    #[test]
+    fn bracket_inside_json_string_does_not_end_the_span_early() {
+        // A lone `]` inside a string value would, without the string-aware
+        // scan, close the array early and corrupt the span. The in_str state
+        // machine must ignore brackets inside string literals.
+        let text = "[{\"rule_id\":\"r1\",\"status\":\"violation\",\"message\":\"unbalanced ] bracket\",\"line\":2}]";
+        let v = parse_verdicts(text).expect("a `]` inside a string must not truncate the span");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].rule_id, "r1");
+        match &v[0].status {
+            RuleStatus::Violation { message, line } => {
+                assert!(message.contains("unbalanced ] bracket"));
+                assert_eq!(*line, Some(2));
+            }
+            _ => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn unclosed_array_is_an_error_not_a_panic() {
+        // A truncated response whose `[` never closes must return an Err
+        // (balanced_array_span returns None → extraction finds no valid span),
+        // not panic.
+        let text = "verdict: [{\"rule_id\":\"r1\",\"status\":\"pass\"";
+        let err = parse_verdicts(text).expect_err("unclosed array must error");
+        assert!(format!("{err:#}").to_lowercase().contains("json"));
+    }
 }
