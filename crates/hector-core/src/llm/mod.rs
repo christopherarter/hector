@@ -5,7 +5,7 @@ pub mod openai_compat;
 pub mod prompt;
 
 use crate::config::{LlmConfig, Rule};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use regex::Regex;
 use serde::Deserialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -221,21 +221,72 @@ struct WireVerdict {
     line: Option<u32>,
 }
 
+/// Find the balanced `[...]` span starting at byte index `start` (which must
+/// point at a `[`), respecting JSON string literals so brackets inside strings
+/// don't affect depth. Returns `None` if the array never closes.
+fn balanced_array_span(s: &str, start: usize) -> Option<&str> {
+    let bytes = s.as_bytes();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut escaped = false;
+    let mut i = start;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+        } else {
+            match b {
+                b'"' => in_str = true,
+                b'[' => depth += 1,
+                b']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // start and i both index ASCII delimiters → valid bounds.
+                        return Some(&s[start..=i]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Pull the verdict array out of an LLM response that may wrap it in prose or
+/// markdown. Tries each `[` as a candidate start and returns the first balanced
+/// span that deserializes into the verdict shape — so incidental brackets like
+/// `[see notes]` or `[1, 2, 3]` are skipped.
+fn extract_wire_verdicts(text: &str) -> Result<Vec<WireVerdict>> {
+    let trimmed = text.trim();
+    let mut search_from = 0;
+    while let Some(rel) = trimmed[search_from..].find('[') {
+        let start = search_from + rel;
+        if let Some(span) = balanced_array_span(trimmed, start) {
+            if let Ok(wire) = serde_json::from_str::<Vec<WireVerdict>>(span) {
+                return Ok(wire);
+            }
+        }
+        search_from = start + 1;
+    }
+    Err(anyhow!(
+        "no JSON verdict array found in response: {trimmed}"
+    ))
+}
+
 /// Parse the LLM's JSON-array response into structured verdicts.
 ///
-/// Tolerates extra prose around the array (some models wrap it in markdown
-/// fences or a sentence).
+/// Tolerates prose or markdown fences around the array, and incidental
+/// brackets before it, by scanning for the first balanced `[...]` that matches
+/// the verdict shape.
 pub fn parse_verdicts(text: &str) -> Result<Vec<RuleVerdict>> {
-    let trimmed = text.trim();
-    let start = trimmed
-        .find('[')
-        .ok_or_else(|| anyhow!("no JSON array in response: {trimmed}"))?;
-    let end = trimmed
-        .rfind(']')
-        .ok_or_else(|| anyhow!("no closing bracket: {trimmed}"))?;
-    let json = &trimmed[start..=end];
-    let wire: Vec<WireVerdict> =
-        serde_json::from_str(json).with_context(|| format!("parse verdict JSON: {json}"))?;
+    let wire = extract_wire_verdicts(text)?;
     let mut out = Vec::with_capacity(wire.len());
     for w in wire {
         let status = match w.status.to_ascii_lowercase().as_str() {
@@ -311,5 +362,47 @@ mod redact_tests {
         assert!(!out.contains("sk-supersecret-token"), "got: {out}");
         assert!(out.contains("[REDACTED]"));
         assert!(out.chars().count() <= ERROR_BODY_CHAR_BUDGET);
+    }
+}
+
+#[cfg(test)]
+mod parse_verdict_tests {
+    use super::{parse_verdicts, RuleStatus};
+
+    #[test]
+    fn extracts_array_amid_prose_with_incidental_brackets() {
+        let text = "I reviewed the changes [see the 2 notes] and conclude: \
+                    [{\"rule_id\":\"r1\",\"status\":\"pass\"}] — all done [end]";
+        let v = parse_verdicts(text).expect("must skip prose brackets and parse the real array");
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].rule_id, "r1");
+        assert_eq!(v[0].status, RuleStatus::Pass);
+    }
+
+    #[test]
+    fn skips_non_verdict_array_before_the_real_one() {
+        let text = "scores: [1, 2, 3]. verdict: \
+                    [{\"rule_id\":\"r2\",\"status\":\"violation\",\"message\":\"nope\",\"line\":4}]";
+        let v = parse_verdicts(text).expect("must skip [1,2,3] and find the verdict array");
+        assert_eq!(v.len(), 1);
+        match &v[0].status {
+            RuleStatus::Violation { message, line } => {
+                assert_eq!(message, "nope");
+                assert_eq!(*line, Some(4));
+            }
+            _ => panic!("expected violation"),
+        }
+    }
+
+    #[test]
+    fn plain_array_still_parses() {
+        let v = parse_verdicts("[{\"rule_id\":\"r1\",\"status\":\"pass\"}]").unwrap();
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn no_array_is_an_error() {
+        let err = parse_verdicts("the model refused to answer").expect_err("no array");
+        assert!(format!("{err:#}").to_lowercase().contains("json"));
     }
 }
