@@ -206,8 +206,33 @@ fn spawn_clone(
     let stdout_w_raw = stdout_w.as_raw_fd();
     let stderr_w_raw = stderr_w.as_raw_fd();
 
+    // Build the NUL-terminated argv/envp pointer arrays IN THE PARENT so the
+    // child performs zero heap allocation. (nix::execve would .collect() these
+    // arrays inside the child — a malloc that can hit the glibc arena lock,
+    // defeating the async-signal-safe-child guarantee.) The pointers borrow the
+    // CString buffers above, which are moved into the closure to stay alive.
+    let argv_ptrs: Vec<*const libc::c_char> = argv
+        .iter()
+        .map(|c| c.as_ptr())
+        .chain(std::iter::once(std::ptr::null()))
+        .collect();
+    let envp_ptrs: Vec<*const libc::c_char> = envp
+        .iter()
+        .map(|c| c.as_ptr())
+        .chain(std::iter::once(std::ptr::null()))
+        .collect();
+
     let child_fn: nix::sched::CloneCb<'_> = Box::new(move || -> isize {
-        child_exec(stdout_w_raw, stderr_w_raw, &cwd_c, &sh_path, &argv, &envp)
+        child_exec(
+            stdout_w_raw,
+            stderr_w_raw,
+            &cwd_c,
+            &sh_path,
+            &argv,
+            &envp,
+            &argv_ptrs,
+            &envp_ptrs,
+        )
     });
 
     // SAFETY: `nix::sched::clone` is `unsafe fn` because the caller must
@@ -217,10 +242,10 @@ fn spawn_clone(
     // not free it until after `waitpid` succeeds in the caller, and even
     // if the parent panics the OS will reap the child via SIGCHLD before
     // the stack is dropped. We satisfy (2) because the closure calls only
-    // `child_exec`, which performs `dup2`/`chdir`/`execve` on
-    // parent-pre-built CStrings — async-signal-safe, with no allocation or
-    // lock acquisition, so a multithreaded parent at clone time cannot
-    // deadlock the child.
+    // `child_exec`, which performs `dup2`/`chdir` and a raw `libc::execve` on
+    // parent-pre-built CStrings and pointer arrays — async-signal-safe, with no
+    // allocation or lock acquisition, so a multithreaded parent at clone time
+    // cannot deadlock the child.
     // SAFETY-MIRI: `clone(2)` is opaque to miri; the per-child
     // namespace invariant is verified empirically by
     // `tests/capability_per_child.rs` on Linux instead.
@@ -244,34 +269,47 @@ fn spawn_clone(
 }
 
 /// Body of the cloned child. Runs in the child's COW address space until
-/// `execve` replaces it. Calls ONLY async-signal-safe syscalls (`dup2`,
-/// `chdir`, `execve`) on data the parent pre-built — no allocation, no locks.
+/// `execve` replaces it. Performs ZERO heap allocation and acquires NO locks:
+/// it calls only `dup2`, `chdir(&CStr)`, and raw `libc::execve` on data the
+/// parent pre-built. (`nix::execve` would allocate the argv/envp pointer
+/// arrays inside the child; we build them in the parent instead.)
+///
+/// `_argv`/`_envp` are unused except as keepalive: `argv_ptrs`/`envp_ptrs`
+/// borrow their CString buffers, so they must outlive the `execve` call.
 ///
 /// Conventions:
 /// - exit 126: `dup2` or `chdir` failed before exec
-/// - exit 127: `execve` failed (command not found / not executable) —
-///   matches POSIX shell convention for "command not found"
+/// - exit 127: `execve` returned (command not found / not executable)
 #[cfg(target_os = "linux")]
 fn child_exec(
     stdout_w_raw: std::os::fd::RawFd,
     stderr_w_raw: std::os::fd::RawFd,
     cwd: &std::ffi::CStr,
     sh_path: &std::ffi::CStr,
-    argv: &[std::ffi::CString],
-    envp: &[std::ffi::CString],
+    _argv: &[std::ffi::CString],
+    _envp: &[std::ffi::CString],
+    argv_ptrs: &[*const libc::c_char],
+    envp_ptrs: &[*const libc::c_char],
 ) -> isize {
-    use nix::unistd::{chdir, dup2, execve};
+    use nix::unistd::{chdir, dup2};
 
-    // Redirect stdout/stderr to the pipe write-ends.
     if dup2(stdout_w_raw, 1).is_err() || dup2(stderr_w_raw, 2).is_err() {
         return 126;
     }
-    // `chdir(&CStr)` is a raw chdir(2) with no allocation (CStr: NixPath).
     if chdir(cwd).is_err() {
         return 126;
     }
-    // execve passes argv + envp directly; does not return on success.
-    let _ = execve(sh_path, argv, envp);
+    // SAFETY: `sh_path`, `argv_ptrs`, and `envp_ptrs` were all built by the
+    // parent before clone(2) and are valid in the child's COW snapshot.
+    // `argv_ptrs`/`envp_ptrs` are NUL-terminated arrays of pointers into
+    // `_argv`/`_envp`, which are kept alive for this call. Raw `libc::execve`
+    // (vs. `nix::execve`) performs no allocation, so the child acquires no
+    // allocator lock — required for an async-signal-safe post-clone child.
+    // `execve` does not return on success.
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::execve(sh_path.as_ptr(), argv_ptrs.as_ptr(), envp_ptrs.as_ptr());
+    }
     127
 }
 
