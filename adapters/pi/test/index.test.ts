@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { synthesizeDiff, normalizeEdits } from "../src/index.ts"
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { computeProposedContent } from "../src/index.ts"
@@ -258,6 +258,221 @@ test("tool_call: write introducing panic blocks", () => {
     assert.equal(result?.block, true)
     assert.ok(typeof result?.reason === "string" && result.reason.length > 0)
     assert.equal(existsSync(file), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: edit introducing panic blocks; on-disk file untouched", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, "src", "edit.rs")
+    writeFileSync(file, "fn a() {}\n")
+    const handlers = loadExtension(dir)
+    const result = handlers.tool_call!(
+      { toolName: "edit", input: { path: file, oldText: "fn a() {}", newText: "fn a() { panic!(); }" } },
+      {},
+    ) as { block?: boolean } | undefined
+    assert.equal(result?.block, true)
+    // --content - means the gate never writes; pi's real edit was blocked.
+    assert.equal(readFileSync(file, "utf8"), "fn a() {}\n")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: multi-edit batch is simulated and blocks", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, "src", "batch.rs")
+    writeFileSync(file, "fn a() {}\nfn b() {}\n")
+    const handlers = loadExtension(dir)
+    const result = handlers.tool_call!(
+      {
+        toolName: "edit",
+        input: {
+          path: file,
+          edits: [
+            { oldText: "fn a() {}", newText: "fn a() { let _ = 1; }" },
+            { oldText: "fn b() {}", newText: "fn b() { panic!(); }" },
+          ],
+        },
+      },
+      {},
+    ) as { block?: boolean } | undefined
+    assert.equal(result?.block, true)
+    assert.equal(readFileSync(file, "utf8"), "fn a() {}\nfn b() {}\n")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: legacy top-level oldText/newText edit blocks", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, "src", "legacy.rs")
+    writeFileSync(file, "fn a() {}\n")
+    const handlers = loadExtension(dir)
+    const result = handlers.tool_call!(
+      { toolName: "edit", input: { path: file, oldText: "fn a() {}", newText: "fn a() { panic!(); }" } },
+      {},
+    ) as { block?: boolean } | undefined
+    assert.equal(result?.block, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: edit with unmatched oldText skips the gate (no false block)", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, "src", "nomatch.rs")
+    writeFileSync(file, "fn a() {}\n")
+    const handlers = loadExtension(dir)
+    const result = handlers.tool_call!(
+      { toolName: "edit", input: { path: file, oldText: "does_not_exist", newText: "fn a() { panic!(); }" } },
+      {},
+    )
+    assert.equal(result, undefined)
+    assert.equal(readFileSync(file, "utf8"), "fn a() {}\n")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: non-gated tools (read, bash) are ignored", () => {
+  const dir = makeProject()
+  try {
+    const handlers = loadExtension(dir)
+    assert.equal(
+      handlers.tool_call!({ toolName: "read", input: { path: "anything" } }, {}),
+      undefined,
+    )
+    assert.equal(
+      handlers.tool_call!({ toolName: "bash", input: {} }, {}),
+      undefined,
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: missing path is a no-op", () => {
+  const dir = makeProject()
+  try {
+    const handlers = loadExtension(dir)
+    assert.equal(handlers.tool_call!({ toolName: "edit", input: {} }, {}), undefined)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: no-op when .hector.yml is absent", () => {
+  // Spec §11: a project without a config silently no-ops (safe global install).
+  const dir = mkdtempSync(join(tmpdir(), "hector-pi-noconfig-"))
+  mkdirSync(join(dir, "src"), { recursive: true })
+  try {
+    const file = join(dir, "src", "dirty.rs")
+    const handlers = loadExtension(dir)
+    assert.equal(
+      handlers.tool_call!(
+        { toolName: "write", input: { path: file, content: "fn b() { panic!(); }\n" } },
+        {},
+      ),
+      undefined,
+    )
+    assert.equal(existsSync(file), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: gate activates after .hector.yml is created mid-session", () => {
+  // Regression: the existence check runs per-invocation, so a project that
+  // becomes a hector project after the extension loads starts gating with
+  // no restart.
+  const dir = mkdtempSync(join(tmpdir(), "hector-pi-late-"))
+  mkdirSync(join(dir, "src"), { recursive: true })
+  try {
+    const file = join(dir, "src", "dirty.rs")
+    const handlers = loadExtension(dir)
+    // No config yet -> no gating.
+    assert.equal(
+      handlers.tool_call!(
+        { toolName: "write", input: { path: file, content: "fn b() { panic!(); }\n" } },
+        {},
+      ),
+      undefined,
+    )
+    // Create + trust the config, re-invoke the SAME handler closure.
+    writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
+    execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+    const result = handlers.tool_call!(
+      { toolName: "write", input: { path: file, content: "fn b() { panic!(); }\n" } },
+      {},
+    ) as { block?: boolean } | undefined
+    assert.equal(result?.block, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: .hector.yml self-edit short-circuits (R3) — no hector invocation", () => {
+  // Break the trust hash so ANY hector check would log an internal error.
+  // A clean run proves the basename short-circuit fired before any check.
+  const dir = mkdtempSync(join(tmpdir(), "hector-pi-policy-"))
+  const errs: string[] = []
+  const origErr = console.error
+  console.error = (...args: unknown[]) => {
+    errs.push(args.map(String).join(" "))
+  }
+  try {
+    writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
+    execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+    const current = readFileSync(join(dir, ".hector.yml"), "utf8")
+    writeFileSync(
+      join(dir, ".hector.yml"),
+      current.replace(/sha256:[0-9a-f]+/, "sha256:" + "0".repeat(64)),
+    )
+    const handlers = loadExtension(dir)
+    const file = join(dir, ".hector.yml")
+    assert.equal(
+      handlers.tool_call!({ toolName: "write", input: { path: file, content: "anything\n" } }, {}),
+      undefined,
+    )
+    assert.ok(!errs.join("\n").includes("internal error"))
+  } finally {
+    console.error = origErr
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: .bully.yml self-edit short-circuits (R3)", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, ".bully.yml")
+    const handlers = loadExtension(dir)
+    assert.equal(
+      handlers.tool_call!({ toolName: "write", input: { path: file, content: "anything\n" } }, {}),
+      undefined,
+    )
+    assert.equal(existsSync(file), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: bare relative .hector.yml self-edit short-circuits (R3)", () => {
+  const dir = makeProject()
+  try {
+    const handlers = loadExtension(dir)
+    assert.equal(
+      handlers.tool_call!(
+        { toolName: "write", input: { path: ".hector.yml", content: "anything\n" } },
+        {},
+      ),
+      undefined,
+    )
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
