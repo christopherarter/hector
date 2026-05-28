@@ -15,3 +15,7 @@ mutants.out*/
 pr.diff
 # LLVM coverage instrumentation that occasionally leaks outside target/.
 *.profraw
+# Per-case run forensics for the adapter Docker e2e harness — overwritten each run.
+tests/e2e/*/runs/
+# API key file for the Docker e2e harness (template `.env.e2e.example` is committed).
+tests/e2e/.env.e2e
