@@ -477,3 +477,61 @@ test("tool_call: bare relative .hector.yml self-edit short-circuits (R3)", () =>
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("tool_result: records a write to session.json", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, "tracked.txt")
+    writeFileSync(file, "ok\n")
+    const handlers = loadExtension(dir)
+    handlers.tool_result!(
+      { toolName: "write", input: { path: file, content: "ok\n" }, isError: false },
+      {},
+    )
+    const stateFile = join(dir, ".hector", "session.json")
+    assert.equal(existsSync(stateFile), true)
+    assert.ok(readFileSync(stateFile, "utf8").includes("tracked.txt"))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_result: isError result records nothing", () => {
+  const dir = makeProject()
+  try {
+    const file = join(dir, "failed.txt")
+    const handlers = loadExtension(dir)
+    handlers.tool_result!(
+      { toolName: "write", input: { path: file, content: "x\n" }, isError: true },
+      {},
+    )
+    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_result: non-gated tool records nothing", () => {
+  const dir = makeProject()
+  try {
+    const handlers = loadExtension(dir)
+    handlers.tool_result!({ toolName: "read", input: { path: "x" } }, {})
+    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_result: policy-file edit records nothing (R3)", () => {
+  const dir = makeProject()
+  try {
+    const handlers = loadExtension(dir)
+    handlers.tool_result!(
+      { toolName: "write", input: { path: join(dir, ".hector.yml"), content: "x\n" } },
+      {},
+    )
+    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

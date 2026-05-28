@@ -234,6 +234,12 @@ interface ToolCallEvent {
   input?: PiToolInput
 }
 
+interface ToolResultEvent {
+  toolName?: string
+  input?: PiToolInput
+  isError?: boolean
+}
+
 /** Resolve the project root. process.cwd() is the terminal-agent fallback. */
 function resolveRoot(pi: PiExtensionAPI): string {
   return pi.cwd ?? pi.directory ?? process.cwd()
@@ -277,6 +283,30 @@ export default function hectorExtension(pi: PiExtensionAPI): void {
     const suffix = res.stderr.trim() ? `: ${res.stderr.trim()}` : ""
     console.error(`hector: internal error checking ${filePath} (exit ${res.exitCode})${suffix}`)
     return
+  })
+
+  pi.on("tool_result", (event: ToolResultEvent) => {
+    if (!existsSync(configPath)) return
+    const toolName = event?.toolName
+    if (!toolName || !GATED_TOOLS.has(toolName)) return
+    if (event?.isError) return // the edit failed; nothing landed
+    const input = event?.input ?? {}
+    const filePath = getPath(input)
+    if (!filePath) return
+    if (isPolicyFile(filePath)) return // R3
+
+    // Best-effort: a flaky session record must never affect the agent.
+    try {
+      const diff = synthesizeDiff(toolName, filePath, input)
+      runHector([
+        "session", "record",
+        "--dir", projectRoot,
+        "--file", filePath,
+        "--diff", diff,
+      ])
+    } catch {
+      // intentional: session recording is best-effort.
+    }
   })
 }
 
