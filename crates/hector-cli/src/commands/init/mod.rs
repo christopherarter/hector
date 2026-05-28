@@ -246,7 +246,7 @@ fn expand_package_glob(pkg: &str) -> String {
 const LLM_COMMENT_BLOCK: &str = r#"
 # Uncomment to enable LLM-driven semantic rules. The `claude-code-subagent`
 # provider routes evaluation through your Claude Code session — no API key
-# needed. See docs/emit-semantic-payload.md.
+# needed. See docs/reference/emit-semantic-payload.md.
 #
 # llm:
 #   provider: claude-code-subagent

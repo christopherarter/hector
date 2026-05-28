@@ -147,8 +147,31 @@ pub fn api_key_env_present(env_name: &str) -> bool {
     matches!(std::env::var(env_name), Ok(v) if !v.is_empty())
 }
 
+/// The conventional API-key env var for a direct-API provider, used when a
+/// config omits `api_key_env`. Keeps the documented minimal config
+///
+/// ```yaml
+/// llm:
+///   provider: anthropic
+///   model: claude-haiku-4-5
+/// ```
+///
+/// working without an explicit `api_key_env:` line. Returns `None` for
+/// providers that need no conventional default (`ollama` has no key;
+/// `claude-code-subagent` never reaches `read_api_key`).
+pub fn default_api_key_env(provider: &str) -> Option<&'static str> {
+    match provider {
+        "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "openrouter" => Some("OPENROUTER_API_KEY"),
+        _ => None,
+    }
+}
+
 fn read_api_key(cfg: &LlmConfig) -> Option<String> {
-    let env_name = cfg.api_key_env.as_deref()?;
+    let env_name = cfg
+        .api_key_env
+        .as_deref()
+        .or_else(|| default_api_key_env(&cfg.provider))?;
     match std::env::var(env_name) {
         Ok(v) if !v.is_empty() => Some(v),
         _ => {

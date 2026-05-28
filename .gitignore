@@ -19,3 +19,13 @@ pr.diff
 tests/e2e/*/runs/
 # API key file for the Docker e2e harness (template `.env.e2e.example` is committed).
 tests/e2e/.env.e2e
+
+# repowise API keys (local)
+.repowise/.env
+
+# Ignore any .env file (secrets) — matches .env at any depth.
+.env
+# Local repowise tool cache/state (multi-MB wiki.db, lancedb, run state) and
+# the machine-local MCP config that drives it — not part of hector.
+/.repowise/
+.mcp.json

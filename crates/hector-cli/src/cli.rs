@@ -130,7 +130,7 @@ pub enum Command {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
         /// Output format. `human` (default) prints a checklist; `json` prints a
-        /// machine-readable report — see `docs/doctor.md` for the schema.
+        /// machine-readable report — see `docs/operating/diagnostics.md` for the schema.
         #[arg(long, default_value = "human")]
         format: OutputFormat,
     },
@@ -172,7 +172,7 @@ pub enum Command {
     ///
     /// Adapter-internal: consumed by the Claude Code interpreter skill
     /// after a subagent evaluates a deferred semantic rule. See
-    /// `docs/record-verdict.md` for the wire-format contract.
+    /// `docs/reference/record-verdict.md` for the wire-format contract.
     RecordVerdict {
         /// Rule id this verdict is for (single occurrence — one verdict per call).
         #[arg(long = "rule")]

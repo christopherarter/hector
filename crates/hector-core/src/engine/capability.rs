@@ -78,7 +78,7 @@ fn run_linux(
     use nix::sched::CloneFlags;
 
     // Compute the desired isolation flags. Writes-policy enforcement is a
-    // documented no-op in 0.1 (see docs/security.md and CLAUDE.md), so we
+    // documented no-op in 0.1 (see docs/security/capabilities.md and CLAUDE.md), so we
     // only request CLONE_NEWNET here — claiming CLONE_NEWNS without
     // remounting anything would be theatre.
     let mut flags = CloneFlags::empty();
@@ -126,7 +126,7 @@ fn spawn_clone_with_timeout(
             if !WARNED.swap(true, Ordering::Relaxed) {
                 eprintln!(
                     "hector: capability sandbox unavailable for unprivileged user ({err}); \
-                     running command without isolation. See docs/security.md."
+                     running command without isolation. See docs/security/capabilities.md."
                 );
             }
             return spawn_with_timeout(cmd, cwd, env);

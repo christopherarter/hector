@@ -53,7 +53,7 @@ Cargo workspace, two crates:
 
 Three load-time invariants enforced by `HectorEngine::load` (`crates/hector-core/src/runner.rs`):
 
-1. **Trust gate.** `trust::verify` recomputes the sha256 of the YAML with `trust:` stripped and keys sorted; mismatch errors (CLI exit 1). Only defense against malicious `script:` rules — capabilities are accident-protection, not adversarial-protection. See `docs/security.md`.
+1. **Trust gate.** `trust::verify` recomputes the sha256 of the YAML with `trust:` stripped and keys sorted; mismatch errors (CLI exit 1). Only defense against malicious `script:` rules — capabilities are accident-protection, not adversarial-protection. See `docs/security/trust.md` and `docs/security/capabilities.md`.
 2. **Schema version.** `parser::SUPPORTED_SCHEMAS = [1, 2]`. v1 is legacy bully; `is_legacy()` is the migration hook.
 3. **Extends.** `config::extends::resolve` does a cycle-detected DFS; inherited rules fill gaps but **local rules win on collision**, and `trust:` is never inherited.
 

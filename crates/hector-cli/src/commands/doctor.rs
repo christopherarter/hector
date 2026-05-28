@@ -38,7 +38,7 @@ pub enum Status {
 }
 
 /// JSON payload emitted by `--format json`. Public contract — see
-/// `docs/doctor.md`. New fields land at the end of the struct with
+/// `docs/operating/diagnostics.md`. New fields land at the end of the struct with
 /// `Option<…>` defaults so the schema stays additive.
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
@@ -355,7 +355,7 @@ fn llm_block_status(cfg: Option<&hector_core::config::LlmConfig>) -> CheckResult
             status: Status::Warn,
             detail: "semantic/session rule(s) present but no `llm:` block configured".into(),
             remediation: Some(
-                "add an `llm:` block with provider/model/api_key_env (see docs/quickstart.md)"
+                "add an `llm:` block with provider/model/api_key_env (see docs/configuring/llm-providers.md)"
                     .into(),
             ),
         };
@@ -538,7 +538,7 @@ fn check_capabilities() -> CheckResult {
         Some(msg) => CheckResult {
             name: "capabilities",
             status: Status::Warn,
-            detail: format!("{msg} (see docs/security.md)"),
+            detail: format!("{msg} (see docs/security/capabilities.md)"),
             remediation: Some(
                 "for adversarial workloads run hector under Linux where namespace isolation enforces `network: false`"
                     .into(),
@@ -891,7 +891,7 @@ mod tests {
                 r.detail
             );
             assert!(
-                r.detail.contains("docs/security.md"),
+                r.detail.contains("docs/security/capabilities.md"),
                 "non-linux detail should point at the security doc: {}",
                 r.detail
             );

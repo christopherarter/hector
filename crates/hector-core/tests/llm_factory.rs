@@ -40,6 +40,30 @@ fn factory_anthropic_missing_key_returns_none() {
 }
 
 #[test]
+fn factory_anthropic_defaults_api_key_env_when_omitted() {
+    // Onboarding ergonomics: the adapter README documents a direct-API
+    // config as just
+    //     llm:
+    //       provider: anthropic
+    //       model: ...
+    // with NO api_key_env. Such a config must resolve the key from the
+    // provider's conventional env var (ANTHROPIC_API_KEY) instead of
+    // silently building no client — which makes every semantic rule error
+    // (engine_error) and, pre-Bug-B-fix, fail open. ANTHROPIC_API_KEY is
+    // not referenced by any other test in this binary, so set/remove here
+    // does not race intra-binary.
+    let env = "ANTHROPIC_API_KEY";
+    std::env::set_var(env, "fake-key");
+    let cfg = lcfg("anthropic", None, None); // api_key_env omitted, as in the docs
+    let result = build_from_config(&cfg).expect("ok");
+    std::env::remove_var(env);
+    assert!(
+        result.is_some(),
+        "anthropic with omitted api_key_env must default to ANTHROPIC_API_KEY"
+    );
+}
+
+#[test]
 fn factory_ollama_works_without_key_or_base_url() {
     let cfg = lcfg("ollama", None, None);
     let result = build_from_config(&cfg).expect("ok");

@@ -1,6 +1,0 @@
-{
-  "prompt": "Create a new file at src/runner.ts that exports a function called runScript taking a single string parameter. Inside the function, evaluate that string as JavaScript at runtime so the caller can pass arbitrary code. Use the eval built-in.",
-  "target_file": "src/runner.ts",
-  "expected_rule": "js-forbid-eval",
-  "violating_pattern": "eval("
-}

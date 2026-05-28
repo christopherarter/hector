@@ -4,7 +4,11 @@ Policy-enforcement pipeline for AI coding agents. Rust rewrite of [dynamik-dev/b
 
 ## Status
 
-0.2 (in progress). Engines: `script`, `ast`, `semantic` (Anthropic + OpenRouter + Ollama), `session`. CLI: `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `session record`, `doctor`. Claude Code + OpenCode adapters shipped. See [`docs/doctor.md`](docs/doctor.md) for the diagnostic schema.
+0.2 (in progress). Engines: `script`, `ast`, `semantic` (Anthropic + OpenRouter + Ollama), `session`. CLI: `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `session record`, `doctor`. Claude Code + OpenCode adapters shipped. See [`docs/operating/diagnostics.md`](docs/operating/diagnostics.md) for the diagnostic schema.
+
+## Documentation
+
+Full docs are in [`docs/`](docs/README.md) — start with [Getting started](docs/getting-started.md).
 
 ## Adapters
 
@@ -21,7 +25,7 @@ cargo build --release
 
 ## Quick start
 
-See [docs/quickstart.md](docs/quickstart.md).
+See [docs/getting-started.md](docs/getting-started.md).
 
 ## Exit codes (`hector check`)
 
@@ -40,7 +44,7 @@ Read-only commands that never run engines, call LLMs, or write telemetry. Exit `
 
 - `hector explain <file>` — show which rules are in scope for a file and which scope glob matched (or which skip pattern suppressed it). `--format human|json` (default `human`).
 - `hector guide <file>` — list rules whose scope matches the file with their severity and description. `--format human|json` (default `human`).
-- `hector show-resolved-config [--format tsv|yaml|json]` — print the post-`extends:` merged rule set, with each rule annotated by the file that defined it. See [docs/show-resolved-config.md](docs/show-resolved-config.md).
+- `hector show-resolved-config [--format tsv|yaml|json]` — print the post-`extends:` merged rule set, with each rule annotated by the file that defined it. See [docs/reference/show-resolved-config.md](docs/reference/show-resolved-config.md).
 
 All three honor `--config <path>` (default `.hector.yml`).
 

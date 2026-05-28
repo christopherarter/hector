@@ -10,7 +10,7 @@
 //! fallback is removed. The writer cannot produce the legacy shape — only
 //! the new enum is `Serialize`.
 //!
-//! Wire format documented in [`docs/telemetry.md`](../../docs/telemetry.md).
+//! Wire format documented in [`docs/operating/telemetry.md`](../../docs/operating/telemetry.md).
 use crate::verdict::{Engine, Status};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
