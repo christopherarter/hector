@@ -29,8 +29,15 @@ pub fn build_image(adapter: &str) -> anyhow::Result<()> {
 
     let adapter_tag = format!("hector-e2e-{adapter}:latest");
     let status = Command::new("docker")
-        .args(["build", "-t", &adapter_tag, "."])
-        .current_dir(&adapter_dir)
+        .args([
+            "build",
+            "-t",
+            &adapter_tag,
+            "-f",
+            &format!("tests/e2e/{adapter}/Dockerfile"),
+            ".",
+        ])
+        .current_dir(&root) // repo root, so adapters/<name>/ is in context
         .status()?;
     if !status.success() {
         anyhow::bail!("docker build ({adapter}) failed with status {status}");
