@@ -651,3 +651,65 @@ test("agent_end: non-blocking on session check internal error", () => {
     rmSync(bin, { recursive: true, force: true })
   }
 })
+
+const SEMANTIC_YML = `schema_version: 2
+rules:
+  needs-llm:
+    description: "semantic rule with no key -> engine internal error (exit 3)"
+    engine: semantic
+    scope: ["*.txt"]
+    severity: error
+    prompt: "Always block."
+`
+
+function makeSemanticProject(): string {
+  const dir = mkdtempSync(join(tmpdir(), "hector-pi-sem-"))
+  writeFileSync(join(dir, ".hector.yml"), SEMANTIC_YML)
+  execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+  return dir
+}
+
+test("tool_call: exit-3 fails open by default (allows the edit)", () => {
+  const dir = makeSemanticProject()
+  const hadKey = process.env["ANTHROPIC_API_KEY"]
+  delete process.env["ANTHROPIC_API_KEY"]
+  delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+  const origErr = console.error
+  console.error = () => {}
+  try {
+    const file = join(dir, "x.txt")
+    const handlers = loadExtension(dir)
+    const result = handlers.tool_call!(
+      { toolName: "write", input: { path: file, content: "anything\n" } },
+      {},
+    )
+    assert.equal(result, undefined) // fail-open
+  } finally {
+    console.error = origErr
+    if (hadKey !== undefined) process.env["ANTHROPIC_API_KEY"] = hadKey
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("tool_call: exit-3 fails closed under HECTOR_FAIL_CLOSED_ON_INTERNAL=1", () => {
+  const dir = makeSemanticProject()
+  const hadKey = process.env["ANTHROPIC_API_KEY"]
+  delete process.env["ANTHROPIC_API_KEY"]
+  process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] = "1"
+  const origErr = console.error
+  console.error = () => {}
+  try {
+    const file = join(dir, "x.txt")
+    const handlers = loadExtension(dir)
+    const result = handlers.tool_call!(
+      { toolName: "write", input: { path: file, content: "anything\n" } },
+      {},
+    ) as { block?: boolean } | undefined
+    assert.equal(result?.block, true) // fail-closed
+  } finally {
+    console.error = origErr
+    delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+    if (hadKey !== undefined) process.env["ANTHROPIC_API_KEY"] = hadKey
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
