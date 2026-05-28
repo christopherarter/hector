@@ -141,10 +141,10 @@ fn spawn_clone_with_timeout(
 /// responsible for (a) keeping the stack alive for the lifetime of the
 /// child and (b) not corrupting the parent's heap from inside the child
 /// closure. We satisfy (a) by storing the stack in a leaked `Box<[u8]>`
-/// — the child runs until `execv` replaces its address space, and the
+/// — the child runs until `execve` replaces its address space, and the
 /// stack memory is reclaimed by the kernel when the child exits. We
-/// satisfy (b) by having the closure only call `execv` and writes that
-/// don't touch shared heap state.
+/// satisfy (b) by having the closure call only `child_exec`, which
+/// performs `dup2`/`chdir`/`execve` and touches no shared heap state.
 #[cfg(target_os = "linux")]
 fn spawn_clone(
     cmd: &str,
@@ -157,31 +157,57 @@ fn spawn_clone(
     use std::os::fd::AsRawFd;
 
     // `O_CLOEXEC` so that the parent-end fds get closed automatically if
-    // the child ever forks again before `execv` (defense in depth — our
-    // child closure only does `execv`).
+    // the child ever forks again before `execve` (defense in depth — our
+    // child closure only does `execve`).
     let (stdout_r, stdout_w) = pipe2(OFlag::O_CLOEXEC).context("pipe2 for child stdout")?;
     let (stderr_r, stderr_w) = pipe2(OFlag::O_CLOEXEC).context("pipe2 for child stderr")?;
 
     // 64 KiB stack: nix's clone recommends ≥16 KiB; we pick 64 KiB to leave
     // headroom for `sh`'s startup (which runs inside this stack until
-    // `execv` swaps in its own).
+    // `execve` swaps in its own).
     let mut stack: Box<[u8]> = vec![0u8; 64 * 1024].into_boxed_slice();
 
-    // Capture the bits we need inside the child by value. Closure must
-    // not borrow anything from the parent's stack frame — after
-    // `clone(2)` the parent and child run independently, and any pointer
-    // into the parent's frame would dangle in the child.
-    let cmd_string = cmd.to_string();
-    let cwd_path = cwd.to_path_buf();
-    let env_vec: Vec<(String, String)> = env
-        .iter()
-        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+    use std::ffi::CString;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    // Pre-build EVERYTHING the child needs as CStrings in the PARENT. After
+    // clone(2) the child shares a COW copy of this memory and must call only
+    // async-signal-safe functions: no malloc, no std ENV lock. Raw clone (unlike
+    // fork) does not run libc's atfork handlers, so a sibling rayon thread
+    // holding the malloc/ENV lock at clone time would otherwise deadlock the
+    // child on its first allocation or set_var.
+    let argv: Vec<CString> = vec![
+        CString::new("sh").expect("static arg has no interior NUL"),
+        CString::new("-c").expect("static arg has no interior NUL"),
+        CString::new(cmd).context("script command contains an interior NUL byte")?,
+    ];
+    let sh_path = CString::new("/bin/sh").expect("static path has no interior NUL");
+    let cwd_c =
+        CString::new(cwd.as_os_str().as_bytes()).context("cwd contains an interior NUL byte")?;
+
+    // execve replaces the environment, so forward the parent's full env plus
+    // the injected overrides — otherwise the child loses PATH and `sh` cannot
+    // resolve the linter. BTreeMap dedups (override wins) and is deterministic.
+    let mut env_map: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString> =
+        std::env::vars_os().collect();
+    for (k, v) in env {
+        env_map.insert(std::ffi::OsString::from(*k), std::ffi::OsString::from(*v));
+    }
+    let envp: Vec<CString> = env_map
+        .into_iter()
+        .filter_map(|(k, v)| {
+            let mut kv = k.into_vec();
+            kv.push(b'=');
+            kv.extend_from_slice(&v.into_vec());
+            CString::new(kv).ok() // drop any pair with an interior NUL
+        })
         .collect();
+
     let stdout_w_raw = stdout_w.as_raw_fd();
     let stderr_w_raw = stderr_w.as_raw_fd();
 
     let child_fn: nix::sched::CloneCb<'_> = Box::new(move || -> isize {
-        child_main(stdout_w_raw, stderr_w_raw, &cwd_path, &env_vec, &cmd_string)
+        child_exec(stdout_w_raw, stderr_w_raw, &cwd_c, &sh_path, &argv, &envp)
     });
 
     // SAFETY: `nix::sched::clone` is `unsafe fn` because the caller must
@@ -190,9 +216,11 @@ fn spawn_clone(
     // (1) by binding `stack` in this function's scope — the parent does
     // not free it until after `waitpid` succeeds in the caller, and even
     // if the parent panics the OS will reap the child via SIGCHLD before
-    // the stack is dropped. We satisfy (2) by having the closure only
-    // call `child_main`, which performs syscalls (`dup2`, `chdir`,
-    // `setenv`, `execv`) that do not deallocate the parent's heap.
+    // the stack is dropped. We satisfy (2) because the closure calls only
+    // `child_exec`, which performs `dup2`/`chdir`/`execve` on
+    // parent-pre-built CStrings — async-signal-safe, with no allocation or
+    // lock acquisition, so a multithreaded parent at clone time cannot
+    // deadlock the child.
     // SAFETY-MIRI: `clone(2)` is opaque to miri; the per-child
     // namespace invariant is verified empirically by
     // `tests/capability_per_child.rs` on Linux instead.
@@ -215,69 +243,35 @@ fn spawn_clone(
     Ok((pid, stdout_r, stderr_r))
 }
 
-/// Body of the cloned child. Runs in the child's address space until
-/// `execv` replaces it. Returns an `isize` exit code; on `execv` success
-/// this function does not return.
+/// Body of the cloned child. Runs in the child's COW address space until
+/// `execve` replaces it. Calls ONLY async-signal-safe syscalls (`dup2`,
+/// `chdir`, `execve`) on data the parent pre-built — no allocation, no locks.
 ///
 /// Conventions:
-/// - exit 126: `chdir` or `setenv` failed before exec
-/// - exit 127: `execv` failed (command not found / not executable) —
+/// - exit 126: `dup2` or `chdir` failed before exec
+/// - exit 127: `execve` failed (command not found / not executable) —
 ///   matches POSIX shell convention for "command not found"
 #[cfg(target_os = "linux")]
-fn child_main(
+fn child_exec(
     stdout_w_raw: std::os::fd::RawFd,
     stderr_w_raw: std::os::fd::RawFd,
-    cwd: &Path,
-    env: &[(String, String)],
-    cmd: &str,
+    cwd: &std::ffi::CStr,
+    sh_path: &std::ffi::CStr,
+    argv: &[std::ffi::CString],
+    envp: &[std::ffi::CString],
 ) -> isize {
-    use nix::unistd::{dup2, execv};
-    use std::ffi::CString;
+    use nix::unistd::{chdir, dup2, execve};
 
-    // Redirect stdout/stderr to the pipe write-ends. `nix::unistd::dup2`
-    // is a safe wrapper around `dup2(2)`.
+    // Redirect stdout/stderr to the pipe write-ends.
     if dup2(stdout_w_raw, 1).is_err() || dup2(stderr_w_raw, 2).is_err() {
         return 126;
     }
-
-    if std::env::set_current_dir(cwd).is_err() {
+    // `chdir(&CStr)` is a raw chdir(2) with no allocation (CStr: NixPath).
+    if chdir(cwd).is_err() {
         return 126;
     }
-
-    // SAFETY: `std::env::set_var` is `unsafe fn` in recent Rust because
-    // mutating env mid-program is racy with other threads reading env.
-    // Here we are in the freshly-cloned child immediately after
-    // `clone(2)`: only one thread exists (the kernel does not clone
-    // sibling threads), so no race is possible. The next syscall after
-    // this loop is `execv`, which replaces the entire address space.
-    #[allow(unsafe_code)]
-    for (k, v) in env {
-        unsafe {
-            std::env::set_var(k, v);
-        }
-    }
-
-    // Build `execv` arguments. CStrings live on the child's stack frame
-    // and are preserved across the `execv` call (the kernel copies the
-    // strings into the new image's argv before swapping address spaces).
-    let Ok(sh) = CString::new("/bin/sh") else {
-        return 126;
-    };
-    let Ok(arg0) = CString::new("sh") else {
-        return 126;
-    };
-    let Ok(argc) = CString::new("-c") else {
-        return 126;
-    };
-    let Ok(argv) = CString::new(cmd) else {
-        return 126;
-    };
-
-    // `nix::unistd::execv` is safe; it does not return on success.
-    let _ = execv(&sh, &[&arg0, &argc, &argv]);
-
-    // `execv` only returns on error — anything past this is "command not
-    // found / not executable", matching POSIX shell convention.
+    // execve passes argv + envp directly; does not return on success.
+    let _ = execve(sh_path, argv, envp);
     127
 }
 

@@ -1,5 +1,9 @@
 use hector_core::config::{Capabilities, WritesPolicy};
 use hector_core::engine::capability::run_with_capabilities;
+// `run_with_capabilities_env` is exercised only by the Linux-gated clone-path
+// test below; importing it unconditionally trips `-D unused-imports` on macOS.
+#[cfg(target_os = "linux")]
+use hector_core::engine::capability::run_with_capabilities_env;
 use std::path::PathBuf;
 
 #[test]
@@ -195,5 +199,37 @@ fn captures_large_output_on_clone_path() {
         start.elapsed() < std::time::Duration::from_secs(5),
         "took {:?}",
         start.elapsed()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn clone_child_receives_injected_env_and_inherits_path() {
+    // network:false routes through the clone path on Linux. The injected var
+    // must reach the child, AND the parent's PATH must survive — execve
+    // replaces the environment wholesale, so the runner must forward the full
+    // parent env plus the overrides. (On unprivileged CI, clone(2) returns
+    // EPERM and falls back to spawn_with_timeout, which also forwards env, so
+    // this holds on both paths.)
+    let caps = Capabilities {
+        network: false,
+        writes: WritesPolicy::None,
+    };
+    let out = run_with_capabilities_env(
+        "printf '%s\\n' \"$HECTOR_TEST_VAR\"; command -v sh >/dev/null && echo PATH_OK",
+        std::path::Path::new("/tmp"),
+        &caps,
+        &[("HECTOR_TEST_VAR", "injected-value")],
+    )
+    .expect("run");
+    assert!(
+        out.stdout.contains("injected-value"),
+        "injected env var must reach the child; stdout: {:?}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("PATH_OK"),
+        "inherited PATH must survive execve; stdout: {:?}",
+        out.stdout
     );
 }
