@@ -136,3 +136,64 @@ fn captures_large_output_without_deadlocking() {
         start.elapsed()
     );
 }
+
+#[test]
+fn timeout_does_not_hang_when_a_backgrounded_process_holds_the_pipe() {
+    // Regression: on timeout the runner must NOT block joining the output
+    // readers. `sleep 30 & sleep 30` keeps sh alive past the 5s deadline (the
+    // foreground sleep) while a backgrounded sleep inherits and holds the
+    // stdout pipe write-end. Joining the reader would wait for that grandchild
+    // to exit (~30s), defeating the timeout; detaching returns promptly.
+    let caps = Capabilities {
+        network: true,
+        writes: WritesPolicy::Unrestricted,
+    };
+    let start = std::time::Instant::now();
+    let out = run_with_capabilities("sleep 30 & sleep 30", std::path::Path::new("/tmp"), &caps)
+        .expect("runner returns Ok");
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(8),
+        "timeout path must not block on a backgrounded pipe holder; took {:?}",
+        start.elapsed()
+    );
+    assert_eq!(out.exit_code, 124, "must report the timeout exit code");
+    assert!(
+        out.stderr.contains("killed") || out.stderr.contains("timeout"),
+        "stderr should mention the timeout kill; was: {:?}",
+        out.stderr
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn captures_large_output_on_clone_path() {
+    // wait_for_child (the network:false clone path) must also drain
+    // concurrently. On unprivileged CI, clone(2) EPERM falls back to
+    // spawn_with_timeout, which is also fixed — so this holds either way.
+    let caps = Capabilities {
+        network: false,
+        writes: WritesPolicy::None,
+    };
+    let start = std::time::Instant::now();
+    let out = run_with_capabilities(
+        "yes x | head -n 200000",
+        std::path::Path::new("/tmp"),
+        &caps,
+    )
+    .expect("runner returns Ok");
+    assert_eq!(
+        out.exit_code, 0,
+        "must exit cleanly; stderr: {:?}",
+        out.stderr
+    );
+    assert!(
+        out.stdout.len() > 64 * 1024,
+        "must capture >64 KiB; got {}",
+        out.stdout.len()
+    );
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "took {:?}",
+        start.elapsed()
+    );
+}

@@ -309,10 +309,13 @@ fn wait_for_child(
         match waitpid(pid, Some(WaitPidFlag::WNOHANG)).context("waitpid on cloned child")? {
             WaitStatus::StillAlive => {
                 if std::time::Instant::now() >= deadline {
+                    // Detach (don't join) the readers — see spawn_with_timeout: a
+                    // backgrounded grandchild holding the pipe write-end would
+                    // otherwise hang the join past the deadline.
                     let _ = kill(pid, Signal::SIGKILL);
                     let _ = waitpid(pid, None);
-                    let _ = join_reader(stdout_reader);
-                    let _ = join_reader(stderr_reader);
+                    drop(stdout_reader);
+                    drop(stderr_reader);
                     return Ok(ExecOutcome {
                         stdout: String::new(),
                         stderr: format!("hector: script killed after {TIMEOUT:?} timeout"),
@@ -438,15 +441,17 @@ fn spawn_with_timeout(cmd: &str, cwd: &Path, env: &[(&str, &str)]) -> Result<Exe
         .context("waiting for subprocess")?;
 
     let Some(status) = status else {
-        // Timeout fired. Kill and reap; the readers then hit EOF and finish.
+        // Timeout fired. Kill and reap the direct child, then DETACH the reader
+        // threads rather than joining them: if the script backgrounded a
+        // process that inherited the pipe write-end, the read never hits EOF and
+        // a join would hang us past the very deadline this timeout enforces.
+        // Captured output is discarded on timeout anyway. The detached readers
+        // unblock when the surviving writer closes the fd, or when this process
+        // exits.
         let _ = child.kill();
         let _ = child.wait();
-        if let Some(h) = stdout_reader {
-            let _ = h.join();
-        }
-        if let Some(h) = stderr_reader {
-            let _ = h.join();
-        }
+        drop(stdout_reader);
+        drop(stderr_reader);
         return Ok(ExecOutcome {
             stdout: String::new(),
             stderr: format!("hector: script killed after {TIMEOUT:?} timeout"),
