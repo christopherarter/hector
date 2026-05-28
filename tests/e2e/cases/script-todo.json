@@ -1,0 +1,6 @@
+{
+  "prompt": "Create a new file at src/payments.ts that exports a stub function called processPayment. Leave the body unimplemented for now — just add a comment marked TODO that says implement Stripe integration.",
+  "target_file": "src/payments.ts",
+  "expected_rule": "no-todo-markers",
+  "violating_pattern": "TODO"
+}
