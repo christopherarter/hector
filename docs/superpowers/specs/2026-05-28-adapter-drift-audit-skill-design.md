@@ -25,7 +25,7 @@ It is **read-only**: it produces findings and recommendations but applies no edi
 | Decision | Choice | Rationale |
 |---|---|---|
 | Audience | **Hector maintainers** (you / dynamik-dev) | Keeping adapters in sync with harnesses is a maintenance concern, not a consumer concern. |
-| Location | **`.claude/skills/adapter-drift-audit/`** (repo-local) | Versioned alongside the adapter code it audits; a contract-map row points at a real `file:line` in this repo. A global or plugin-bundled skill would decouple the map from the code. |
+| Location | **`.agents/skills/adapter-drift-audit/`** (tracked canonical) + a local mirror at `.claude/skills/adapter-drift-audit/` for Claude Code discovery | Versioned alongside the adapter code it audits; a contract-map row points at a real `file:line` in this repo. `.claude/` is gitignored in this repo, so the committed copy lives under `.agents/skills/` — matching the `cleanup-build-artifacts` skill. A global or plugin-bundled skill would decouple the map from the code. |
 | Behavior | **Load intel → audit → report** (read-only) | The maintainer decides fixes; the skill never edits adapter files. Keeps the tool safe to run anytime. |
 | Structure | **Shared procedure + per-harness reference files** | One audit procedure, written once; adding a harness = adding one reference file. Four harnesses already exist, so the abstraction pays for itself immediately. |
 
@@ -34,12 +34,18 @@ This skill is distinct from — and does **not** replace — the consumer-facing
 ## 3. Layout
 
 ```
-.claude/skills/adapter-drift-audit/
+.agents/skills/adapter-drift-audit/   # tracked canonical (committed)
   SKILL.md              # shared audit procedure + harness index + report format
   references/
     claude-code.md      # built now (this spec)
     # pi.md / opencode.md / reasonix.md — added later, same template
+
+.claude/skills/adapter-drift-audit/   # local mirror (gitignored; Claude Code reads it)
+  SKILL.md
+  references/claude-code.md
 ```
+
+The committed copy lives under `.agents/skills/` because `.claude/` is gitignored in this repo; the `.claude/skills/` copy is the one Claude Code discovers at runtime. Keep the two in sync (same pattern as `cleanup-build-artifacts`).
 
 "A skill for each adapter" is realized as **one reference file per adapter** under a single shared-procedure skill. The harness is selected by the skill's invocation argument.
 

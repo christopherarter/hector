@@ -14,10 +14,12 @@
 
 ## File Structure
 
-- Create: `.claude/skills/adapter-drift-audit/SKILL.md` — frontmatter, when-to-use, the 6-step procedure (0–5), report format, rules. Single responsibility: *how* to audit any harness.
-- Create: `.claude/skills/adapter-drift-audit/references/claude-code.md` — Claude Code intel: thesis, doc sources, contract surface map, known-fragile spots, watermark. Single responsibility: *what* to audit for one harness.
+**Location convention:** `.claude/` is gitignored in this repo, so the **committed canonical** copy lives under `.agents/skills/` (matching `cleanup-build-artifacts`, which is tracked there). A **local mirror** under `.claude/skills/` is what Claude Code discovers at runtime. Each task writes both copies and commits only the `.agents/skills/` one.
 
-No existing files are modified. `.claude/skills/` is already an established skill location in this repo (`.claude/skills/cleanup-build-artifacts/`), so discovery is automatic.
+- Create: `.agents/skills/adapter-drift-audit/SKILL.md` (+ mirror `.claude/skills/adapter-drift-audit/SKILL.md`) — frontmatter, when-to-use, the 6-step procedure (0–5), report format, rules. Single responsibility: *how* to audit any harness.
+- Create: `.agents/skills/adapter-drift-audit/references/claude-code.md` (+ mirror under `.claude/skills/`) — Claude Code intel: thesis, doc sources, contract surface map, known-fragile spots, watermark. Single responsibility: *what* to audit for one harness.
+
+No existing files are modified.
 
 ---
 
@@ -26,13 +28,13 @@ No existing files are modified. `.claude/skills/` is already an established skil
 **Files:**
 - Create: `.claude/skills/adapter-drift-audit/SKILL.md`
 
-- [ ] **Step 1: Create the directory**
+- [ ] **Step 1: Create the directories** (canonical + mirror)
 
 Run:
 ```bash
-mkdir -p .claude/skills/adapter-drift-audit/references
+mkdir -p .agents/skills/adapter-drift-audit/references .claude/skills/adapter-drift-audit/references
 ```
-Expected: no output; `ls .claude/skills/adapter-drift-audit` shows `references`.
+Expected: no output; both `adapter-drift-audit` dirs contain `references`.
 
 - [ ] **Step 2: Write `SKILL.md` with this exact content**
 
@@ -138,21 +140,24 @@ head -4 .claude/skills/adapter-drift-audit/SKILL.md
 ```
 Expected: lines `---`, `name: adapter-drift-audit`, a `description:` line, and the surrounding `---` — i.e. valid YAML frontmatter delimited by `---`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Commit the canonical copy** (write the same content to both paths first)
 
 ```bash
-git add .claude/skills/adapter-drift-audit/SKILL.md
+cp .claude/skills/adapter-drift-audit/SKILL.md .agents/skills/adapter-drift-audit/SKILL.md
+git add .agents/skills/adapter-drift-audit/SKILL.md
 git commit -m "feat(skills): add adapter-drift-audit shared procedure"
 ```
+Stage ONLY that file — the repo has unrelated uncommitted changes; never `git add -A`/`.`.
 
 ---
 
 ### Task 2: Write the Claude Code reference (`references/claude-code.md`)
 
 **Files:**
-- Create: `.claude/skills/adapter-drift-audit/references/claude-code.md`
+- Create: `.agents/skills/adapter-drift-audit/references/claude-code.md` (canonical, committed)
+- Mirror: `.claude/skills/adapter-drift-audit/references/claude-code.md` (local discovery)
 
-- [ ] **Step 1: Write `references/claude-code.md` with this exact content**
+- [ ] **Step 1: Write `references/claude-code.md` (both copies) with this exact content**
 
 ````markdown
 # Claude Code — harness intel
@@ -226,10 +231,11 @@ cd /Users/chrisarter/Documents/projects/hector && for f in \
 ```
 Expected: five `OK` lines, no `MISSING`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Commit the canonical copy**
 
 ```bash
-git add .claude/skills/adapter-drift-audit/references/claude-code.md
+cp .claude/skills/adapter-drift-audit/references/claude-code.md .agents/skills/adapter-drift-audit/references/claude-code.md
+git add .agents/skills/adapter-drift-audit/references/claude-code.md
 git commit -m "feat(skills): add claude-code reference for adapter-drift-audit"
 ```
 
@@ -279,9 +285,9 @@ Expected after revert: `git status` shows no change to `hook.sh`.
 
 Run:
 ```bash
-cd /Users/chrisarter/Documents/projects/hector && git status --short .claude/skills/adapter-drift-audit && git log --oneline -3
+cd /Users/chrisarter/Documents/projects/hector && git status --short .agents/skills/adapter-drift-audit && git log --oneline -3
 ```
-Expected: no uncommitted changes under the skill dir; the last commits are the two `feat(skills): …` commits (plus any anchor/source fixes from Task 3).
+Expected: no uncommitted changes under the canonical skill dir; the last commits are the two `feat(skills): …` commits (plus any anchor/source fixes from Task 3).
 
 ---
 
