@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { synthesizeDiff, normalizeEdits } from "../src/index.ts"
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { computeProposedContent } from "../src/index.ts"
@@ -212,16 +212,18 @@ function loadExtension(root: string): Record<string, Handler> {
 
 const HECTOR_YML = `schema_version: 2
 rules:
-  no-debug:
-    description: "no DEBUG markers in source"
-    engine: script
-    scope: ["*.txt"]
+  no-panic:
+    description: "no panics in source"
+    engine: ast
+    language: rust
+    scope: ["src/**/*.rs"]
     severity: error
-    script: "grep -nE 'DEBUG' {file} && exit 1 || exit 0"
+    pattern: "panic!($$$)"
 `
 
 function makeProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "hector-pi-proj-"))
+  mkdirSync(join(dir, "src"), { recursive: true })
   writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
   execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
   return dir
@@ -230,10 +232,10 @@ function makeProject(): string {
 test("tool_call: clean write passes (returns nothing), file never written", () => {
   const dir = makeProject()
   try {
-    const file = join(dir, "clean.txt")
+    const file = join(dir, "src", "clean.rs")
     const handlers = loadExtension(dir)
     const result = handlers.tool_call!(
-      { toolName: "write", input: { path: file, content: "ok\n" } },
+      { toolName: "write", input: { path: file, content: "fn a() {}\n" } },
       {},
     )
     assert.equal(result, undefined)
@@ -244,13 +246,13 @@ test("tool_call: clean write passes (returns nothing), file never written", () =
   }
 })
 
-test("tool_call: write introducing DEBUG blocks", () => {
+test("tool_call: write introducing panic blocks", () => {
   const dir = makeProject()
   try {
-    const file = join(dir, "dirty.txt")
+    const file = join(dir, "src", "dirty.rs")
     const handlers = loadExtension(dir)
     const result = handlers.tool_call!(
-      { toolName: "write", input: { path: file, content: "this has DEBUG\n" } },
+      { toolName: "write", input: { path: file, content: "fn b() { panic!(); }\n" } },
       {},
     ) as { block?: boolean; reason?: string } | undefined
     assert.equal(result?.block, true)

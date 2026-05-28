@@ -3,7 +3,7 @@
 // docs/superpowers/specs/2026-05-28-pi-adapter-design.md.
 
 import { spawnSync } from "node:child_process"
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, rmSync } from "node:fs"
 import { basename, join } from "node:path"
 
 /** The shape of the input payload pi passes for `write` / `edit` tool calls. */
@@ -262,27 +262,10 @@ export default function hectorExtension(pi: PiExtensionAPI): void {
     const proposed = computeProposedContent(toolName, filePath, input)
     if (proposed === null) return // can't faithfully simulate — skip the gate
 
-    // Write proposed content to disk so `engine: script` rules (which
-    // execute against `$HECTOR_FILE`, the on-disk path) can read it. We
-    // restore or remove the file in a finally block so the check is always
-    // side-effect-free from the caller's perspective.
-    const fileExistedBefore = existsSync(filePath)
-    const originalContent = fileExistedBefore ? readFileSync(filePath, "utf8") : null
-    let res: ExecResult
-    try {
-      writeFileSync(filePath, proposed, "utf8")
-      res = runHector(
-        ["check", "--file", filePath, "--content", "-", "--config", configPath, "--format", "json"],
-        proposed,
-      )
-    } finally {
-      if (fileExistedBefore && originalContent !== null) {
-        writeFileSync(filePath, originalContent, "utf8")
-      } else {
-        rmSync(filePath, { force: true })
-      }
-    }
-
+    const res = runHector(
+      ["check", "--file", filePath, "--content", "-", "--config", configPath, "--format", "json"],
+      proposed,
+    )
     if (res.exitCode === 0) return // pass/warn -> allow
     if (res.exitCode === 2) {
       return { block: true, reason: res.stdout.trim() || "rule violation" }
