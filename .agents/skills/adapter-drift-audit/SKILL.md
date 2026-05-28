@@ -33,7 +33,7 @@ The reference's **Watermark** section gives the baseline version / changelog dat
 
 For each entry in the reference's **Doc sources**, in this order:
 
-1. **Context7 first** (repo + global convention). The reference pins exact library IDs, so skip `resolve-library-id` — call `query-docs` directly on each pinned ID for the contracts under audit.
+1. **Context7 first** (repo + global convention). The reference's **Doc sources** pin exact library IDs (`/websites/code_claude`, `/anthropics/claude-code`), so skip `resolve-library-id` — the global "always resolve first" rule doesn't apply when the ID is already known. Call `query-docs` directly on each pinned ID for the contracts under audit.
 2. **GitHub `CHANGELOG.md` since the watermark** — the primary signal for *what changed*. Fetch the changelog and read entries newer than the watermark.
 3. **Web docs** — fallback / cross-check for any contract Context7 didn't cover.
 
@@ -89,3 +89,4 @@ Last verified: <date> against <harness> <version> (changelog entry: <ref>)
 - **Context7 first** for schema shape; **GitHub `CHANGELOG.md`** is canonical for *what changed and when*.
 - **Impact over difference**: use the reference's Thesis to judge whether a drift actually breaks gating, or is cosmetic.
 - **No silent ✅**: a contract you couldn't verify is ❓, not ✅.
+- **Omit empty sections** (⚠️ / ✨ / ❓) from the report; always show the ✅ summary and the Proposed watermark.
