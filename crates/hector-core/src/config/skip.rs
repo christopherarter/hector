@@ -61,10 +61,15 @@ impl SkipMatcher {
         for g in extras {
             add_glob(&mut b, g, &mut patterns)?;
         }
-        Ok(Self {
-            set: b.build()?,
-            patterns,
-        })
+        let set = b.build()?;
+        // Invariant: one `patterns` entry per glob added to `set`, so
+        // `matched_pattern` can index `patterns[i]` by GlobSet match index.
+        debug_assert_eq!(
+            set.len(),
+            patterns.len(),
+            "SkipMatcher patterns Vec desynced from GlobSet"
+        );
+        Ok(Self { set, patterns })
     }
 
     pub fn matches<P: AsRef<Path>>(&self, path: P) -> bool {
