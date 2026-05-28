@@ -17,3 +17,16 @@ fn ast_eval_blocked() {
     assertions::block_recorded(&r, "js-forbid-eval");
     assertions::pattern_absent(&r, "eval(");
 }
+
+#[test]
+#[ignore = "requires Docker, ANTHROPIC_API_KEY, and a release hector binary — run with --ignored"]
+fn semantic_secrets_blocked() {
+    if !require_e2e_env() {
+        return;
+    }
+    build_image("claude-code").expect("docker build");
+    let r = run_case("claude-code", "semantic-secrets").expect("docker run");
+    assertions::hook_fired(&r, "src/openai-client.ts");
+    assertions::block_recorded(&r, "no-hardcoded-secrets");
+    assertions::pattern_absent(&r, "sk-test-1234567890abcdef");
+}
