@@ -129,7 +129,7 @@ jobs:
 
       - name: Install dev deps
         working-directory: adapters/pi
-        run: npm install
+        run: npm ci
 
       - name: TypeScript type-check
         working-directory: adapters/pi
