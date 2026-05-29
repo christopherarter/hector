@@ -262,6 +262,33 @@ fn none_stdin_preserves_legacy_behavior() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn pipes_stdin_on_clone_path_with_network_isolation() {
+    // network: false forces the clone(2) path (CLONE_NEWNET). The proposed
+    // content must reach the child there too. On an unprivileged runner the
+    // clone EPERM-falls-back to the fast path, which also pipes stdin — so
+    // either way `cat` must echo the piped bytes.
+    let caps = Capabilities {
+        network: false,
+        writes: WritesPolicy::None,
+    };
+    let out = run_with_capabilities_stdin(
+        "cat",
+        std::path::Path::new("."),
+        &caps,
+        &[],
+        Some(b"clone stdin"),
+    )
+    .expect("run");
+    assert!(
+        out.stdout.contains("clone stdin"),
+        "clone-path child must receive piped stdin; got stdout={:?} exit={}",
+        out.stdout,
+        out.exit_code
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn clone_child_receives_injected_env_and_inherits_path() {
     // network:false routes through the clone path on Linux. The injected var
     // must reach the child, AND the parent's PATH must survive — execve

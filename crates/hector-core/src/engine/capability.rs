@@ -90,6 +90,7 @@ fn run_linux(
     cwd: &Path,
     caps: &Capabilities,
     env: &[(&str, &str)],
+    stdin: Option<&[u8]>,
 ) -> Result<ExecOutcome> {
     use nix::sched::CloneFlags;
 
@@ -106,10 +107,10 @@ fn run_linux(
         // Fast path: no isolation requested, use the cheap `std::process`
         // spawn shared with macOS. Keeps the common case (`network: true`,
         // the default) free of `clone(2)` and child-stack allocation.
-        return spawn_with_timeout(cmd, cwd, env);
+        return spawn_with_timeout(cmd, cwd, env, stdin);
     }
 
-    spawn_clone_with_timeout(cmd, cwd, env, flags)
+    spawn_clone_with_timeout(cmd, cwd, env, flags, stdin)
 }
 
 /// Spawn `sh -c <cmd>` via `clone(2)` with the requested namespace flags
@@ -126,32 +127,42 @@ fn spawn_clone_with_timeout(
     cwd: &Path,
     env: &[(&str, &str)],
     flags: nix::sched::CloneFlags,
+    stdin: Option<&[u8]>,
 ) -> Result<ExecOutcome> {
     use std::sync::atomic::{AtomicBool, Ordering};
     static WARNED: AtomicBool = AtomicBool::new(false);
 
-    let (child_pid, stdout_r, stderr_r) = match spawn_clone(cmd, cwd, env, flags) {
-        Ok(triple) => triple,
-        Err(err) => {
-            // Most likely EPERM from `clone(2)` without privilege. We can't
-            // probe ahead of time without mutating the parent (which the
-            // never-unshare invariant forbids), so a real spawn attempt is the
-            // probe.
-            if !WARNED.swap(true, Ordering::Relaxed) {
-                eprintln!(
-                    "hector: capability sandbox unavailable for unprivileged user ({err}); \
-                     running command without isolation. See docs/security/capabilities.md."
-                );
+    let (child_pid, stdin_w, stdout_r, stderr_r) =
+        match spawn_clone(cmd, cwd, env, flags, stdin.is_some()) {
+            Ok(quad) => quad,
+            Err(err) => {
+                // Most likely EPERM from `clone(2)` without privilege. We can't
+                // probe ahead of time without mutating the parent (which the
+                // never-unshare invariant forbids), so a real spawn attempt is the
+                // probe.
+                if !WARNED.swap(true, Ordering::Relaxed) {
+                    eprintln!(
+                        "hector: capability sandbox unavailable for unprivileged user ({err}); \
+                         running command without isolation. See docs/security/capabilities.md."
+                    );
+                }
+                // Fallback path pipes stdin too.
+                return spawn_with_timeout(cmd, cwd, env, stdin);
             }
-            return spawn_with_timeout(cmd, cwd, env);
-        }
-    };
-    wait_for_child(child_pid, stdout_r, stderr_r)
+        };
+    wait_for_child(
+        child_pid,
+        stdin_w,
+        stdin.map(<[u8]>::to_vec),
+        stdout_r,
+        stderr_r,
+    )
 }
 
-/// Allocate the child's stack and `clone(2)` it. Returns the child pid
-/// and the read ends of stdout/stderr pipes; the write ends are kept
-/// alive only inside the child closure and dropped here in the parent.
+/// Allocate the child's stack and `clone(2)` it. Returns the child pid,
+/// the write end of the optional stdin pipe, and the read ends of stdout/stderr
+/// pipes; the write ends are kept alive only inside the child closure and
+/// dropped here in the parent.
 ///
 /// Layout note: `nix::sched::clone` is `unsafe fn` because the caller is
 /// responsible for (a) keeping the stack alive for the lifetime of the
@@ -167,7 +178,13 @@ fn spawn_clone(
     cwd: &Path,
     env: &[(&str, &str)],
     flags: nix::sched::CloneFlags,
-) -> Result<(nix::unistd::Pid, std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    has_stdin: bool,
+) -> Result<(
+    nix::unistd::Pid,
+    Option<std::os::fd::OwnedFd>,
+    std::os::fd::OwnedFd,
+    std::os::fd::OwnedFd,
+)> {
     use nix::fcntl::OFlag;
     use nix::unistd::pipe2;
     use std::os::fd::AsRawFd;
@@ -177,6 +194,15 @@ fn spawn_clone(
     // child closure only does `execve`).
     let (stdout_r, stdout_w) = pipe2(OFlag::O_CLOEXEC).context("pipe2 for child stdout")?;
     let (stderr_r, stderr_w) = pipe2(OFlag::O_CLOEXEC).context("pipe2 for child stderr")?;
+
+    // Conditionally create a stdin pipe. When absent, the child inherits the
+    // parent's fd 0 exactly as before — no behavior change for content-less calls.
+    let stdin_pipe = if has_stdin {
+        Some(pipe2(OFlag::O_CLOEXEC).context("pipe2 for child stdin")?)
+    } else {
+        None
+    };
+    let stdin_r_raw: Option<std::os::fd::RawFd> = stdin_pipe.as_ref().map(|(r, _)| r.as_raw_fd());
 
     // 64 KiB stack: nix's clone recommends ≥16 KiB; we pick 64 KiB to leave
     // headroom for `sh`'s startup (which runs inside this stack until
@@ -240,6 +266,7 @@ fn spawn_clone(
 
     let child_fn: nix::sched::CloneCb<'_> = Box::new(move || -> isize {
         child_exec(
+            stdin_r_raw,
             stdout_w_raw,
             stderr_w_raw,
             &cwd_c,
@@ -281,7 +308,14 @@ fn spawn_clone(
     drop(stdout_w);
     drop(stderr_w);
 
-    Ok((pid, stdout_r, stderr_r))
+    // Drop the parent's copy of the stdin read-end (the child holds its own
+    // COW copy and dup2's it to fd 0); keep the write-end for the writer thread.
+    let stdin_w = stdin_pipe.map(|(stdin_r, stdin_w)| {
+        drop(stdin_r);
+        stdin_w
+    });
+
+    Ok((pid, stdin_w, stdout_r, stderr_r))
 }
 
 /// Body of the cloned child. Runs in the child's COW address space until
@@ -298,6 +332,7 @@ fn spawn_clone(
 /// - exit 127: `execve` returned (command not found / not executable)
 #[cfg(target_os = "linux")]
 fn child_exec(
+    stdin_r_raw: Option<std::os::fd::RawFd>,
     stdout_w_raw: std::os::fd::RawFd,
     stderr_w_raw: std::os::fd::RawFd,
     cwd: &std::ffi::CStr,
@@ -309,6 +344,14 @@ fn child_exec(
 ) -> isize {
     use nix::unistd::{chdir, dup2};
 
+    // dup2 is async-signal-safe (a bare syscall, no alloc/lock) — safe in the
+    // post-clone child. Sources are pipe fds (>= 3 in the parent), so duping
+    // onto 0/1/2 never clobbers another source.
+    if let Some(fd) = stdin_r_raw {
+        if dup2(fd, 0).is_err() {
+            return 126;
+        }
+    }
     if dup2(stdout_w_raw, 1).is_err() || dup2(stderr_w_raw, 2).is_err() {
         return 126;
     }
@@ -339,16 +382,22 @@ fn child_exec(
 #[cfg(target_os = "linux")]
 fn wait_for_child(
     pid: nix::unistd::Pid,
+    stdin_w: Option<std::os::fd::OwnedFd>,
+    stdin_bytes: Option<Vec<u8>>,
     stdout_r: std::os::fd::OwnedFd,
     stderr_r: std::os::fd::OwnedFd,
 ) -> Result<ExecOutcome> {
     use nix::sys::signal::{kill, Signal};
     use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 
-    // Drain the pipes on dedicated threads up front so the child never blocks
-    // on write(2) after filling the kernel pipe buffer.
     let stdout_reader = spawn_reader(std::fs::File::from(stdout_r));
     let stderr_reader = spawn_reader(std::fs::File::from(stderr_r));
+    // Feed stdin concurrently with the readers; drop the write-end after
+    // writing to deliver EOF. None when the call supplied no content.
+    let stdin_writer = match (stdin_w, stdin_bytes) {
+        (Some(w), Some(bytes)) => Some(spawn_stdin_writer(std::fs::File::from(w), bytes)),
+        _ => None,
+    };
 
     let deadline = std::time::Instant::now() + TIMEOUT;
     let poll_interval = std::time::Duration::from_millis(10);
@@ -357,13 +406,14 @@ fn wait_for_child(
         match waitpid(pid, Some(WaitPidFlag::WNOHANG)).context("waitpid on cloned child")? {
             WaitStatus::StillAlive => {
                 if std::time::Instant::now() >= deadline {
-                    // Detach (don't join) the readers — see spawn_with_timeout: a
+                    // Detach (don't join) the readers and writer — see spawn_with_timeout: a
                     // backgrounded grandchild holding the pipe write-end would
                     // otherwise hang the join past the deadline.
                     let _ = kill(pid, Signal::SIGKILL);
                     let _ = waitpid(pid, None);
                     drop(stdout_reader);
                     drop(stderr_reader);
+                    drop(stdin_writer);
                     return Ok(ExecOutcome {
                         stdout: String::new(),
                         stderr: format!("hector: script killed after {TIMEOUT:?} timeout"),
@@ -378,6 +428,7 @@ fn wait_for_child(
 
     let stdout = join_reader(stdout_reader);
     let stderr = join_reader(stderr_reader);
+    drop(stdin_writer);
     Ok(ExecOutcome {
         stdout,
         stderr,
