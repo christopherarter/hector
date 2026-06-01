@@ -52,11 +52,7 @@ pub fn run(
 
     match (file, diff) {
         (Some(f), None) => run_file(&engine, f, content, format, explain),
-        (None, Some(_)) if emit_semantic_payload => {
-            eprintln!("ERROR: --emit-semantic-payload is not supported with --diff yet (multi-file envelope aggregation is a follow-up)");
-            Ok(1)
-        }
-        (None, Some(d)) => run_diff(&engine, &d, format, explain),
+        (None, Some(d)) => run_diff(&engine, &d, format, explain, emit_semantic_payload),
         _ => {
             eprintln!("ERROR: provide exactly one of --file or --diff");
             Ok(1)
@@ -126,11 +122,15 @@ fn run_file(
 /// Check every changed file in a unified diff and aggregate the verdicts.
 /// An empty diff is an error; a pure-deletion diff is a clean Pass (deleted
 /// files can't be read and no rule fires on absent content).
+///
+/// With `emit_semantic_payload`, defer to [`run_diff_deferred`] to build a
+/// single deferred-semantic envelope instead of aggregating verdicts.
 fn run_diff(
     engine: &HectorEngine,
     diff: &Path,
     format: OutputFormat,
     explain: bool,
+    emit_semantic_payload: bool,
 ) -> Result<i32> {
     let unified_diff = std::fs::read_to_string(diff)?;
     let changed = hector_core::diff::parser::parse_unified(&unified_diff)?;
@@ -138,26 +138,30 @@ fn run_diff(
         eprintln!("ERROR: no changed files in diff");
         return Ok(1);
     }
-    let has_non_deleted = changed
+    // C3: deleted files can't be read and no rule fires on absent content,
+    // so a pure-deletion diff is a clean Pass.
+    let non_deleted: Vec<&hector_core::diff::ChangedFile> = changed
         .iter()
-        .any(|f| f.op != hector_core::diff::ChangeOp::Deleted);
-    if !has_non_deleted {
+        .filter(|f| f.op != hector_core::diff::ChangeOp::Deleted)
+        .collect();
+    if non_deleted.is_empty() {
         let verdict = Verdict::from_violations(vec![], vec![], 0);
         emit(&verdict, format)?;
         return Ok(0);
+    }
+
+    if emit_semantic_payload {
+        return run_diff_deferred(engine, &unified_diff, &non_deleted, format, explain);
     }
 
     let mut aggregated_violations = Vec::new();
     let mut aggregated_passed = Vec::new();
     let mut aggregated_explain: Vec<RuleExplain> = Vec::new();
     let mut elapsed_ms: u64 = 0;
-    for f in changed {
-        if f.op == hector_core::diff::ChangeOp::Deleted {
-            continue;
-        }
+    for f in non_deleted {
         let per_file_diff = build_single_file_diff(&unified_diff, &f.path);
         let r = engine.check_with_explain(CheckInput::Diff {
-            file: f.path,
+            file: f.path.clone(),
             unified_diff: per_file_diff,
         })?;
         elapsed_ms = elapsed_ms.saturating_add(r.verdict.elapsed_ms);
@@ -171,6 +175,45 @@ fn run_diff(
     }
     emit(&verdict, format)?;
     Ok(exit_code(&verdict))
+}
+
+/// `--emit-semantic-payload` over a diff: build one deferred-semantic
+/// envelope (the Claude Code PostToolUse gate path). The synthesized hook
+/// diff is always single-file, so only the single-file case is supported —
+/// merging multiple files' deferred rules into one envelope is a follow-up.
+///
+/// A deterministic terminal verdict (block / internal error) still wins over
+/// the envelope, mirroring [`run_file`].
+fn run_diff_deferred(
+    engine: &HectorEngine,
+    unified_diff: &str,
+    non_deleted: &[&hector_core::diff::ChangedFile],
+    format: OutputFormat,
+    explain: bool,
+) -> Result<i32> {
+    if non_deleted.len() > 1 {
+        eprintln!("ERROR: --emit-semantic-payload accepts a single-file diff only; multi-file envelope aggregation is a follow-up");
+        return Ok(1);
+    }
+    let f = non_deleted[0];
+    let per_file_diff = build_single_file_diff(unified_diff, &f.path);
+    let report = engine.check_with_explain(CheckInput::Diff {
+        file: f.path.clone(),
+        unified_diff: per_file_diff,
+    })?;
+    if explain {
+        print_explain(&report.explain);
+    }
+    if let Some(d) = &report.deferred {
+        if matches!(report.verdict.status, Status::Block | Status::InternalError) {
+            emit(&report.verdict, format)?;
+            return Ok(exit_code(&report.verdict));
+        }
+        emit_deferred(d, format)?;
+        return Ok(0);
+    }
+    emit(&report.verdict, format)?;
+    Ok(exit_code(&report.verdict))
 }
 
 /// Refuse `--rule <unknown>` at the CLI boundary so callers see a clear

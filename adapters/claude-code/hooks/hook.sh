@@ -24,9 +24,13 @@ SYNTHESIZE_DIFF="${HOOK_DIR}/synthesize_diff.sh"
 # Per-invocation temp file for verdict JSON; cleaned up on exit so concurrent
 # Claude Code sessions don't clobber each other.
 TMP_VERDICT=""
+TMP_DIFF=""
 cleanup() {
   if [[ -n "${TMP_VERDICT}" && -f "${TMP_VERDICT}" ]]; then
     rm -f "${TMP_VERDICT}"
+  fi
+  if [[ -n "${TMP_DIFF}" && -f "${TMP_DIFF}" ]]; then
+    rm -f "${TMP_DIFF}"
   fi
 }
 trap cleanup EXIT
@@ -144,16 +148,35 @@ case "${MODE}" in
       exit 0
     fi
 
-    # Build a synthetic unified diff for session recording. Claude Code's
-    # Edit/Write events don't carry a real diff, so we fake one from the
-    # (old_string, new_string) pair. The synthesizer (P1-8/P1-9 fix):
-    #   - Emits correct `@@ -1,N +1,M @@` line counts for multi-line edits.
-    #   - Escapes any line in OLD/NEW that looks like a diff header, so
-    #     attacker-controlled content can't reframe the diff onto another
-    #     file.
+    # Compute the changed file's path relative to the project root. Unified
+    # diffs use repo-relative `a/`/`b/` headers, and `hector check --diff`
+    # rejects absolute and `..`-escaping paths (P0-4). Claude Code sends
+    # absolute file_paths, so relativize here. Resolve both sides to their
+    # physical (symlink-free) form first: on macOS $TMPDIR lives under /var,
+    # a symlink to /private/var, so a naive string prefix would miss. When
+    # the file isn't cleanly inside the project, REL stays empty and we gate
+    # on the on-disk file instead (an out-of-project file matches no
+    # repo-relative rule scope anyway).
+    ROOT_PHYS=$(pwd -P)
+    REL=""
+    FILE_DIR=$(cd "$(dirname "${FILE}")" 2>/dev/null && pwd -P || true)
+    if [[ -n "${FILE_DIR}" ]]; then
+      FILE_PHYS="${FILE_DIR}/$(basename "${FILE}")"
+      case "${FILE_PHYS}" in
+        "${ROOT_PHYS}/"*) REL="${FILE_PHYS#"${ROOT_PHYS}/"}" ;;
+      esac
+    fi
+
+    # Build a synthetic unified diff. Claude Code's Edit/Write events don't
+    # carry a real diff, so we fake one from the (old_string, new_string)
+    # pair. The synthesizer emits correct `@@ -1,N +1,M @@` counts for
+    # multi-line edits and escapes any OLD/NEW line that looks like a diff
+    # header, so attacker-controlled content can't reframe the diff onto
+    # another file. The header uses REL when available so the diff is a valid
+    # `hector check --diff` input as well as the session record.
     OLD=$(echo "${EVENT}" | jq -r '.tool_input.old_string // ""')
     NEW=$(echo "${EVENT}" | jq -r '.tool_input.new_string // .tool_input.content // ""')
-    DIFF=$("${SYNTHESIZE_DIFF}" "${FILE}" "${OLD}" "${NEW}")
+    DIFF=$("${SYNTHESIZE_DIFF}" "${REL:-${FILE}}" "${OLD}" "${NEW}")
 
     # 1. Record the edit into session state (non-blocking).
     hector session record --dir "${PROJECT_ROOT}" --file "${FILE}" --diff "${DIFF}" >/dev/null 2>&1 || true
@@ -164,7 +187,20 @@ case "${MODE}" in
     PROVIDER=$(hector show-resolved-config --config "${CONFIG}" --format json 2>/dev/null \
       | jq -r '.llm.provider // empty' 2>/dev/null || true)
 
-    # 3. Gate the edit by running checks. Differentiate hector exit codes:
+    # 3. Gate input: prefer the synthesized diff so semantic rules with the
+    #    default `context: diff` get their evidence (and the diff-relevance
+    #    skip can fire). Deterministic script/ast rules read the on-disk file
+    #    in diff mode either way, so this is a strict superset of `--file`.
+    #    Fall back to `--file` when the path couldn't be relativized.
+    if [[ -n "${REL}" ]]; then
+      TMP_DIFF=$(mktemp -t hector-diff.XXXXXX)
+      printf '%s\n' "${DIFF}" > "${TMP_DIFF}"
+      GATE_INPUT=(--diff "${TMP_DIFF}")
+    else
+      GATE_INPUT=(--file "${FILE}")
+    fi
+
+    # 4. Gate the edit by running checks. Differentiate hector exit codes:
     #    0 = pass/warn (or deferred payload under subagent mode),
     #    2 = block (rule violation),
     #    3 = engine internal error (missing API key, spawn failure, etc.),
@@ -180,7 +216,7 @@ case "${MODE}" in
     if [[ "${PROVIDER}" == "claude-code-subagent" ]]; then
       # Subagent mode: ask core to emit a deferred-semantic payload instead
       # of dispatching to an LLM.
-      hector check --file "${FILE}" --config "${CONFIG}" --format json \
+      hector check "${GATE_INPUT[@]}" --config "${CONFIG}" --format json \
         --emit-semantic-payload > "${TMP_VERDICT}" 2>/dev/null || EC=$?
       case "${EC}" in
         0)
@@ -220,7 +256,7 @@ case "${MODE}" in
       esac
     else
       # Direct-API mode (anthropic / openrouter / ollama / no llm at all).
-      hector check --file "${FILE}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" 2>/dev/null || EC=$?
+      hector check "${GATE_INPUT[@]}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" 2>/dev/null || EC=$?
       case "${EC}" in
         0) exit 0 ;;
         2)

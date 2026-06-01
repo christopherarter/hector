@@ -206,11 +206,12 @@ fn break_trust(cfg: &Path) {
 // claude-code-subagent provider envelope branches
 // ===================================================================
 
-// `context: file` is explicit on the semantic rules. The default context is
-// `diff`, but the claude-code PostToolUse hook gates with `--file` (no diff),
-// so a `context: diff` rule would error with "context: diff but no diff
-// provided" when the subagent deferred envelope is built. Pinning
-// `context: file` exercises the envelope branches as intended.
+// The semantic rules use the DEFAULT context (`diff`) — no `context:` line.
+// The Claude Code PostToolUse hook synthesizes a diff and gates with it, so
+// the default-context deferred envelope builds correctly. (Before the hook
+// passed its synthesized diff — when it gated with `--file` — this errored
+// "context: diff but no diff provided"; pinning `context: file` was the
+// workaround.)
 const SUBAGENT_CONFIG: &str = "schema_version: 2\n\
 llm:\n  \
 provider: claude-code-subagent\n\
@@ -225,14 +226,12 @@ prose-quality:\n    \
 description: \"files should read clearly\"\n    \
 engine: semantic\n    \
 scope: [\"*.txt\"]\n    \
-severity: warning\n    \
-context: file\n  \
+severity: warning\n  \
 no-todo-comment:\n    \
 description: \"no TODO comments left in committed content\"\n    \
 engine: semantic\n    \
 scope: [\"*.txt\"]\n    \
-severity: warning\n    \
-context: file\n";
+severity: warning\n";
 
 /// Preamble the subagent-mode hook prepends to the deferred payload in
 /// `hookSpecificOutput.additionalContext`.
