@@ -46,7 +46,7 @@ llm:
   provider: claude-code-subagent
 ```
 
-In this mode, the hook collects `engine: semantic` and `engine: session` rules into a `DeferredVerdict` payload and wraps it in Claude Code's `hookSpecificOutput.additionalContext` envelope (preamble: `AGENTIC LINT SEMANTIC EVALUATION REQUIRED:`). The next turn, the `hector` skill activates by description match, dispatches the `hector-evaluator` subagent (or inline-judges single-rule short-diff payloads), applies error-severity fixes via `Edit`, and calls `hector record-verdict` so the rule shows up in `hector coverage` telemetry.
+In this mode, the hook collects `engine: semantic` and `engine: session` rules into a `DeferredVerdict` payload and wraps it in Claude Code's `hookSpecificOutput.additionalContext` envelope (preamble: `AGENTIC LINT SEMANTIC EVALUATION REQUIRED:`). The next turn, the `hector` skill activates by description match, dispatches the `hector-evaluator` subagent (or inline-judges single-rule short-diff payloads), applies error-severity fixes via `Edit`, and calls `hector record-verdict` so the rule's outcome is appended to the `.hector/log.jsonl` telemetry log.
 
 Subagent-token billing rolls up under the parent session's subscription — no `ANTHROPIC_API_KEY` required.
 
