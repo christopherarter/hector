@@ -188,3 +188,78 @@ fn migrate_errors_when_writing_hector_config_fails() {
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
     drop(assertion);
 }
+
+#[test]
+fn migrate_strips_semantic_and_session_rules_with_notice() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".bully.yml"),
+        r#"
+schema_version: 1
+rules:
+  keep-me:
+    description: "script rule"
+    engine: script
+    scope: "**/*.ts"
+    severity: error
+    script: "true"
+  judge-me:
+    description: "llm rule"
+    engine: semantic
+    scope: "**/*.ts"
+    severity: error
+  also-session:
+    description: "session rule"
+    engine: session
+    scope: "**/*.ts"
+    severity: error
+"#,
+    )
+    .unwrap();
+    let assert = Command::cargo_bin("hector")
+        .unwrap()
+        .args(["migrate", "--dir", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    let migrated = fs::read_to_string(dir.path().join(".hector.yml")).unwrap();
+    assert!(migrated.contains("keep-me"), "script rule preserved");
+    assert!(!migrated.contains("judge-me"), "semantic rule dropped");
+    assert!(!migrated.contains("also-session"), "session rule dropped");
+    assert
+        .stderr(predicates::str::contains("dropped rule 'judge-me'"))
+        .stderr(predicates::str::contains("dropped rule 'also-session'"));
+}
+
+#[test]
+fn migrate_drops_top_level_llm_block_with_notice() {
+    let dir = tempdir().unwrap();
+    fs::write(
+        dir.path().join(".bully.yml"),
+        r#"
+schema_version: 1
+llm:
+  provider: anthropic
+  model: claude-x
+rules:
+  keep-me:
+    description: "script rule"
+    engine: script
+    scope: "**/*.ts"
+    severity: error
+    script: "true"
+"#,
+    )
+    .unwrap();
+    let assert = Command::cargo_bin("hector")
+        .unwrap()
+        .args(["migrate", "--dir", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    let migrated = fs::read_to_string(dir.path().join(".hector.yml")).unwrap();
+    assert!(migrated.contains("keep-me"), "script rule preserved");
+    assert!(
+        !migrated.contains("provider: anthropic"),
+        "llm block dropped"
+    );
+    assert.stderr(predicates::str::contains("dropped 'llm:' block"));
+}
