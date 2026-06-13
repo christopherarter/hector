@@ -21,9 +21,9 @@ fn engine_kind_to_verdict_engine(kind: EngineKind) -> crate::verdict::Engine {
 
 /// Whether a rule is collected into the deferred envelope instead of
 /// dispatched: true only when `emit_semantic_payload` is set and the engine
-/// is `Semantic` or `Session` (`Script`/`Ast` always run).
+/// is `Semantic` (`Script`/`Ast` always run).
 fn should_defer(engine: EngineKind, options: &CheckOptions) -> bool {
-    options.emit_semantic_payload && matches!(engine, EngineKind::Semantic | EngineKind::Session)
+    options.emit_semantic_payload && matches!(engine, EngineKind::Semantic)
 }
 
 /// Render a `Severity` as the bully-compatible string the deferred
@@ -87,7 +87,7 @@ pub struct CheckOptions {
     pub rules: HashSet<String>,
     /// If true, capture per-rule outcomes for the explain report.
     pub explain: bool,
-    /// When true, `semantic`/`session` rules are collected into
+    /// When true, `semantic` rules are collected into
     /// [`CheckReport::deferred`] for an in-session subagent rather than
     /// dispatched.
     pub emit_semantic_payload: bool,
@@ -125,7 +125,7 @@ pub struct CheckReport {
     pub verdict: Verdict,
     pub explain: Vec<RuleExplain>,
     /// Present when `emit_semantic_payload` was set and at least one
-    /// semantic/session rule survived scope/skip/diff-prefilter; `None`
+    /// semantic rule survived scope/skip/diff-prefilter; `None`
     /// otherwise. The CLI branches on this to emit a `DeferredVerdict` or a
     /// standard `Verdict`.
     pub deferred: Option<crate::verdict_deferred::DeferredVerdict>,
@@ -220,13 +220,6 @@ struct DeferredExpansion<'a> {
     failures: Vec<(String, anyhow::Error)>,
 }
 
-/// The three accumulators `check_session` threads through each rule's
-/// outcome, bundled so `absorb_session_outcome` takes one argument.
-struct SessionAcc<'a> {
-    violations: &'a mut Vec<Violation>,
-    passed: &'a mut Vec<String>,
-    records: &'a mut Vec<PerRuleRecord>,
-}
 
 /// Per-file inputs reused across every rule evaluation in one `check()`
 /// call.
@@ -738,8 +731,7 @@ impl HectorEngine {
             EngineKind::Script => crate::engine::script::ScriptEngine.run(&ctx),
             EngineKind::Ast => crate::engine::ast::AstEngine.run(&ctx),
             EngineKind::Semantic => crate::engine::semantic::SemanticEngine.run(&ctx),
-            // Session is dispatched via `check_session`, not the per-file
-            // path; treat it as a pass here.
+            // Unknown/future engines: treat as pass.
             _ => Ok(Vec::new()),
         };
         let rule_elapsed = rule_start.elapsed().as_millis() as u64;
@@ -760,8 +752,7 @@ impl HectorEngine {
     }
 
     /// Emit a SemanticVerdict telemetry line, used by `evaluate_one_rule`'s
-    /// semantic arm and by `check_session` when a session rule reaches the
-    /// LLM. Best-effort: failures warn to stderr.
+    /// semantic arm. Best-effort: failures warn to stderr.
     fn append_semantic_verdict(&self, rule_id: &str, file: Option<&str>, verdict_str: &str) {
         let entry = LogEntry::SemanticVerdict {
             ts: chrono::Utc::now().to_rfc3339(),
@@ -1054,7 +1045,7 @@ impl HectorEngine {
     /// The `--rule` filter is applied here, upstream of dispatch, so a
     /// filtered-out rule never enters the work queue or triggers its engine
     /// (in particular, no LLM call). With `emit_semantic_payload` set, the
-    /// semantic/session rules are collected into the deferred set instead of
+    /// semantic rules are collected into the deferred set instead of
     /// dispatched; deterministic rules still run. Deferred rules out of
     /// scope for the file are dropped, mirroring the dispatch path.
     fn partition_rules(&self, match_path: &Path, collect_explain: bool) -> RulePartition<'_> {
@@ -1083,8 +1074,7 @@ impl HectorEngine {
                     severity: severity_string(rule.severity),
                     engine: match rule.engine {
                         EngineKind::Semantic => "semantic".into(),
-                        EngineKind::Session => "session".into(),
-                        _ => unreachable!("should_defer guards on Semantic/Session"),
+                        _ => unreachable!("should_defer guards on Semantic"),
                     },
                 });
             if collect_explain {
@@ -1519,285 +1509,4 @@ impl HectorEngine {
         Some(reason_str)
     }
 
-    /// Fold one session rule's outcome into the shared accumulators and emit
-    /// a `SemanticVerdict` for each rule that reached the LLM.
-    fn absorb_session_outcome(
-        &self,
-        rule_id: &str,
-        rule: &Rule,
-        evaluation: Result<Option<Violation>>,
-        elapsed: u64,
-        acc: &mut SessionAcc<'_>,
-    ) {
-        match evaluation {
-            Ok(Some(v)) => {
-                acc.violations.push(v);
-                self.append_semantic_verdict(rule_id, None, "violation");
-                let status = match rule.severity {
-                    crate::config::Severity::Error => Status::Block,
-                    crate::config::Severity::Warning => Status::Warn,
-                };
-                acc.records.push(PerRuleRecord {
-                    rule_id: rule_id.to_string(),
-                    engine: crate::verdict::Engine::Session,
-                    status,
-                    elapsed_ms: elapsed,
-                    reason: None,
-                });
-            }
-            Ok(None) => {
-                acc.passed.push(rule_id.to_string());
-                self.append_semantic_verdict(rule_id, None, "pass");
-                acc.records.push(PerRuleRecord {
-                    rule_id: rule_id.to_string(),
-                    engine: crate::verdict::Engine::Session,
-                    status: Status::Pass,
-                    elapsed_ms: elapsed,
-                    reason: None,
-                });
-            }
-            // Session-engine runtime errors are Engine::Internal.
-            Err(e) => {
-                acc.violations.push(crate::verdict::Violation {
-                    rule_id: format!("{rule_id}__internal"),
-                    severity: crate::verdict::Severity::Error,
-                    engine: crate::verdict::Engine::Internal,
-                    file: "".to_string(),
-                    line: None,
-                    column: None,
-                    message: format!("{e:#}"),
-                    suggestion: None,
-                    context: None,
-                });
-                acc.records.push(PerRuleRecord {
-                    rule_id: rule_id.to_string(),
-                    engine: crate::verdict::Engine::Session,
-                    status: Status::Block,
-                    elapsed_ms: elapsed,
-                    reason: Some("engine_error".into()),
-                });
-            }
-        }
-    }
-
-    pub fn check_session(
-        &self,
-        state: &crate::session_state::SessionState,
-    ) -> Result<crate::verdict::Verdict> {
-        use crate::engine::session::SessionEngine;
-
-        let start = Instant::now();
-        let mut violations = Vec::new();
-        let mut passed = Vec::new();
-        let mut records: Vec<PerRuleRecord> = Vec::new();
-        let session_engine = SessionEngine;
-        for (rule_id, rule) in &self.config.rules {
-            if rule.engine != crate::config::EngineKind::Session {
-                continue;
-            }
-            // Per-edit scope filtering. The session engine aggregates
-            // `state.edits` into one LLM prompt; without filtering, a rule
-            // scoped to `src/auth/**` would fire on a session whose every edit
-            // lives under `src/billing/`. `rule_matches_path` (as in
-            // `check_inner`) relativizes absolute adapter paths before
-            // matching, so pathed scopes fire even when edits carry absolute
-            // paths.
-            let filtered_edits: Vec<crate::session_state::EditRecord> = state
-                .edits
-                .iter()
-                .filter(|e| self.rule_matches_path(rule_id, std::path::Path::new(&e.file)))
-                .cloned()
-                .collect();
-            if filtered_edits.is_empty() {
-                passed.push(rule_id.clone());
-                records.push(PerRuleRecord {
-                    rule_id: rule_id.clone(),
-                    engine: crate::verdict::Engine::Session,
-                    status: Status::Pass,
-                    elapsed_ms: 0,
-                    reason: None,
-                });
-                continue;
-            }
-            let scoped_state = crate::session_state::SessionState {
-                session_id: state.session_id.clone(),
-                started_at: state.started_at.clone(),
-                edits: filtered_edits,
-            };
-            let llm = self.llm.as_deref().ok_or_else(|| {
-                anyhow::anyhow!("session check requires LlmClient; build engine with .with_llm()")
-            })?;
-            let rule_start = Instant::now();
-            let evaluation = session_engine.evaluate(&scoped_state, rule_id, rule, llm);
-            let rule_elapsed = rule_start.elapsed().as_millis() as u64;
-            let mut acc = SessionAcc {
-                violations: &mut violations,
-                passed: &mut passed,
-                records: &mut records,
-            };
-            self.absorb_session_outcome(rule_id, rule, evaluation, rule_elapsed, &mut acc);
-        }
-        let verdict = crate::verdict::Verdict::from_violations(
-            violations,
-            passed,
-            start.elapsed().as_millis() as u64,
-        );
-        // Best-effort, same as the per-file append above.
-        if let Err(e) = crate::telemetry::append(
-            &self.config_dir.join(".hector/log.jsonl"),
-            &LogEntry::Check {
-                ts: chrono::Utc::now().to_rfc3339(),
-                file: "".into(),
-                status: verdict.status,
-                elapsed_ms: verdict.elapsed_ms,
-                rules: records,
-            },
-        ) {
-            eprintln!("hector: telemetry append failed: {e:#}");
-        }
-        Ok(verdict)
-    }
-
-    /// Session-stop path for the Claude Code subagent provider.
-    ///
-    /// When `options.emit_semantic_payload` is true AND at least one
-    /// `engine: session` rule is in scope for at least one edit, this
-    /// method emits a [`CheckReport`] whose `deferred` field carries a
-    /// [`crate::verdict_deferred::DeferredVerdict`] with:
-    /// - `file: ""` (session-level, not per-file)
-    /// - `diff: <framed aggregate>` (every in-scope edit framed via
-    ///   `engine::session::framed_aggregate`)
-    ///
-    /// When no session rule is in scope, or `emit_semantic_payload` is
-    /// false, falls through to `check_session` and wraps the result in
-    /// a `CheckReport` with `deferred: None`.
-    pub fn check_session_with_options(
-        &self,
-        state: &crate::session_state::SessionState,
-    ) -> Result<CheckReport> {
-        use crate::engine::session::framed_aggregate;
-
-        // In deferred mode, collect in-scope session rules into an envelope
-        // instead of requiring an LlmClient.
-        if self.options.emit_semantic_payload {
-            let start = Instant::now();
-            let mut deferred_rules: Vec<crate::verdict_deferred::DeferredRule> = Vec::new();
-            let mut passed: Vec<String> = Vec::new();
-            let filter: &HashSet<String> = &self.options.rules;
-
-            for (rule_id, rule) in &self.config.rules {
-                if rule.engine != crate::config::EngineKind::Session {
-                    continue;
-                }
-                if !filter.is_empty() && !filter.contains(rule_id.as_str()) {
-                    continue;
-                }
-                // Per-edit scope filter: the rule must match at least one
-                // edit's file path to be considered in scope.
-                let any_in_scope = state
-                    .edits
-                    .iter()
-                    .any(|e| self.rule_matches_path(rule_id, std::path::Path::new(&e.file)));
-                if !any_in_scope {
-                    passed.push(rule_id.clone());
-                    continue;
-                }
-                deferred_rules.push(crate::verdict_deferred::DeferredRule {
-                    id: rule_id.clone(),
-                    description: rule.description.clone(),
-                    severity: severity_string(rule.severity),
-                    engine: "session".into(),
-                });
-            }
-
-            if !deferred_rules.is_empty() {
-                // payload.diff is the FULL session aggregate (every edit) —
-                // surfaced to the operator and the in-session subagent as
-                // session-level meta-context. The per-rule evaluator slice
-                // below is what the subagent actually evaluates with.
-                let aggregate_diff = framed_aggregate(state);
-
-                // Build the per-rule evaluator input. Each session rule sees
-                // only the edits matching its own scope — the same per-rule
-                // scoping `check_session` applies before calling
-                // `framed_aggregate`, which the "direct-API and subagent see
-                // the same evidence" invariant requires.
-                let sentinel = crate::llm::prompt::Sentinel::new_random();
-                let evaluator_tuples: Vec<(
-                    crate::llm::prompt::RuleRef<'_>,
-                    String,
-                    Option<String>,
-                )> = deferred_rules
-                    .iter()
-                    .filter_map(|d| {
-                        let rule = self.config_rule(&d.id)?;
-                        let scoped_state = crate::session_state::SessionState {
-                            session_id: state.session_id.clone(),
-                            started_at: state.started_at.clone(),
-                            edits: state
-                                .edits
-                                .iter()
-                                .filter(|e| {
-                                    self.rule_matches_path(&d.id, std::path::Path::new(&e.file))
-                                })
-                                .cloned()
-                                .collect(),
-                        };
-                        let scoped_diff = framed_aggregate(&scoped_state);
-                        Some((
-                            crate::llm::prompt::RuleRef { id: &d.id, rule },
-                            scoped_diff,
-                            None,
-                        ))
-                    })
-                    .collect();
-                let evaluator_input =
-                    crate::llm::prompt::build_evaluator_input(&evaluator_tuples, &sentinel);
-
-                let evaluator_model = self
-                    .config
-                    .llm
-                    .as_ref()
-                    .and_then(|l| l.evaluator_model.clone());
-
-                let verdict = crate::verdict::Verdict::from_violations(
-                    vec![],
-                    passed,
-                    start.elapsed().as_millis() as u64,
-                );
-
-                let deferred = Some(crate::verdict_deferred::DeferredVerdict {
-                    schema_version: crate::verdict_deferred::DEFERRED_SCHEMA_VERSION,
-                    deferred: true,
-                    hector_version: env!("CARGO_PKG_VERSION").to_string(),
-                    passed_checks: verdict.passed_checks.clone(),
-                    payload: crate::verdict_deferred::DeferredPayload {
-                        file: "".to_string(),
-                        diff: aggregate_diff,
-                        passed_checks: verdict.passed_checks.clone(),
-                        evaluate: deferred_rules,
-                        evaluator_input,
-                        evaluator_model,
-                        warnings: vec![],
-                    },
-                    elapsed_ms: verdict.elapsed_ms,
-                });
-
-                return Ok(CheckReport {
-                    verdict,
-                    explain: vec![],
-                    deferred,
-                });
-            }
-        }
-
-        // Fallback: no deferred session rules in scope (or not in deferred
-        // mode). Delegate to the existing LLM-dispatch path.
-        let verdict = self.check_session(state)?;
-        Ok(CheckReport {
-            verdict,
-            explain: vec![],
-            deferred: None,
-        })
-    }
 }
