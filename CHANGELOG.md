@@ -9,6 +9,22 @@ This release batches all four contract-shaped changes from
 section so adapters and consumers see them together. Skip to
 **Migrating to 0.2** below for the upgrade checklist.
 
+### Removed
+
+> **Supersedes the LLM-related entries below.** The deferred-envelope,
+> `semantic`/`session`, and `llm:` work recorded elsewhere in this 0.2
+> section was built during the cycle and then removed before release — 0.2
+> ships as a static gate. Those entries are kept for development history; the
+> bullet here is the net effect.
+
+- **LLM evaluation.** The `semantic` and `session` engines, the `llm:` config
+  block, `--emit-semantic-payload`, `--print-prompt`, `check --session`,
+  `hector session`, and `hector record-verdict` are gone. Hector is a static
+  gate: `script` + `ast` only. Configs containing the removed engines fail at
+  load with a pointed error naming the rule; `hector migrate` drops them with
+  a notice. Verdict schema is now 3 (drops `deferred_rules` and the
+  `semantic`/`session` engine tags); telemetry schema is now 2.
+
 ### Breaking
 
 - **C1 (trust):** the trust fingerprint now canonicalizes through

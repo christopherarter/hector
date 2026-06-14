@@ -4,7 +4,7 @@
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "hector_version": "0.2.0",
   "status": "block",
   "violations": [
@@ -29,13 +29,12 @@
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `schema_version` | integer | Currently `2`. See [Versioning](#versioning). |
+| `schema_version` | integer | Currently `3`. See [Versioning](#versioning). |
 | `hector_version` | string | Version of the binary that produced the verdict. |
 | `status` | enum | `pass`, `warn`, `block`, or `internal_error`. |
 | `violations` | array | One [Violation](#violation) per finding. Empty on a clean pass. |
 | `passed_checks` | array of strings | Rule ids that ran and passed. |
 | `elapsed_ms` | integer | Wall-clock for the whole check. |
-| `deferred_rules` | array | Optional; present only in the deferred-block case. See [`deferred_rules`](#deferred_rules). |
 
 ## `status`
 
@@ -67,37 +66,21 @@ Adapters fail-open on `3` by default; opt into fail-closed with `HECTOR_FAIL_CLO
 |-------|------|-------|
 | `rule_id` | string | The rule that fired. For internal errors, suffixed with `__internal`. |
 | `severity` | enum | `error` or `warning`. |
-| `engine` | enum | `script`, `ast`, `semantic`, `session`, `trust`, or `internal`. |
-| `file` | string | Path the violation is on. Empty for session-level findings. |
+| `engine` | enum | `script`, `ast`, `trust`, or `internal`. |
+| `file` | string | Path the violation is on. |
 | `line` | integer or null | 1-based line. Only the `ast` engine always sets it. |
 | `column` | integer or null | 1-based column. Only the `ast` engine sets it. |
-| `message` | string | The finding. From the rule `description`, the script output, or the LLM. |
+| `message` | string | The finding. From the rule `description` or the script output. |
 | `suggestion` | string or null | The rule's `fix_hint`, if set. |
 | `context` | string or null | Surrounding source. Only the `ast` engine sets it (matched line ±3). |
 
-The `script`, `semantic`, and `session` engines have no positional information from a regex or LLM hit, so they leave `column` and `context` null and usually `line` too.
-
-## `deferred_rules`
-
-Present only when a deterministic rule blocks (exit `2`) *and* the run had semantic/session rules in scope under `--emit-semantic-payload`. Those rules weren't evaluated this turn — the field surfaces them so a user (or adapter skill) knows they're configured but skipped:
-
-```json
-{
-  "status": "block",
-  "violations": [...],
-  "deferred_rules": [
-    {"rule_id": "no-secrets", "severity": "warning", "reason": "suppressed by deterministic block"}
-  ]
-}
-```
-
-The field is omitted entirely when empty, so ordinary verdicts are byte-compatible without it. See [`--emit-semantic-payload`](emit-semantic-payload.md).
+The `script` engine has no positional information from a command's exit, so it leaves `column` and `context` null and usually `line` too.
 
 ## Versioning
 
-`schema_version` is `2` and bumps only on a breaking change — a field removal, type change, enum-variant removal, or re-interpretation of an existing field. Additive changes (a new optional field, a new enum variant) do **not** bump it.
+`schema_version` is `3` and bumps only on a breaking change — a field removal, type change, enum-variant removal, or re-interpretation of an existing field. Additive changes (a new optional field, a new enum variant) do **not** bump it.
 
-Consumers should assert `schema_version >= 2` rather than `== 2`, so a future additive bump doesn't break them. The shape is "locked-but-unstable" through 0.2 and freezes at 0.3.
+Consumers should assert `schema_version >= 3` rather than `== 3`, so a future additive bump doesn't break them. The shape is "locked-but-unstable" through 0.2 and freezes at 0.3.
 
 ## See also
 

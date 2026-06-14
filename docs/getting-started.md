@@ -61,19 +61,6 @@ hector init
 
 It detects your stack (Rust, Node, Python) and writes a starter `.hector.yml`. Review it, then run `hector trust`.
 
-## Add an LLM rule
-
-Some policies can't be expressed as a grep or an AST pattern — "don't log secrets", "this comment doesn't match the code". Those need a `semantic` rule, which sends the change to an LLM. Add an `llm:` block:
-
-```yaml
-llm:
-  provider: anthropic
-  model: claude-sonnet-4-6
-  api_key_env: ANTHROPIC_API_KEY
-```
-
-Then write `engine: semantic` (or `engine: session`) rules. Hector reads the key from the named environment variable at check time. See [Asking an LLM to judge a change](writing-rules/asking-an-llm.md) and [LLM providers](configuring/llm-providers.md).
-
 ## Where to go next
 
 - [Rules overview](writing-rules/README.md) — pick the right engine for each policy

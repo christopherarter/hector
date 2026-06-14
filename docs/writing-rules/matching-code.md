@@ -56,7 +56,7 @@ The `ast` pattern catches the first (it's a real call across two lines) and igno
 
 ## One violation per match
 
-Where `script` and `semantic` rules report at most one finding per file, `ast` reports every node that matches. A file with five `.unwrap()` calls produces five violations, each pointing at its own line and column. That makes AST rules the most precise for editor and CI annotations.
+Where a `script` rule reports at most one finding per file, `ast` reports every node that matches. A file with five `.unwrap()` calls produces five violations, each pointing at its own line and column. That makes AST rules the most precise for editor and CI annotations.
 
 ## Common patterns
 

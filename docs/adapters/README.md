@@ -1,6 +1,6 @@
 # Adapters
 
-An adapter wires Hector into a coding agent so policy runs automatically on every edit, instead of you calling `hector check` by hand. The adapter hooks the agent's edit and stop events, runs `hector check`, and translates the exit code into "allow" or "reject this edit."
+An adapter wires Hector into a coding agent so policy runs automatically on every edit, instead of you calling `hector check` by hand. The adapter hooks the agent's edit events, runs `hector check`, and translates the exit code into "allow" or "reject this edit."
 
 | Adapter | Agent | Language | Install |
 |---------|-------|----------|---------|
@@ -16,9 +16,6 @@ An adapter wires Hector into a coding agent so policy runs automatically on ever
 The exact hook names and coverage differ, but the contract is the same across agents:
 
 1. **On each edit or proposed edit** — run `hector check` against the file or proposed content. On exit `2`, gating hooks reject the edit so the agent retries.
-2. **When session support is wired** — record edit results into `.hector/session.json` for cross-edit rules.
-3. **When the host exposes session start** — clear stale session state from a prior aborted run.
-4. **When the host exposes stop / idle / agent end** — run `hector check --session` to evaluate `session` rules across the whole turn. Some hosts can block this final response; others can only surface the finding for the next iteration.
 
 The adapter only shells out to the `hector` binary. It doesn't reimplement any policy logic.
 
@@ -59,4 +56,3 @@ Claude Code ships all three today; other adapters wire them up as their skill-di
 
 - [Claude Code adapter](claude-code.md)
 - [OpenCode adapter](opencode.md)
-- [Checking a whole edit session](../writing-rules/whole-session-checks.md) — what the stop/idle hook evaluates

@@ -23,35 +23,42 @@ Hector resolves each parent depth-first (a parent may extend its own parents), d
 | Field | Inherited? |
 |-------|-----------|
 | `rules:` | Yes — a local rule overrides a parent rule with the same id. |
-| `llm:` | Yes — first parent in the list wins; a local block wins over all parents. |
 | `skip:` globs | Yes — union'd across the whole chain and deduplicated. |
 | `trust:` | **No** — every file with rules carries its own signed fingerprint. |
 | `schema_version:` | Must match across the chain; a mismatch errors at load. |
 
 ## Precedence on conflict
 
-When the same rule id or `llm:` block appears in more than one place, two rules decide the winner:
+When the same rule id appears in more than one place, two rules decide the winner:
 
 1. **Local wins.** A rule defined in the child always overrides the same id inherited from any parent.
 2. **First parent wins.** When the child extends `[a.yml, b.yml]` and both define the same id, the one from `a.yml` — earlier in the list — wins.
 
 ```yaml
 # a.yml
-llm:
-  provider: anthropic
-  model: claude-from-a
+rules:
+  no-todo:
+    description: "from a"
+    engine: script
+    scope: ["src/**/*"]
+    severity: error
+    script: "grep -n TODO {file} && exit 1 || exit 0"
 
 # b.yml
-llm:
-  provider: openrouter
-  model: model-from-b
+rules:
+  no-todo:
+    description: "from b"
+    engine: script
+    scope: ["src/**/*"]
+    severity: warning
+    script: "true"
 
 # child.yml
 extends: ["./a.yml", "./b.yml"]
-# Result: the llm block from a.yml wins.
+# Result: the no-todo rule from a.yml wins.
 ```
 
-To flip the precedence, reorder the list: `extends: ["./b.yml", "./a.yml"]`. The order is the priority, the same way a shell `PATH` resolves the first match. Making the order explicit at the call site beats burying the intent in merge rules — and pulling the conflicting field down into the child settles it outright.
+To flip the precedence, reorder the list: `extends: ["./b.yml", "./a.yml"]`. The order is the priority, the same way a shell `PATH` resolves the first match. Making the order explicit at the call site beats burying the intent in merge rules — and pulling the conflicting rule down into the child settles it outright.
 
 ## Trust is never inherited
 
@@ -77,5 +84,4 @@ See [Inspecting your config](../operating/inspecting-config.md).
 ## See also
 
 - [The trust gate](../security/trust.md) — why each file signs itself
-- [LLM providers](llm-providers.md) — the `llm:` block that inheritance merges
 - [Inspecting your config](../operating/inspecting-config.md) — `show-resolved-config`

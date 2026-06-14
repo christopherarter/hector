@@ -1,16 +1,11 @@
 # Config schema
 
-The full shape of `.hector.yml`. For guides on writing rules and configuring scope, severity, and LLMs, see [Writing rules](../writing-rules/README.md) and [Configuring](../configuring/targeting-files.md).
+The full shape of `.hector.yml`. For guides on writing rules and configuring scope and severity, see [Writing rules](../writing-rules/README.md) and [Configuring](../configuring/targeting-files.md).
 
 ## Top-level
 
 ```yaml
 schema_version: 2          # required
-
-llm:                       # optional — required by semantic/session rules
-  provider: anthropic
-  model: claude-sonnet-4-6
-  api_key_env: ANTHROPIC_API_KEY
 
 extends: ["./base.yml"]    # optional — inherit from parent configs
 
@@ -30,7 +25,6 @@ rules:                     # required — the policy rules, keyed by id
 | Key | Type | Required | Notes |
 |-----|------|----------|-------|
 | `schema_version` | integer | yes | Must be `2`. `1` is legacy bully — run `hector migrate`. |
-| `llm` | block | no | Required at evaluation by `semantic`/`session` rules. See [LLM block](#llm-block). |
 | `extends` | list of strings | no | Parent config paths. See [Sharing config with `extends:`](../configuring/inheritance.md). |
 | `trust` | block | written by tool | The signed fingerprint. See [The trust gate](../security/trust.md). |
 | `skip` | list of strings | no | Globs added to the built-in skip set. See [Targeting files](../configuring/targeting-files.md). |
@@ -58,40 +52,18 @@ rules:
 
 | Field | Type | Required | Engines | Notes |
 |-------|------|----------|---------|-------|
-| `description` | string | yes | all | Shown when the rule fires; doubles as the prompt for `semantic`/`session`. |
-| `engine` | enum | yes | all | `script`, `ast`, `semantic`, or `session`. |
+| `description` | string | yes | all | Shown when the rule fires. |
+| `engine` | enum | yes | all | `script` or `ast`. |
 | `scope` | string or list | yes | all | Glob(s). A bare string is treated as a one-element list. |
 | `severity` | enum | yes | all | `error` or `warning`. |
 | `script` | string | for `script` | `script` | Shell command; `{file}` expands to the path. |
 | `output` | enum | no | `script` | `passthrough` (default) or `parsed`. |
 | `pattern` | string | for `ast` | `ast` | ast-grep pattern. |
 | `language` | string | for `ast` | `ast` | ast-grep language name; required (no inference). |
-| `context` | enum | no | `semantic` | `diff` (default), `file`, or `repo`. |
 | `capabilities` | block | no | `script` | Network/write sandbox. See [Capabilities block](#capabilities-block). |
 | `fix_hint` | string | no | all | Suggestion attached to the violation. |
 
 A field set for the wrong engine is ignored — `language` on a `script` rule, for example, does nothing.
-
-## LLM block
-
-```yaml
-llm:
-  provider: anthropic            # required
-  model: claude-sonnet-4-6       # required for direct-API providers
-  api_key_env: ANTHROPIC_API_KEY # provider-dependent
-  base_url: https://...          # optional endpoint override
-  evaluator_model: haiku         # claude-code-subagent only
-```
-
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `provider` | string | yes | `anthropic`, `openrouter`, `ollama`, `claude-code-subagent`. |
-| `model` | string | direct-API only | Ignored for `claude-code-subagent`. |
-| `api_key_env` | string | provider-dependent | Name of the env var holding the key. Not used by `ollama` or `claude-code-subagent`. |
-| `base_url` | string | no | Overrides the provider default endpoint. |
-| `evaluator_model` | string | no | Only for `claude-code-subagent`; the subagent's model. |
-
-See [LLM providers](../configuring/llm-providers.md) for per-provider defaults.
 
 ## Capabilities block
 
@@ -129,11 +101,14 @@ Absent, the pool defaults to `min(8, num_cpus)`. The `HECTOR_MAX_WORKERS` enviro
 
 | Enum | Values |
 |------|--------|
-| `engine` | `script`, `ast`, `semantic`, `session` |
+| `engine` | `script`, `ast` |
 | `severity` | `error`, `warning` |
 | `output` | `passthrough`, `parsed` |
-| `context` | `diff`, `file`, `repo` |
 | `writes` | `none`, `cwd-only`, `tmp`, `unrestricted` |
+
+## Removed engines
+
+A config that still declares `engine: semantic` or `engine: session` is rejected at load with a pointed error naming the rule (e.g. `rule 'X': engine 'semantic' was removed in hector 0.2 — delete this rule or rewrite it as a script or ast rule`). Run `hector migrate` to strip such rules and the old `llm:` block automatically; it prints a `note:` to stderr for each thing it removes.
 
 ## See also
 

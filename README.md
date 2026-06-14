@@ -4,7 +4,7 @@ Policy-enforcement pipeline for AI coding agents. Rust rewrite of [dynamik-dev/b
 
 ## Status
 
-0.2 (in progress). Engines: `script`, `ast`, `semantic` (Anthropic + OpenRouter + Ollama), `session`. CLI: `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `session record`, `doctor`. Claude Code, OpenCode, Reasonix, and pi adapters shipped. See [`docs/operating/diagnostics.md`](docs/operating/diagnostics.md) for the diagnostic schema.
+0.2 (in progress). Engines: `script`, `ast`. CLI: `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `doctor`. Claude Code, OpenCode, Reasonix, and pi adapters shipped. See [`docs/operating/diagnostics.md`](docs/operating/diagnostics.md) for the diagnostic schema.
 
 ## Documentation
 
@@ -12,7 +12,7 @@ Full docs are in [`docs/`](docs/README.md) — start with [Getting started](docs
 
 ## Adapters
 
-- **Claude Code** — `adapters/claude-code/`. PostToolUse + Stop hooks, three skills. See [docs/adapters/claude-code.md](docs/adapters/claude-code.md).
+- **Claude Code** — `adapters/claude-code/`. PostToolUse hook, three skills. See [docs/adapters/claude-code.md](docs/adapters/claude-code.md).
 - **OpenCode** — `adapters/opencode/`. `tool.execute.before` gates proposed edits, `tool.execute.after` records session state, and `event` handles `session.created` / `session.idle`. See [docs/adapters/opencode.md](docs/adapters/opencode.md).
 - **Reasonix** — `adapters/reasonix/`. PreToolUse hook for `write_file` / `edit_file`. See [adapters/reasonix/README.md](adapters/reasonix/README.md).
 - **pi** — `adapters/pi/`. Extension hooks for pre-write gating, session recording, and advisory end-of-turn checks. See [adapters/pi/README.md](adapters/pi/README.md).
@@ -36,13 +36,13 @@ See [docs/getting-started.md](docs/getting-started.md).
 | 0 | Pass or Warn — all rules evaluated cleanly |
 | 1 | Config error — untrusted fingerprint, parse failure, missing file |
 | 2 | Block — ≥1 error-severity policy violation |
-| 3 | InternalError — ≥1 engine runtime error (`__internal` violations present); e.g. missing API key, AST refused diff, script spawn failure |
+| 3 | InternalError — ≥1 engine runtime error (`__internal` violations present); e.g. AST refused diff, script spawn failure |
 
 Adapters fail-open on exit 3 by default. Opt-in fail-closed: `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
 
 ## Inspect
 
-Read-only commands that never run engines, call LLMs, or write telemetry. Exit `0` on success, `1` on config error — never `2`.
+Read-only commands that never run engines or write telemetry. Exit `0` on success, `1` on config error — never `2`.
 
 - `hector explain <file>` — show which rules are in scope for a file and which scope glob matched (or which skip pattern suppressed it). `--format human|json` (default `human`).
 - `hector guide <file>` — list rules whose scope matches the file with their severity and description. `--format human|json` (default `human`).

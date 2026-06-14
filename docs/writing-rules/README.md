@@ -19,7 +19,7 @@ Every rule carries the same four required fields:
 | Field | What it does |
 |-------|--------------|
 | `description` | One sentence, shown to the agent when the rule fires. Write it as the fix, not the complaint — "Return an error instead of panicking" beats "panic found". |
-| `engine` | Which detector runs the rule: `script`, `ast`, `semantic`, or `session`. |
+| `engine` | Which detector runs the rule: `script` or `ast`. |
 | `scope` | Glob(s) selecting which files the rule applies to. A bare string or a list. See [Targeting files](../configuring/targeting-files.md). |
 | `severity` | `error` blocks the edit (exit `2`); `warning` reports but allows it. See [Severity and disabling](../configuring/severity-and-disabling.md). |
 
@@ -33,10 +33,8 @@ Reach for the cheapest engine that can express the policy. Cost rises down this 
 |--------|-------------|------|
 | [`script`](shell-checks.md) | A shell command can decide it — grep, a linter, a test, a custom script. | Process spawn. |
 | [`ast`](matching-code.md) | The policy is about code *structure*: a banned call, macro, or syntax, regardless of formatting. | In-process, fast. |
-| [`semantic`](asking-an-llm.md) | Detecting it needs judgment about intent or meaning — "is this a real secret", "does this comment lie". | One LLM call per file. |
-| [`session`](whole-session-checks.md) | The problem only appears across *multiple* edits in one agent session — a function added here, its caller deleted there. | One LLM call per session. |
 
-Most rules are `script` or `ast`. Save the LLM engines for policies a deterministic check genuinely can't express — they cost an API call and can't run offline.
+Reach for `ast` when the policy is about code structure and a regex would misfire; otherwise a `script` rule covers it.
 
 ## How a check runs
 
@@ -48,7 +46,7 @@ When `hector check --file <path>` runs, Hector:
 4. **Filters** out any violation that's baselined or suppressed by a `hector-disable:` directive.
 5. **Returns a verdict** — `pass`, `warn`, or `block` — and the matching exit code.
 
-A rule fires once per match. The `script` and `semantic` engines emit at most one violation per file; the `ast` engine emits one per matched node.
+A rule fires once per match. The `script` engine emits at most one violation per file; the `ast` engine emits one per matched node.
 
 ## Per-rule fields by engine
 
@@ -59,7 +57,6 @@ A rule fires once per match. The `script` and `semantic` engines emit at most on
 | `capabilities` | `script` | Network and write sandboxing. See [Capability sandboxing](../security/capabilities.md). |
 | `pattern` | `ast` | The ast-grep structural pattern. |
 | `language` | `ast` | Language to parse as (`rust`, `ts`, `python`, …). Required. |
-| `context` | `semantic` | How much code the LLM sees: `diff` (default), `file`, or `repo`. |
 | `fix_hint` | all | A suggestion attached to the violation, shown alongside `description`. |
 
 See the [Config schema](../reference/config-schema.md) for the exhaustive field reference.

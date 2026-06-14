@@ -45,7 +45,7 @@ let port = env::var("PORT").unwrap(); // hector-disable: no-unwrap-in-src
 The directive suppresses only the named rule, and only where it applies:
 
 - For violations with a line number (AST matches), it suppresses the rule **on that line**.
-- For file-level violations with no line (most `script` and `semantic` findings), a directive anywhere in the file suppresses that rule **file-wide**.
+- For file-level violations with no line (most `script` findings), a directive anywhere in the file suppresses that rule **file-wide**.
 
 ### Naming rules
 

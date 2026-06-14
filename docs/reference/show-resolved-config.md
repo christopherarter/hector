@@ -34,7 +34,7 @@ sorted by rule id; no header row.
 | # | Column     | Notes |
 |---|------------|-------|
 | 1 | `id`       | Rule id from the merged config. |
-| 2 | `engine`   | One of `script`, `ast`, `semantic`, `session`. |
+| 2 | `engine`   | One of `script`, `ast`. |
 | 3 | `severity` | One of `error`, `warning`. |
 | 4 | `scope`    | Comma-separated list of glob patterns. No tabs inside the cell. |
 | 5 | `fix_hint` | Empty cell when the rule has no fix_hint (column count is preserved). |
@@ -44,7 +44,7 @@ Greppable / cuttable:
 
 ```bash
 hector show-resolved-config | cut -f1,2,6     # ids + engine + origin
-hector show-resolved-config | grep semantic   # all semantic rules
+hector show-resolved-config | grep ast        # all ast rules
 ```
 
 ## Output: YAML (`--format yaml`)

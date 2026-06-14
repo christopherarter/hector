@@ -13,15 +13,12 @@ The core of Hector. Pick an engine for the job, then write the rule.
 - [Rules overview](writing-rules/README.md) — the anatomy of a rule and which engine to reach for
 - [Running a shell check](writing-rules/shell-checks.md) — the `script` engine
 - [Matching code structure](writing-rules/matching-code.md) — the `ast` engine
-- [Asking an LLM to judge a change](writing-rules/asking-an-llm.md) — the `semantic` engine
-- [Checking a whole edit session](writing-rules/whole-session-checks.md) — the `session` engine
 
 ## Configuring
 
 - [Targeting files](configuring/targeting-files.md) — `scope:` globs and `skip:` patterns
 - [Severity and disabling rules](configuring/severity-and-disabling.md) — `error` vs `warning`, and `hector-disable:` directives
 - [Sharing config with `extends:`](configuring/inheritance.md) — inherit rules across repos
-- [LLM providers](configuring/llm-providers.md) — Anthropic, OpenRouter, Ollama, Claude Code subagent
 - [Baselines](configuring/baselines.md) — silence pre-existing violations
 
 ## Connecting your agent
@@ -52,5 +49,3 @@ Lookup material. The guides above link here; you don't need to read it front to 
 - [Config schema](reference/config-schema.md) — the full `.hector.yml` shape
 - [Verdict JSON](reference/verdict-json.md) — the machine-readable verdict and exit codes
 - [`show-resolved-config` output](reference/show-resolved-config.md) — the TSV/YAML/JSON contract
-- [`--emit-semantic-payload`](reference/emit-semantic-payload.md) — the deferred-evaluation envelope
-- [`record-verdict`](reference/record-verdict.md) — the adapter-internal telemetry writer

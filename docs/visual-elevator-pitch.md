@@ -21,8 +21,6 @@ flowchart LR
         Clean["Clean edit lands<br/>work keeps flowing"]
         Warn["Warning<br/>teach without stopping"]
         Block["Block edit<br/>agent rewrites before it moves on"]
-        Session["Whole-turn review<br/>catch cross-file promises"]
-        Followup["Session finding<br/>fix now or next iteration"]
         Signal["Telemetry<br/>see noisy, valuable, and dead rules"]
         Bridge["Late cleanup becomes<br/>live guidance"]
 
@@ -33,11 +31,7 @@ flowchart LR
         Check -->|needs attention| Warn
         Check -->|no| Block
         Block --> Proposed
-        Gate --> Session
-        Session --> Warn
-        Session --> Followup
         Check --> Signal
-        Session --> Signal
         Signal --> Intent
     end
 

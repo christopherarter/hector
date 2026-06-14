@@ -15,9 +15,8 @@ Hector loads `.hector.yml`, verifies its trust fingerprint, matches the file aga
 | `--file <path>` | A single file on disk. |
 | `--diff <path>` | A unified diff, for rules that reason about changes. |
 | `--content <string\|->` | Proposed post-edit content instead of disk — pass `-` to read from stdin. Requires `--file` for scope matching. For pre-edit adapters. |
-| `--session` | The accumulated edits in `.hector/session.json`, for `session` rules. |
 
-`--content` is for adapters that gate an edit *before* it lands on disk. `script` rules still read the on-disk file; AST and semantic rules see the proposed content. See [Running a shell check](../writing-rules/shell-checks.md).
+`--content` is for adapters that gate an edit *before* it lands on disk. `script` rules still read the on-disk file; AST rules see the proposed content. See [Running a shell check](../writing-rules/shell-checks.md).
 
 ## Exit codes
 
@@ -28,13 +27,13 @@ The exit code is the contract — adapters and CI branch on it:
 | `0` | **Pass or Warn** — all rules evaluated cleanly, or only `warning`-severity rules fired. |
 | `1` | **Config error** — untrusted fingerprint, parse failure, missing file. |
 | `2` | **Block** — at least one `error`-severity violation. |
-| `3` | **Internal error** — at least one rule failed to evaluate (missing API key, AST refused the diff, script failed to spawn). |
+| `3` | **Internal error** — at least one rule failed to evaluate (AST refused the diff, script failed to spawn). |
 
 `0` and `2` are the normal pass/block signals. `1` means *fix your config*. `3` means *a rule couldn't run* — distinct from *a rule found a problem*.
 
 ## Fail-open vs. fail-closed on internal errors
 
-Exit `3` is an open question: a rule couldn't run, so Hector can't say pass or block. Adapters **fail-open** on `3` by default — the edit is allowed, because an unrelated problem (say, an unset API key) shouldn't block an agent's work.
+Exit `3` is an open question: a rule couldn't run, so Hector can't say pass or block. Adapters **fail-open** on `3` by default — the edit is allowed, because an unrelated problem (say, a script that failed to spawn) shouldn't block an agent's work.
 
 To flip that and treat internal errors as blocking, set:
 
@@ -42,7 +41,7 @@ To flip that and treat internal errors as blocking, set:
 export HECTOR_FAIL_CLOSED_ON_INTERNAL=1
 ```
 
-Use fail-closed where a skipped check is unacceptable — for example, a CI gate where a semantic rule silently not running would let a violation through.
+Use fail-closed where a skipped check is unacceptable — for example, a CI gate where a rule silently not running would let a violation through.
 
 ## Output format
 
@@ -59,7 +58,6 @@ hector check --file src/auth.rs --format json
 | `--config <path>` | Use a config other than `.hector.yml`. |
 | `--rule <id>` | Evaluate only this rule. Repeatable; multiple flags are OR'd. |
 | `--explain` | After the verdict, print a per-rule outcome report to stderr. |
-| `--print-prompt` | For semantic rules, render the prompt and exit `0` without calling the LLM. |
 
 See the [CLI reference](../reference/cli.md) for the complete list.
 

@@ -93,7 +93,7 @@ Network isolation is enforced on Linux and advisory on macOS; the writes policy 
 
 ## A note for pre-edit adapters
 
-`script:` rules run their command against the file **on disk**. Adapters that gate a proposed edit *before* it lands (via `hector check --content`) will have the script see the current disk content, not the proposed content. AST and semantic rules read the proposed content correctly. If you gate pre-edit, prefer `ast` or `semantic` for the rules that must see the new bytes.
+`script:` rules run their command against the file **on disk**. Adapters that gate a proposed edit *before* it lands (via `hector check --content`) will have the script see the current disk content, not the proposed content. AST rules read the proposed content correctly. If you gate pre-edit, prefer `ast` for the rules that must see the new bytes.
 
 ## See also
 

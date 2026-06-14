@@ -6,26 +6,23 @@ The binary is `hector`. Run `hector <command> --help` for the same information a
 
 ## `hector check`
 
-Run the pipeline against a file, diff, or session.
+Run the pipeline against a file or diff.
 
 ```
-hector check [--file <path>] [--diff <path>] [--content <string|->] [--session]
+hector check [--file <path>] [--diff <path>] [--content <string|->]
              [--format human|json] [--config <path>] [--rule <id>]... [--explain]
-             [--print-prompt] [--emit-semantic-payload] [--allow-external-paths]
+             [--allow-external-paths]
 ```
 
 | Flag | Default | Notes |
 |------|---------|-------|
 | `--file <path>` | — | File to check. |
 | `--diff <path>` | — | Unified diff to check. |
-| `--content <string\|->` | — | Proposed post-edit content instead of disk; `-` reads stdin. Requires `--file`; conflicts with `--diff` and `--session`. |
-| `--session` | — | Check accumulated edits in `.hector/session.json`. |
+| `--content <string\|->` | — | Proposed post-edit content instead of disk; `-` reads stdin. Requires `--file`; conflicts with `--diff`. |
 | `--format` | `human` | `human` or `json`. |
 | `--config <path>` | `.hector.yml` | Config file to load. |
 | `--rule <id>` | — | Evaluate only this rule. Repeatable; multiple flags OR'd. |
 | `--explain` | off | Print a per-rule outcome report to stderr after the verdict. |
-| `--print-prompt` | off | Render semantic prompts to stdout and exit `0` without calling the LLM. |
-| `--emit-semantic-payload` | off | Collect semantic/session rules into a deferred envelope. Adapter-internal; conflicts with `--session` and `--print-prompt`. See [`--emit-semantic-payload`](emit-semantic-payload.md). |
 | `--allow-external-paths` | off | Allow checking files outside the config's directory. |
 
 **Exit codes:** `0` pass/warn · `1` config error · `2` block · `3` internal error. See [Verdict JSON](verdict-json.md) and [Running checks](../operating/running-checks.md).
@@ -98,30 +95,6 @@ hector baseline [record|refresh] [--config <path>] [--scan <glob>]
 
 See [Baselines](../configuring/baselines.md).
 
-## `hector session`
-
-Session-state management, used by adapter hooks.
-
-```
-hector session record --file <path> --diff <string> [--dir <path>] [--session-id <id>]
-hector session start [--dir <path>]
-```
-
-**`record`** appends an edit to `.hector/session.json`:
-
-| Flag | Default | Notes |
-|------|---------|-------|
-| `--file <path>` | — | File the edit touched. |
-| `--diff <string>` | — | The edit's diff. |
-| `--dir <path>` | `.` | Directory containing `.hector/`. |
-| `--session-id <id>` | — | Session identifier. |
-
-**`start`** stamps a `session_init` record into the telemetry log:
-
-| Flag | Default |
-|------|---------|
-| `--dir <path>` | `.` |
-
 ## `hector doctor`
 
 Diagnose the install, config, trust, engine availability, and adapter wiring. Read-only.
@@ -180,16 +153,6 @@ hector show-resolved-config [--config <path>] [--format tsv|yaml|json]
 
 See [Inspecting your config](../operating/inspecting-config.md).
 
-## `hector record-verdict`
-
-Append one `semantic_verdict` record to `.hector/log.jsonl`. Adapter-internal.
-
-```
-hector record-verdict --rule <id> --verdict <pass|violation> [--file <path>] [--dir <path>]
-```
-
-See [`record-verdict`](record-verdict.md) for the full contract.
-
 ## Read-only commands
 
-`validate`, `doctor`, `explain`, `guide`, and `show-resolved-config` never run a rule, call an LLM, or write telemetry. They exit `0` on success and `1` on a config error — never `2`.
+`validate`, `doctor`, `explain`, `guide`, and `show-resolved-config` never run a rule or write telemetry. They exit `0` on success and `1` on a config error — never `2`.

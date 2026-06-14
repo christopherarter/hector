@@ -1,6 +1,6 @@
 # Inspecting your config
 
-Three read-only commands answer "what would Hector do here?" without running a single rule. None of them executes a `script:`, calls an LLM, or writes telemetry. They exit `0` on success and `1` on a config error — never `2`.
+Three read-only commands answer "what would Hector do here?" without running a single rule. None of them executes a `script:` or writes telemetry. They exit `0` on success and `1` on a config error — never `2`.
 
 ## "Which rules apply to this file?"
 
@@ -38,7 +38,7 @@ It does **not** verify the trust fingerprint — you reach for it precisely when
 
 ```bash
 hector show-resolved-config | cut -f1,2,6     # id, engine, origin
-hector show-resolved-config | grep semantic   # all semantic rules
+hector show-resolved-config | grep ast        # all ast rules
 ```
 
 The TSV columns, in order: `id`, `engine`, `severity`, `scope`, `fix_hint`, `origin`.

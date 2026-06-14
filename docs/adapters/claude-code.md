@@ -56,40 +56,7 @@ A clean edit, one that breaks no rule, lands normally and you see nothing at all
 
 Every adapter follows the [same lifecycle](README.md#what-adapters-do); here is how Claude Code wires it:
 
-**After every edit.** When Claude finishes an `Edit` or `Write`, the adapter records the change into `.hector/session.json`, then runs `hector check --file <path>`. A block rejects the edit and Claude retries. This is the gate you saw above.
-
-**When Claude finishes its turn.** On `Stop`, the adapter runs `hector check --session` to evaluate your `session`-engine rules, the ones that reason across every edit in the turn rather than one file at a time. See [Checking a whole edit session](../writing-rules/whole-session-checks.md).
-
-**When a session starts.** The adapter clears any stale `.hector/session.json` left behind by a previous run that aborted mid-turn, so a fresh session starts from a clean slate.
-
-## Choosing how semantic rules get judged
-
-Some rules ask an LLM to judge a change rather than grep for a pattern: the `semantic` and `session` engines. How Hector makes that LLM call depends on how you pay for Claude. Pick the mode that matches your setup in your config's `llm:` block.
-
-### When you use a direct provider
-
-This is the default. Point `llm:` at a provider Hector can call directly:
-
-```yaml
-llm:
-  provider: anthropic        # or openrouter, ollama
-  model: claude-sonnet-4-6
-```
-
-The adapter calls the model directly on each edit. API-backed providers read credentials from their environment variable (`ANTHROPIC_API_KEY` for Anthropic); local providers such as Ollama use their configured local endpoint. This is the right fit for API users, local model users, and CI.
-
-### When you're on a Claude subscription
-
-If you run Claude Code on a subscription and have no API key, set the provider to `claude-code-subagent`:
-
-```yaml
-llm:
-  provider: claude-code-subagent
-```
-
-In this mode the adapter does not call any API. Instead it hands the pending semantic check back to Claude Code as added context. On the next turn the bundled `hector` skill picks that up, dispatches the `hector-evaluator` subagent to judge the change, applies any error-severity fixes, and records the verdict in your [telemetry log](../operating/telemetry.md) so the rule isn't counted as dead. The subagent's tokens bill under your session's subscription, so no API key is required.
-
-`model:` has no effect under `claude-code-subagent`, since the subagent uses whatever model your Claude Code session is already running. You can leave it out. See [LLM providers](../configuring/llm-providers.md) for the full picture and [Asking an LLM to judge a change](../writing-rules/asking-an-llm.md) for writing the rules themselves.
+**After every edit.** When Claude finishes an `Edit` or `Write`, the adapter runs `hector check --file <path>`. A block rejects the edit and Claude retries. This is the gate you saw above.
 
 ## Author and review rules from inside Claude
 
@@ -109,11 +76,9 @@ For a one-shot health check, run [`hector doctor`](../operating/diagnostics.md).
 
 ## How it works
 
-The adapter is one bash script that Claude Code calls on the three hook events above — `PostToolUse` (matching `Edit` \| `Write`), `Stop`, and `SessionStart`. It only ever shells out to the `hector` binary and holds no policy logic of its own, so changing a rule never means touching the adapter. It translates `hector check`'s exit codes into allow/reject per [the exit-code contract](README.md#the-exit-code-contract). The adapter gates edits and nothing else — it does not proxy Claude's `Read`, `Grep`, or `Glob` tools.
+The adapter is one bash script that Claude Code calls on `PostToolUse` (matching `Edit` \| `Write`). It only ever shells out to the `hector` binary and holds no policy logic of its own, so changing a rule never means touching the adapter. It translates `hector check`'s exit codes into allow/reject per [the exit-code contract](README.md#the-exit-code-contract). The adapter gates edits and nothing else — it does not proxy Claude's `Read`, `Grep`, or `Glob` tools.
 
 ## See also
 
 - [Adapters overview](README.md) — the fail-open contract every adapter shares
 - [Running checks](../operating/running-checks.md) — the exit codes the adapter keys off
-- [Checking a whole edit session](../writing-rules/whole-session-checks.md) — what the `Stop` hook evaluates
-- [LLM providers](../configuring/llm-providers.md) — direct-API and subagent modes in full

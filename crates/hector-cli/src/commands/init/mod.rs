@@ -68,7 +68,6 @@ fn build_config(
         Stack::Python => emit_python_rules(&mut out, workspace, linters),
         Stack::Unknown => emit_generic_rules(&mut out),
     }
-    out.push_str(LLM_COMMENT_BLOCK);
     out
 }
 
@@ -239,27 +238,6 @@ fn expand_package_glob(pkg: &str) -> String {
         pkg.to_owned()
     }
 }
-
-// --- commented LLM block ----------------------------------------
-
-const LLM_COMMENT_BLOCK: &str = r#"
-# Uncomment to enable LLM-driven semantic rules. The `claude-code-subagent`
-# provider routes evaluation through your Claude Code session — no API key
-# needed. See docs/reference/emit-semantic-payload.md.
-#
-# llm:
-#   provider: claude-code-subagent
-#   # evaluator_model: haiku   # optional; see adapter README
-#
-# rules:
-#   no-todo-comment:
-#     description: |
-#       Source files must not contain TODO/FIXME/XXX comments —
-#       track work in issues, not in code.
-#     engine: semantic
-#     scope: ["**/*"]                    # commented example; adjust to your stack
-#     severity: warning
-"#;
 
 #[cfg(test)]
 mod tests {

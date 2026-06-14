@@ -50,7 +50,7 @@ __pycache__/**, node_modules/**, target/**, .next/**, .nuxt/**,
 *.generated.*, *.pb.go, *.g.dart, *.freezed.dart
 ```
 
-A skipped file short-circuits the whole check — no rule is evaluated, no LLM is called, and the verdict is a clean pass.
+A skipped file short-circuits the whole check — no rule is evaluated, and the verdict is a clean pass.
 
 ### Adding your own skip patterns
 

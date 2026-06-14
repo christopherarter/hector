@@ -6,7 +6,7 @@ Hector turns repo-local policy into an automatic gate for AI coding agents. The 
 flowchart LR
     subgraph People["People and policy"]
         Team["Team intent<br/>security, style, tests, architecture"]
-        Config[".hector.yml<br/>rules, scope, severity, LLM provider"]
+        Config[".hector.yml<br/>rules, scope, severity"]
         Trust["Trust fingerprint<br/>reviewed config before rules run"]
         Trusted["Trusted resolved config<br/>extends merged, fingerprint verified"]
         Baseline["Baseline and disables<br/>suppress known or approved findings"]
@@ -21,7 +21,7 @@ flowchart LR
     end
 
     subgraph AdapterLayer["Adapter layer"]
-        Hooks["Edit and session hooks<br/>capture proposed content, diff, or session state"]
+        Hooks["Edit hooks<br/>capture proposed content or diff"]
         Contract["Stable command contract<br/>hector check --format json"]
     end
 
@@ -29,11 +29,9 @@ flowchart LR
         CLI["hector CLI<br/>arguments, I/O, exit codes"]
         Core["hector-core pipeline<br/>load config, verify trust, match scope"]
 
-        subgraph Engines["Four rule engines"]
+        subgraph Engines["Two rule engines"]
             Script["script<br/>run project checks and linters"]
             AST["ast<br/>match code structure"]
-            Semantic["semantic<br/>LLM judges intent in a diff, file, or repo"]
-            Session["session<br/>LLM reviews the whole agent turn"]
         end
 
         Filter["Noise control<br/>baseline and hector-disable filters"]
@@ -44,8 +42,7 @@ flowchart LR
     subgraph Outcome["Outcome"]
         Allow["Allow edit<br/>agent continues"]
         Warn["Warn<br/>surface policy feedback"]
-        Block["Block per-edit gates<br/>adapter rejects the edit so the agent retries"]
-        Advisory["Surface session findings<br/>hosts that cannot rewind still show what to fix"]
+        Block["Block edit<br/>adapter rejects the edit so the agent retries"]
         Audit["Operate and improve<br/>review noisy, dead, or valuable rules"]
     end
 
@@ -66,18 +63,13 @@ flowchart LR
 
     Core --> Script
     Core --> AST
-    Core --> Semantic
-    Core --> Session
     Script --> Filter
     AST --> Filter
-    Semantic --> Filter
-    Session --> Filter
     Filter --> Verdict
     Verdict --> Telemetry
     Verdict --> Allow
     Verdict --> Warn
     Verdict --> Block
-    Verdict --> Advisory
     Telemetry --> Audit
     Audit --> Config
 ```
@@ -86,11 +78,11 @@ flowchart LR
 
 - **Policy lives with the code.** The `.hector.yml` travels with the repo, so every agent sees the same rules and severities.
 - **Adapters are thin.** Claude Code, OpenCode, Reasonix, pi, and future adapters capture host events and consume Hector's verdict. Policy logic stays in `hector-core`.
-- **Rules scale from cheap to smart.** Use shell checks and AST matching for deterministic policies, then semantic and session rules when the question needs judgment across a diff, file, repo, or full agent turn.
+- **Two engines, one gate.** Shell checks cover anything a command can decide; AST matching catches code structure a regex would miss. Both are deterministic and run locally.
 - **Trust comes before power.** Script rules can execute commands, so Hector verifies the signed config before any rule runs.
-- **The verdict is machine-readable.** `pass`, `warn`, `block`, and `internal_error` map to stable exit codes that agents and CI can act on automatically. Per-edit gates can block immediately; post-turn session checks surface findings when a host cannot rewind a completed turn.
+- **The verdict is machine-readable.** `pass`, `warn`, `block`, and `internal_error` map to stable exit codes that agents and CI can act on automatically. Per-edit gates block immediately so the agent retries before the change lands.
 - **The system improves over time.** Baselines and disables keep adoption practical; telemetry shows which rules are noisy, valuable, or dead.
 
 ## Mental model
 
-Hector is not another linter. It is the policy layer around AI-generated edits: local enough to understand a repository's rules, structured enough for deterministic gates, and flexible enough to ask an LLM about the policies that ordinary tools cannot express.
+Hector is not another linter. It is the policy layer around AI-generated edits: local enough to understand a repository's rules, and structured enough to turn them into deterministic gates an agent must clear before its edit lands.

@@ -83,48 +83,6 @@ fn init_template_preserves_grep_error_exit_codes() {
 // Workspace + linter detection. Each test below is one scenario.
 // ---------------------------------------------------------------------
 
-/// Every generated config must end with a commented-out `llm:` block +
-/// example semantic rule so the subagent path is discoverable without
-/// reading source-repo docs. The block is at the END so it doesn't
-/// clutter the active rules visually.
-#[test]
-fn init_appends_commented_llm_block_for_every_stack() {
-    for (name, contents) in [
-        ("Cargo.toml", "[package]\nname = \"foo\"\n"),
-        ("package.json", "{}\n"),
-        ("pyproject.toml", "[project]\nname=\"x\"\n"),
-        ("", ""), // generic / unknown
-    ] {
-        let dir = tempdir().unwrap();
-        if !name.is_empty() {
-            fs::write(dir.path().join(name), contents).unwrap();
-        }
-        run_init(dir.path());
-        let cfg = read_cfg(dir.path());
-        assert!(
-            cfg.contains("# llm:"),
-            "stack `{name}`: expected commented `# llm:` block; got:\n{cfg}"
-        );
-        assert!(
-            cfg.contains("claude-code-subagent"),
-            "stack `{name}`: expected `claude-code-subagent` reference in LLM comment; got:\n{cfg}"
-        );
-        assert!(
-            cfg.contains("no-todo-comment"),
-            "stack `{name}`: expected example semantic rule `no-todo-comment` in LLM comment; got:\n{cfg}"
-        );
-        // The block sits at the end so it doesn't visually crowd active rules.
-        let rules_idx = cfg
-            .find("\nrules:")
-            .unwrap_or_else(|| panic!("stack `{name}`: missing top-level `rules:` key in:\n{cfg}"));
-        let llm_idx = cfg.find("# llm:").unwrap();
-        assert!(
-            llm_idx > rules_idx,
-            "stack `{name}`: LLM comment block must come AFTER `rules:` (was {llm_idx} vs {rules_idx}) in:\n{cfg}"
-        );
-    }
-}
-
 /// Single-package npm project with no linter configured: scopes default to
 /// `src/**/*.<ext>` plus the commented LLM block.
 #[test]
@@ -138,7 +96,6 @@ fn init_single_package_npm_no_linter() {
     assert!(cfg.contains("src/**/*.ts"));
     assert!(!cfg.contains("biome-check"));
     assert!(!cfg.contains("eslint-check"));
-    assert!(cfg.contains("# llm:"));
 }
 
 /// Single-package npm + biome: the `no-console-log` grep rule is dropped
@@ -283,7 +240,6 @@ fn init_python_with_ruff_keeps_template() {
 
     assert!(cfg.contains("ruff-check"));
     assert!(cfg.contains("**/*.py"));
-    assert!(cfg.contains("# llm:"));
 }
 
 /// Unknown stack (no manifest): generic template plus the LLM comment block.
@@ -294,7 +250,6 @@ fn init_unknown_stack_uses_generic_template() {
     let cfg = read_cfg(dir.path());
 
     assert!(cfg.contains("no-fixme"));
-    assert!(cfg.contains("# llm:"));
 }
 
 /// Single-package npm + ESLint config (no biome): the `no-console-log` grep

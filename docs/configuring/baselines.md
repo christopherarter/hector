@@ -22,7 +22,7 @@ hector baseline record --scan "src/**"
 
 A baselined violation is identified by its rule id, file, and line. Move the code and the violation re-surfaces — which is what you want: the baseline pardons the issue where it is, not everywhere forever.
 
-File-level violations (the line-less findings from `script` and `semantic` rules) are matched on both their fingerprint and a normalized hash of the violation message, so a baseline entry doesn't accidentally pardon a *different* file-level finding from the same rule. Normalization strips timestamps and color codes so cosmetic differences don't cause a re-flag.
+File-level violations (the line-less findings from `script` rules) are matched on both their fingerprint and a normalized hash of the violation message, so a baseline entry doesn't accidentally pardon a *different* file-level finding from the same rule. Normalization strips timestamps and color codes so cosmetic differences don't cause a re-flag.
 
 ## Refresh after edits
 

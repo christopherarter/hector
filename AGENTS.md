@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repo.
 
 ## What this is
 
-Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — policy-enforcement pipeline for AI coding agents. Status: **0.1 complete**. Four engines (`script`, `ast`, `semantic`, `session`) wired. CLI ships `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `session record`. Claude Code adapter at `adapters/claude-code/` shipped (0.1c). Plan 0.2 adds OpenAI + Aider + pre-commit. Authoritative docs: `specs/overview.md` (1.0 vision), `specs/2026-05-11-hector-plan-and-0.1-design.md` (phasing + 0.1 design); per-phase plans in `plans/`.
+Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — policy-enforcement pipeline for AI coding agents. Status: **0.1 complete**. Two engines (`script`, `ast`) wired — hector is a static gate; LLM evaluation was removed in 0.2. CLI ships `check`, `trust`, `validate`, `init`, `migrate`, `baseline`. Claude Code adapter at `adapters/claude-code/` shipped (0.1c). Plan 0.2 adds OpenAI + Aider + pre-commit. Authoritative docs: `specs/overview.md` (1.0 vision), `specs/2026-05-11-hector-plan-and-0.1-design.md` (phasing + 0.1 design); per-phase plans in `plans/`.
 
 ## Rules
 
@@ -31,7 +31,7 @@ cargo fmt
 bash scripts/ci-coverage.sh                 # per-file ≥80% region-coverage gate (matches CI)
 ```
 
-Snapshot tests: `insta` — `cargo insta review` after intentional verdict-shape changes. CLI tests use `assert_cmd` against the compiled binary. LLM HTTP paths exercised with `wiremock` (`crates/hector-core/tests/anthropic.rs`).
+Snapshot tests: `insta` — `cargo insta review` after intentional verdict-shape changes. CLI tests use `assert_cmd` against the compiled binary.
 
 ## Architecture
 
@@ -40,16 +40,14 @@ Cargo workspace, two crates:
 - **`hector-core`** — library. Modules:
   - `config` — parse v1/v2 YAML, glob scope matching, `extends:` resolution
   - `diff` — unified-diff parser
-  - `engine` — `RuleEngine` trait + four impls: `script` (capability-sandboxed exec), `ast` (via `ast-grep-core`), `semantic` (via `LlmClient`), `session` (aggregated cross-edit checks)
-  - `llm` — `LlmClient` trait + `AnthropicClient` (blocking `reqwest` with configurable `base_url` for wiremock) + `NoLlm` stub
+  - `engine` — `RuleEngine` trait + two impls: `script` (capability-sandboxed exec) and `ast` (via `ast-grep-core`)
   - `runner` — orchestrates: load → trust-verify → scope-match → dispatch engine → baseline-filter → telemetry-log
   - `trust` — canonical-YAML sha256 fingerprint
   - `verdict` — Pass/Warn/Block + locked JSON shape
   - `disable` — `hector-disable: <rule-id>` line directives (one rule per directive; directive ends at whitespace/`*`/`/`)
   - `baseline` — record-and-filter existing violations by `rule_id::file::line` fingerprint
-  - `session_state` — `.hector/session.json`, accumulated edits across an agent session
   - `telemetry` — `.hector/log.jsonl`, append-only check log
-- **`hector-cli`** — thin binary, name `hector`. `cli.rs` defines clap subcommands; `commands/{check,trust,validate,init,migrate,baseline,session}.rs` are one-function adapters into core.
+- **`hector-cli`** — thin binary, name `hector`. `cli.rs` defines clap subcommands; `commands/{check,trust,validate,init,migrate,baseline}.rs` are one-function adapters into core.
 
 Three load-time invariants enforced by `HectorEngine::load` (`crates/hector-core/src/runner.rs`):
 
@@ -62,7 +60,7 @@ Three load-time invariants enforced by `HectorEngine::load` (`crates/hector-core
 - `0` — Pass or Warn
 - `1` — internal/config error (untrusted, parse failure, missing file)
 - `2` — Block (≥1 error-severity policy violation)
-- `3` — InternalError (≥1 engine runtime error; `__internal` violations present — e.g. missing API key, AST refused diff, script spawn failure)
+- `3` — InternalError (≥1 engine runtime error; `__internal` violations present — e.g. AST refused diff, script spawn failure)
 
 Adapters fail-open on exit 3 by default; opt-in fail-closed via `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
 
@@ -74,11 +72,9 @@ Consumed by CI and editor adapters — do not break.
 
 **Scope matching** (`config/scope.rs`) deliberately diverges from raw globset: bare patterns without `/` also register as `**/<pattern>`, so `*.py` matches at any depth — mirrors bully's semantics. Don't "fix" it.
 
-**LLM injection.** `Semantic` and `Session` engines need an `LlmClient`. `HectorEngine::load` constructs no LLM — semantic/session rules then error at evaluation. Tests and library callers inject via `HectorEngine::builder().with_llm(Box::new(...))`.
-
 ## Conventions
 
-- New engines plug in via the `EngineKind` enum + a match arm in `runner::check`. All four arms route to real engines today; don't smuggle new logic into an existing arm.
+- New engines plug in via the `EngineKind` enum + a match arm in `runner::run_engine`. The `script` and `ast` arms route to real engines; `semantic`/`session` remain as parse-only variants rejected at load (kept so old configs get a curated error). Don't smuggle new logic into an existing arm.
 - Test fixtures live in `tests/fixtures/` at the repo root; crate tests use relative paths.
 - `Cargo.lock` is gitignored (workspace policy) — do not commit.
 - Binary is `hector`, not `hector-cli`.
