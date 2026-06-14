@@ -17,11 +17,10 @@ Audit the rule set against telemetry. Surface candidates for removal, downgrade,
 `.hector/log.jsonl` — one record per check invocation. Schema:
 
 ```json
-{"timestamp": "...", "kind": "check" | "check_session", "file": "src/foo.rs", "rule_id": null, "status": "pass"|"warn"|"block", "elapsed_ms": 42}
+{"timestamp": "...", "kind": "check", "file": "src/foo.rs", "rule_id": null, "status": "pass"|"warn"|"block", "elapsed_ms": 42}
 ```
 
 - `kind: "check"` rows come from `hector check --file <path>` (the per-edit gate). `file` is the path that was checked.
-- `kind: "check_session"` rows come from `hector check --session` (the Stop hook). `file` is `""` because session checks evaluate the accumulated changeset, not a single file.
 
 **Granularity at 0.1:** records are **per check invocation**, not per rule. `rule_id` is always `null`; when a `check` runs three rules against one file, the log has one row whose `status` is the most severe of the three. Rule-level breakdowns arrive in 0.2.
 

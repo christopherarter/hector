@@ -64,7 +64,5 @@ A `bash` tool call that writes a file via `cat > foo.ts` (or any shell redirecti
 | Gating lifecycle event | `PostToolUse` (blocks) | `PreToolUse` (blocks) |
 | stdin field for path | `tool_input.file_path` | `toolArgs.path` |
 | Edit tool names | `Edit`, `Write` | `edit_file`, `write_file`, `multi_edit` |
-| Session events | `SessionStart` + `Stop` wired | not wired (Reasonix has `Stop` but no `SessionStart`) |
-| Subagent mode | supported (`claude-code-subagent`) | not applicable |
 
-Session-state recording (`hector session record`) and `--session` checks aren't wired here yet — only per-file checks fire. Add a `Stop` hook later if you want changeset-scoped rules.
+Both adapters run per-file `hector check` gates only; hector is a static `script` + `ast` gate.

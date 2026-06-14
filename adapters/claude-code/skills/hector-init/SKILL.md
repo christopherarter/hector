@@ -63,5 +63,4 @@ Edit any in-scope file. The PostToolUse hook should run hector and either pass (
 ## Notes
 
 - If `.hector.yml` already exists, this skill should not overwrite it. Suggest `hector migrate` if it's actually `.bully.yml`.
-- For semantic rules, the user needs to add an `llm:` block with provider/model/api_key_env. Propose this only if they want plain-English rules.
 - Telemetry lands at `.hector/log.jsonl`. The `/hector-review` skill consumes it.

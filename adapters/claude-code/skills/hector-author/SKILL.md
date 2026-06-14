@@ -1,6 +1,6 @@
 ---
 name: hector-author
-description: Authors, modifies, or removes rules in .hector.yml. Use when the user says "add a hector rule for X", "ban Y", "tighten <rule-id>", "make <rule-id> a warning", "convert <rule-id> to semantic", "remove <rule-id>", "change the scope of <rule-id>", or asks to apply recommendations from /hector-review.
+description: Authors, modifies, or removes rules in .hector.yml. Use when the user says "add a hector rule for X", "ban Y", "tighten <rule-id>", "make <rule-id> a warning", "remove <rule-id>", "change the scope of <rule-id>", or asks to apply recommendations from /hector-review.
 metadata:
   author: dynamik-dev
   version: 0.1.0
@@ -20,7 +20,7 @@ The user wants to:
 - Add a new rule ("ban X", "warn on Y").
 - Modify an existing rule (tighten, change scope, change severity).
 - Remove a rule ("drop X").
-- Convert a rule between engines (script ↔ ast ↔ semantic).
+- Convert a rule between engines (script ↔ ast).
 
 ## Engine routing
 
@@ -30,8 +30,6 @@ Pick the engine based on what the rule needs to detect:
 |---|---|
 | "Run this linter command" | `script` |
 | "Match this AST shape exactly" (e.g., `as any`, `eval(...)`) | `ast` |
-| "Code violates this plain-English policy" | `semantic` |
-| "These changes need test changes in the same session" | `session` |
 
 ## Process
 
@@ -50,8 +48,6 @@ Pick the engine based on what the rule needs to detect:
 
 - `script`: `description`, `engine: script`, `scope`, `severity`, `script` (with `{file}` substitution).
 - `ast`: `description`, `engine: ast`, `scope`, `severity`, `pattern`, `language`.
-- `semantic`: `description` (= the policy in plain English), `engine: semantic`, `scope`, `severity`. Requires `llm:` block in config.
-- `session`: same as semantic, plus `context: repo` is recommended.
 
 ## Capabilities (script + ast)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Synthesize a unified diff from (filePath, oldString, newString) for the
-# Claude Code adapter's session recording.
+# Claude Code adapter's PostToolUse gate.
 #
 # Usage:   synthesize_diff.sh <filePath> <oldString> <newString>
 # Prints the synthesized diff on stdout.

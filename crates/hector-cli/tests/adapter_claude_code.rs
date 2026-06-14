@@ -2,8 +2,7 @@
 //!
 //! These run under `cargo test` against the real compiled `hector` binary —
 //! no Docker, no model. Synthetic Claude Code event JSON is piped to `hook.sh`
-//! on stdin and we assert exit codes, stdout (the subagent envelope), and
-//! stderr (verdict JSON).
+//! on stdin and we assert exit codes and stderr (verdict JSON).
 //!
 //! Claude Code is a **PostToolUse** adapter: the edit has already landed on
 //! disk when the hook fires, so a `script` rule that greps the file works
@@ -132,34 +131,6 @@ fn posttooluse_dirty_file_blocked_exit_2() {
 }
 
 #[test]
-fn session_start_clears_stale_state() {
-    let dir = tempdir().unwrap();
-    write_trusted(dir.path(), SCRIPT_CONFIG);
-    let hector_dir = dir.path().join(".hector");
-    std::fs::create_dir_all(&hector_dir).unwrap();
-    let state = hector_dir.join("session.json");
-    std::fs::write(
-        &state,
-        r#"{"session_id":"stale","started_at":"t","edits":[]}"#,
-    )
-    .unwrap();
-    let (code, _o, _e) = run_hook(dir.path(), "session-start", &json!({}));
-    assert_eq!(code, 0);
-    assert!(
-        !state.exists(),
-        "session-start must clear stale session.json"
-    );
-}
-
-#[test]
-fn stop_with_no_session_is_noop() {
-    let dir = tempdir().unwrap();
-    write_trusted(dir.path(), SCRIPT_CONFIG);
-    let (code, _o, _e) = run_hook(dir.path(), "stop", &json!({}));
-    assert_eq!(code, 0, "stop with no session.json is a no-op");
-}
-
-#[test]
 fn posttooluse_untrusted_config_exit_1() {
     // An untrusted config is a config/internal error (exit 1), distinct from
     // a policy violation (exit 2).
@@ -203,23 +174,13 @@ fn break_trust(cfg: &Path) {
 }
 
 // ===================================================================
-// claude-code-subagent provider envelope branches
+// Self-edit short-circuit + deterministic block contract
 // ===================================================================
-
-// The semantic rules use the DEFAULT context (`diff`) — no `context:` line.
-const SUBAGENT_CONFIG: &str = "schema_version: 2\n\
-rules:\n  \
-no-debug:\n    \
-description: \"no DEBUG markers in source\"\n    \
-engine: script\n    \
-scope: [\"*.txt\"]\n    \
-severity: error\n    \
-script: \"grep -nE 'DEBUG' {file} && exit 1 || exit 0\"\n";
 
 #[test]
 fn self_edit_of_policy_file_absolute_short_circuits() {
     let dir = tempdir().unwrap();
-    let cfg = write_trusted(dir.path(), SUBAGENT_CONFIG);
+    let cfg = write_trusted(dir.path(), SCRIPT_CONFIG);
     // Break trust: if the basename short-circuit DIDN'T run, hector would be
     // invoked against this now-untrusted config and exit 1 with an error.
     break_trust(&cfg);
@@ -238,7 +199,7 @@ fn self_edit_of_policy_file_absolute_short_circuits() {
 #[test]
 fn self_edit_of_policy_file_relative_short_circuits() {
     let dir = tempdir().unwrap();
-    write_trusted(dir.path(), SUBAGENT_CONFIG);
+    write_trusted(dir.path(), SCRIPT_CONFIG);
     let (code, out, err) = run_hook(
         dir.path(),
         "post-tool-use",
@@ -254,7 +215,7 @@ fn self_edit_of_policy_file_relative_short_circuits() {
 #[test]
 fn self_edit_of_bully_yml_short_circuits() {
     let dir = tempdir().unwrap();
-    write_trusted(dir.path(), SUBAGENT_CONFIG);
+    write_trusted(dir.path(), SCRIPT_CONFIG);
     let bully = dir.path().join(".bully.yml");
     let (code, out, err) = run_hook(
         dir.path(),
