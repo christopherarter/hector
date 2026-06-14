@@ -228,6 +228,22 @@ rules:
     assert
         .stderr(predicates::str::contains("dropped rule 'judge-me'"))
         .stderr(predicates::str::contains("dropped rule 'also-session'"));
+
+    // Stronger than string-absence: the migrated config must actually LOAD.
+    // `validate` resolves through `parse_str`, which hard-rejects any surviving
+    // semantic/session rule, so trust + validate succeeding proves the strip was
+    // complete. Migrate doesn't sign its output, so trust it first.
+    let migrated_cfg = dir.path().join(".hector.yml");
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["trust", "--config", migrated_cfg.to_str().unwrap()])
+        .assert()
+        .success();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["validate", "--config", migrated_cfg.to_str().unwrap()])
+        .assert()
+        .success();
 }
 
 #[test]

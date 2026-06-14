@@ -1059,4 +1059,20 @@ mod tests {
             assert!(err.contains("engine removed in hector 0.2"), "got: {err}");
         }
     }
+
+    /// The parse-only `Semantic`/`Session` variants map to `Engine::Internal`
+    /// for the telemetry tag — a defensive fallback, since `parse_str` rejects
+    /// them before they ever reach a verdict.
+    #[test]
+    fn removed_engines_map_to_internal_verdict_engine() {
+        use crate::verdict::Engine;
+        assert_eq!(
+            super::engine_kind_to_verdict_engine(EngineKind::Semantic),
+            Engine::Internal
+        );
+        assert_eq!(
+            super::engine_kind_to_verdict_engine(EngineKind::Session),
+            Engine::Internal
+        );
+    }
 }

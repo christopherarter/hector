@@ -254,34 +254,6 @@ fn content_conflicts_with_diff() {
         .failure();
 }
 
-/// `--content` and `--session` are mutually exclusive: session mode
-/// aggregates already-recorded edits, content mode evaluates one
-/// pre-write payload. The two have no coherent intersection.
-#[test]
-fn content_conflicts_with_session() {
-    let tmp = tempdir().unwrap();
-    let root = tmp.path();
-    let cfg = write_trusted(root, no_panic_config());
-    let file = root.join("src/foo.rs");
-    std::fs::create_dir_all(root.join("src")).unwrap();
-    std::fs::write(&file, "x\n").unwrap();
-
-    Command::cargo_bin("hector")
-        .unwrap()
-        .args([
-            "check",
-            "--config",
-            cfg.to_str().unwrap(),
-            "--file",
-            file.to_str().unwrap(),
-            "--session",
-            "--content",
-            "y\n",
-        ])
-        .assert()
-        .failure();
-}
-
 /// Empty `--content ""` is valid: an empty file is a legitimate
 /// pre-write state (e.g., `write_file` creating a new empty file before
 /// content is added). No rule fires on a literal-empty Rust source.

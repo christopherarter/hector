@@ -171,4 +171,28 @@ rules:
         assert!(!dropped_llm);
         assert!(dropped.is_empty());
     }
+
+    #[test]
+    fn strip_handles_absent_or_non_mapping_rules_block() {
+        // No `rules:` key at all → nothing to strip.
+        let mut no_rules = yaml_mapping("schema_version: 1\n");
+        let (dropped, llm) = strip_removed_llm_config(&mut no_rules);
+        assert!(dropped.is_empty() && !llm);
+
+        // `rules:` present but not a mapping (a list) → nothing to strip.
+        let mut rules_list = yaml_mapping("schema_version: 1\nrules: []\n");
+        let (dropped, _) = strip_removed_llm_config(&mut rules_list);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn strip_labels_non_string_rule_key() {
+        // YAML allows non-string keys; a removed-engine rule under an integer
+        // key is still dropped, under the `<non-string id>` label.
+        let mut map = yaml_mapping("rules:\n  42:\n    engine: semantic\n");
+        let (dropped, _) = strip_removed_llm_config(&mut map);
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].0, "<non-string id>");
+        assert_eq!(dropped[0].1, "semantic");
+    }
 }
