@@ -1,0 +1,57 @@
+# Hector
+
+> Hector is a local, static policy-enforcement gate for AI coding agents: it checks each proposed or completed edit against a trusted `.hector.yml` and returns a machine-readable verdict with stable exit codes, so a policy violation blocks the bad edit before it lands.
+
+Hector runs two deterministic engines — `script` (capability-sandboxed shell commands) and `ast` (ast-grep structural patterns) — with no LLM or network dependency. A trust gate fingerprints the YAML config so untrusted `script:` rules never run. The verdict JSON and the `.hector/log.jsonl` telemetry log are versioned wire formats consumed by CI and by editor/agent adapters (Claude Code, OpenCode, pi, Reasonix).
+
+## Start here
+
+- [Documentation index](docs/README.md): table of contents for every guide and reference.
+- [Getting started](docs/getting-started.md): install the binary, scaffold a `.hector.yml`, and gate your first edit.
+- [Architecture](docs/architecture.md): how config, the trust gate, the two engines, and the verdict fit together (with a diagram).
+
+## Reference
+
+- [CLI reference](docs/reference/cli.md): every subcommand and flag — `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `doctor`, `explain`, `guide`, `show-resolved-config`.
+- [Config schema](docs/reference/config-schema.md): the `.hector.yml` format — rule fields, the `engine` enum (`script` | `ast`), `scope`, `severity`, and `capabilities`.
+- [Verdict JSON](docs/reference/verdict-json.md): the machine-readable verdict wire format (schema 3), statuses, and the exit-code contract (0/1/2/3).
+- [show-resolved-config](docs/reference/show-resolved-config.md): print the post-`extends:` merged rule set, attributing each rule to its source file.
+
+## Writing rules
+
+- [Writing rules](docs/writing-rules/README.md): how to author rules and choose between the `script` and `ast` engines.
+- [Shell checks](docs/writing-rules/shell-checks.md): `engine: script` rules that shell out to a linter, grep, or any command.
+- [Matching code structure](docs/writing-rules/matching-code.md): `engine: ast` rules using ast-grep patterns.
+
+## Configuring
+
+- [Sharing config with extends](docs/configuring/inheritance.md): compose `.hector.yml` files across a repo; local rules win on collision.
+- [Targeting files](docs/configuring/targeting-files.md): `scope:` glob semantics.
+- [Severity and disabling](docs/configuring/severity-and-disabling.md): `error` vs. `warning`, and `hector-disable:` line directives.
+- [Baselines](docs/configuring/baselines.md): record existing violations so only new ones block.
+
+## Operating
+
+- [Running checks](docs/operating/running-checks.md): `hector check` in file and diff modes, and how exit codes map to outcomes.
+- [Inspecting your config](docs/operating/inspecting-config.md): debug scope and rule resolution with `explain` / `guide` / `show-resolved-config`.
+- [Telemetry](docs/operating/telemetry.md): the append-only `.hector/log.jsonl` check log (schema 2).
+- [Diagnostics](docs/operating/diagnostics.md): `hector doctor` environment and config health checks.
+
+## Adapters
+
+- [Adapters overview](docs/adapters/README.md): the shared adapter contract — exit codes and fail-open-on-internal-error behavior.
+- [Claude Code adapter](docs/adapters/claude-code.md): the PostToolUse plugin that gates `Edit`/`Write`.
+- [OpenCode adapter](docs/adapters/opencode.md): the `tool.execute.before` plugin gate.
+- [Reasonix adapter](adapters/reasonix/README.md): the PreToolUse hook for DeepSeek-Reasonix.
+- [pi adapter](adapters/pi/README.md): the `tool_call` pre-write gate for pi.
+
+## Security
+
+- [The trust gate](docs/security/trust.md): YAML fingerprinting — the defense against malicious `script:` rules.
+- [Capability sandboxing](docs/security/capabilities.md): per-rule `network` / `writes` constraints on script execution.
+
+## Optional
+
+- [Visual elevator pitch](docs/visual-elevator-pitch.md): a one-screen visual overview.
+- [Changelog](CHANGELOG.md): release notes, including the 0.2 removal of LLM evaluation.
+- [Repo guidance (AGENTS.md)](AGENTS.md): conventions for contributors and coding agents working in this repo.
