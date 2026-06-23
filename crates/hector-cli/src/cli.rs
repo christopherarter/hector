@@ -56,7 +56,7 @@ pub enum Command {
         #[arg(long, default_value = ".hector.yml")]
         config: PathBuf,
     },
-    /// Parse and validate the config without running any rules.
+    /// Parse and validate the config without running any gates.
     Validate {
         #[arg(long, default_value = ".hector.yml")]
         config: PathBuf,
@@ -78,9 +78,9 @@ pub enum Command {
         #[arg(long, default_value = "human")]
         format: OutputFormat,
     },
-    /// Show which rules are in scope for `<file>` and which skip-pattern
-    /// (if any) suppresses it. Read-only — no engine runs, no telemetry
-    /// is written.
+    /// Show which gates apply to `<file>` and their run commands.
+    ///
+    /// Read-only — no gate runs, no telemetry is written.
     Explain {
         /// Path to inspect. Relative to cwd.
         file: PathBuf,

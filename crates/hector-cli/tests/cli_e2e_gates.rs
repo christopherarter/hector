@@ -104,6 +104,50 @@ fn legacy_config_is_rejected() {
 }
 
 #[test]
+fn diff_mode_blocks_when_file_contains_todo() {
+    let dir = tempfile::tempdir().unwrap();
+    // Gate: grep for TODO; exit 2 on match.
+    cfg(
+        dir.path(),
+        "gates:\n  no-todo:\n    files: \"**/*.rs\"\n    run: \"grep -q TODO \\\"$HECTOR_FILE\\\" && exit 2 || exit 0\"\n",
+    );
+    // On-disk file contains TODO — gates read from disk, not from the diff.
+    let file = dir.path().join("a.rs");
+    std::fs::write(&file, "// TODO fix this\n").unwrap();
+    // Unified diff that references the file.
+    let diff_content = "--- a/a.rs\n+++ b/a.rs\n@@ -1,1 +1,1 @@\n-// old\n+// TODO fix this\n";
+    let diff_file = dir.path().join("changes.patch");
+    std::fs::write(&diff_file, diff_content).unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["check", "--diff", diff_file.to_str().unwrap(), "--config", ".hector.yml"])
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn diff_mode_passes_when_file_is_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    cfg(
+        dir.path(),
+        "gates:\n  no-todo:\n    files: \"**/*.rs\"\n    run: \"grep -q TODO \\\"$HECTOR_FILE\\\" && exit 2 || exit 0\"\n",
+    );
+    // On-disk file is clean.
+    let file = dir.path().join("b.rs");
+    std::fs::write(&file, "// clean file\n").unwrap();
+    let diff_content = "--- a/b.rs\n+++ b/b.rs\n@@ -1,1 +1,1 @@\n-// old\n+// clean file\n";
+    let diff_file = dir.path().join("clean.patch");
+    std::fs::write(&diff_file, diff_content).unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["check", "--diff", diff_file.to_str().unwrap(), "--config", ".hector.yml"])
+        .assert()
+        .code(0);
+}
+
+#[test]
 fn gate_filter_runs_only_selected() {
     let dir = tempfile::tempdir().unwrap();
     cfg(

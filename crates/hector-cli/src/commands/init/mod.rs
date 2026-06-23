@@ -29,7 +29,10 @@ pub fn run(dir: &Path) -> Result<i32> {
     let body = build_config(stack, workspace.as_ref(), linters, runner);
     std::fs::write(&cfg_path, body)?;
     println!("scaffolded: {}", cfg_path.display());
-    println!("review the config, then run: hector trust");
+    println!(
+        "review the config, then run: hector check --file <path> --config {}",
+        cfg_path.display()
+    );
     Ok(0)
 }
 

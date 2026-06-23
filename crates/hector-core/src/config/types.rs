@@ -14,14 +14,12 @@ pub struct Config {
 ///
 /// `timeout_secs` bounds each gate's wall-clock; a gate that exceeds it is
 /// killed and reported as InternalError (never a silent pass). The
-/// `HECTOR_TIMEOUT` env var overrides this at run time. `max_workers` tunes
-/// the rayon pool that dispatches gates in parallel; `0` clamps to 1.
+/// `HECTOR_TIMEOUT` env var overrides this at run time. Dispatch is
+/// sequential; parallelism tuning is not exposed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionConfig {
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
-    #[serde(default)]
-    pub max_workers: usize,
 }
 
 fn default_timeout_secs() -> u64 {
@@ -32,7 +30,6 @@ impl Default for ExecutionConfig {
     fn default() -> Self {
         Self {
             timeout_secs: default_timeout_secs(),
-            max_workers: 0,
         }
     }
 }
