@@ -3,22 +3,11 @@
 use assert_cmd::Command;
 use tempfile::tempdir;
 
-fn write_trusted(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
-    let cfg = dir.join(".hector.yml");
-    std::fs::write(&cfg, body).unwrap();
-    Command::cargo_bin("hector")
-        .unwrap()
-        .args(["trust", "--config", cfg.to_str().unwrap()])
-        .assert()
-        .success();
-    cfg
-}
-
-const RULE_YAML: &str = "schema_version: 2\nrules:\n  noop:\n    description: \"x\"\n    engine: script\n    scope: [\"*\"]\n    severity: error\n    script: \"true\"\n";
+const GATE_YAML: &str =
+    "gates:\n  noop:\n    files: [\"*\"]\n    run: \"true\"\n";
 
 /// A file whose canonical path falls outside the config_dir must be rejected
-/// with a non-zero exit and a stderr message mentioning "outside" or
-/// "external".
+/// with exit 1 and a stderr message mentioning "outside" or "external".
 #[test]
 fn external_path_rejected_by_default() {
     // Two separate temp dirs: one holds the config, the other holds the file.
@@ -28,7 +17,8 @@ fn external_path_rejected_by_default() {
     let external_file = file_dir.path().join("target.txt");
     std::fs::write(&external_file, "content\n").unwrap();
 
-    let cfg = write_trusted(config_dir.path(), RULE_YAML);
+    let cfg = config_dir.path().join(".hector.yml");
+    std::fs::write(&cfg, GATE_YAML).unwrap();
 
     let out = Command::cargo_bin("hector")
         .unwrap()
@@ -42,7 +32,7 @@ fn external_path_rejected_by_default() {
         .output()
         .unwrap();
 
-    // Must exit non-zero (2 = Block from __internal violation).
+    // Must exit non-zero.
     assert_ne!(
         out.status.code(),
         Some(0),
@@ -56,8 +46,7 @@ fn external_path_rejected_by_default() {
     );
 }
 
-/// With --allow-external-paths, a file outside config_dir is accepted and the
-/// noop script rule exits 0.
+/// With --allow-external-paths, a file outside config_dir is accepted.
 #[test]
 fn external_path_allowed_with_flag() {
     let config_dir = tempdir().unwrap();
@@ -66,7 +55,8 @@ fn external_path_allowed_with_flag() {
     let external_file = file_dir.path().join("target.txt");
     std::fs::write(&external_file, "content\n").unwrap();
 
-    let cfg = write_trusted(config_dir.path(), RULE_YAML);
+    let cfg = config_dir.path().join(".hector.yml");
+    std::fs::write(&cfg, GATE_YAML).unwrap();
 
     Command::cargo_bin("hector")
         .unwrap()
