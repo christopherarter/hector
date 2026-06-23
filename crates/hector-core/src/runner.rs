@@ -369,6 +369,12 @@ impl HectorEngine {
             .unwrap_or(false)
     }
 
+    /// The resolved (extends-merged) gate map, in id order. Read-only; for
+    /// `explain` / `show-resolved-config`.
+    pub fn gates(&self) -> &std::collections::BTreeMap<String, crate::config::Gate> {
+        &self.config.gates
+    }
+
     /// Why this gate won't run for this file, or `None` if it should run.
     fn skip_reason(&self, gate_id: &str, match_path: &Path, content: &str) -> Option<String> {
         if !self.options.gates.is_empty() && !self.options.gates.contains(gate_id) {
@@ -635,6 +641,20 @@ mod gate_dispatch_tests {
             .unwrap();
         assert_eq!(v.blocks.len(), 1);
         assert_eq!(v.blocks[0].gate, "other");
+    }
+
+    #[test]
+    fn gates_accessor_returns_loaded_gate_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            ".hector.yml",
+            "gates:\n  alpha:\n    files: \"**/*.rs\"\n    run: \"exit 0\"\n  beta:\n    files: \"**/*.ts\"\n    run: \"exit 0\"\n",
+        );
+        let engine = HectorEngine::load(&dir.path().join(".hector.yml")).unwrap();
+        let ids: Vec<&str> = engine.gates().keys().map(|k| k.as_str()).collect();
+        // BTreeMap iterates in key order
+        assert_eq!(ids, vec!["alpha", "beta"]);
     }
 
     #[test]
