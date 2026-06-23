@@ -33,11 +33,11 @@ impl InternalReason {
     /// Stable string for telemetry / verdict `errors[].reason`.
     pub fn as_str(&self) -> String {
         match self {
-            InternalReason::NotFound => "not_found".into(),
-            InternalReason::NotExecutable => "not_executable".into(),
-            InternalReason::Timeout => "timeout".into(),
-            InternalReason::Signal(n) => format!("signal:{n}"),
-            InternalReason::Spawn(e) => format!("spawn:{e}"),
+            Self::NotFound => "not_found".into(),
+            Self::NotExecutable => "not_executable".into(),
+            Self::Timeout => "timeout".into(),
+            Self::Signal(n) => format!("signal:{n}"),
+            Self::Spawn(e) => format!("spawn:{e}"),
         }
     }
 }
@@ -116,10 +116,10 @@ pub fn run_gate(
     let stdout = String::from_utf8_lossy(&out_handle.join().unwrap_or_default()).into_owned();
     let stderr = String::from_utf8_lossy(&err_handle.join().unwrap_or_default()).into_owned();
 
-    classify(&status, &stdout, &stderr)
+    classify(status, &stdout, &stderr)
 }
 
-fn classify(status: &std::process::ExitStatus, stdout: &str, stderr: &str) -> GateOutcome {
+fn classify(status: std::process::ExitStatus, stdout: &str, stderr: &str) -> GateOutcome {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
