@@ -51,3 +51,103 @@ fn trust_rejects_unparseable_config() {
         "bless must not write the store on parse failure: {store:?}"
     );
 }
+
+/// An unblessed config makes `check` fail closed with exit 1.
+#[test]
+fn unblessed_config_check_exits_1() {
+    let proj = tempfile::tempdir().unwrap();
+    let xdg = tempfile::tempdir().unwrap();
+    let cfg = proj.path().join(".hector.yml");
+    fs::write(
+        &cfg,
+        "gates:\n  g:\n    files: \"*.rs\"\n    run: \"exit 0\"\n",
+    )
+    .unwrap();
+    let target = proj.path().join("a.rs");
+    fs::write(&target, "x\n").unwrap();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["check", "--config"])
+        .arg(&cfg)
+        .arg("--file")
+        .arg(&target)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains("not trusted"));
+}
+
+/// After `trust`, the same `check` runs normally (passes here → exit 0).
+#[test]
+fn blessed_config_check_runs() {
+    let proj = tempfile::tempdir().unwrap();
+    let xdg = tempfile::tempdir().unwrap();
+    let cfg = proj.path().join(".hector.yml");
+    fs::write(
+        &cfg,
+        "gates:\n  g:\n    files: \"*.rs\"\n    run: \"exit 0\"\n",
+    )
+    .unwrap();
+    let target = proj.path().join("a.rs");
+    fs::write(&target, "x\n").unwrap();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["trust", "--config"])
+        .arg(&cfg)
+        .assert()
+        .success();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["check", "--config"])
+        .arg(&cfg)
+        .arg("--file")
+        .arg(&target)
+        .assert()
+        .success();
+}
+
+/// Editing a gate script after blessing revokes trust → check exits 1.
+#[test]
+fn editing_gate_after_bless_blocks_check() {
+    let proj = tempfile::tempdir().unwrap();
+    let xdg = tempfile::tempdir().unwrap();
+    let cfg = proj.path().join(".hector.yml");
+    fs::write(
+        &cfg,
+        "gates:\n  g:\n    files: \"*.rs\"\n    run: \".hector/gates/g.sh\"\n",
+    )
+    .unwrap();
+    let gates = proj.path().join(".hector/gates");
+    fs::create_dir_all(&gates).unwrap();
+    fs::write(gates.join("g.sh"), "#!/bin/sh\nexit 0\n").unwrap();
+    let target = proj.path().join("a.rs");
+    fs::write(&target, "x\n").unwrap();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["trust", "--config"])
+        .arg(&cfg)
+        .assert()
+        .success();
+
+    fs::write(gates.join("g.sh"), "#!/bin/sh\nexit 2\n").unwrap(); // tamper
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["check", "--config"])
+        .arg(&cfg)
+        .arg("--file")
+        .arg(&target)
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicates::str::contains("not trusted"));
+}

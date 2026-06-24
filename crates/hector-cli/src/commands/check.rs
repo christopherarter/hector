@@ -18,6 +18,10 @@ pub fn run(
     explain: bool,
     allow_external_paths: bool,
 ) -> Result<i32> {
+    if let Err(e) = hector_core::trust::ensure_trusted(config) {
+        eprintln!("ERROR: {e:#}");
+        return Ok(1);
+    }
     let options = CheckOptions {
         gates: HashSet::new(),
         event,
@@ -57,7 +61,10 @@ fn run_file(
         None => std::fs::read_to_string(&file)
             .with_context(|| format!("failed to read {}", file.display()))?,
     };
-    let report = engine.check_with_explain(CheckInput::File { path: file, content })?;
+    let report = engine.check_with_explain(CheckInput::File {
+        path: file,
+        content,
+    })?;
     if explain {
         print_explain(&report.explain);
     }
@@ -67,7 +74,12 @@ fn run_file(
 
 /// Check every non-deleted changed file in a unified diff. Gates read each
 /// file's current on-disk content (gates don't consume diffs).
-fn run_diff(engine: &HectorEngine, diff: &Path, format: OutputFormat, explain: bool) -> Result<i32> {
+fn run_diff(
+    engine: &HectorEngine,
+    diff: &Path,
+    format: OutputFormat,
+    explain: bool,
+) -> Result<i32> {
     let unified = std::fs::read_to_string(diff)?;
     let changed = hector_core::diff::parser::parse_unified(&unified)?;
     if changed.is_empty() {
