@@ -4,8 +4,10 @@ use std::path::Path;
 use tempfile::tempdir;
 
 fn run_init(dir: &Path) {
+    let xdg = tempdir().unwrap();
     Command::cargo_bin("hector")
         .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
         .args(["init", "--dir", dir.to_str().unwrap()])
         .assert()
         .success();
@@ -411,4 +413,40 @@ fn init_npm_workspaces_object_field() {
     let cfg = read_cfg(dir.path());
 
     assert!(cfg.contains("apps/**/src/**/*.ts"));
+}
+
+/// `init` auto-blesses, so a `check` against the scaffolded config runs
+/// without a separate `hector trust` step (it is not rejected as untrusted).
+#[test]
+fn init_auto_blesses_so_check_is_trusted() {
+    let proj = tempfile::tempdir().unwrap();
+    let xdg = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["init", "--dir"])
+        .arg(proj.path())
+        .assert()
+        .success();
+
+    let cfg = proj.path().join(".hector.yml");
+    let target = proj.path().join("a.rs");
+    std::fs::write(&target, "x\n").unwrap();
+
+    // Should NOT be rejected as untrusted. Some scaffolded gate may or may not
+    // block on this file, but the verdict must not be the trust exit-1.
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["check", "--config"])
+        .arg(&cfg)
+        .arg("--file")
+        .arg(&target)
+        .assert();
+    let code = out.get_output().status.code().unwrap();
+    assert_ne!(
+        code, 1,
+        "init-blessed config must not be rejected as untrusted"
+    );
 }
