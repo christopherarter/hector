@@ -68,6 +68,9 @@ pub const TRUST_STORE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TrustStore {
+    /// Schema version. A defaulted (never-written) store has `0`; a store
+    /// written by `bless` carries `TRUST_STORE_VERSION`. Trust decisions key
+    /// off per-entry hashes, not this field — it exists for future migrations.
     #[serde(default)]
     pub version: u32,
     #[serde(default)]
@@ -265,6 +268,10 @@ mod tests {
         write_store(&path, &store).unwrap();
         let back = read_store(&path).unwrap();
         assert_eq!(back.entries["/abs/.hector.yml"].hash, "sha256:abc");
+        assert_eq!(
+            back.entries["/abs/.hector.yml"].blessed_at,
+            "2026-06-24T00:00:00Z"
+        );
         assert_eq!(back.version, TRUST_STORE_VERSION);
     }
 
@@ -280,6 +287,20 @@ mod tests {
             config_home_from(None, Some("/h".into())),
             Some(PathBuf::from("/h/.config"))
         );
+        // An empty XDG_CONFIG_HOME is treated as unset and falls through to HOME.
+        assert_eq!(
+            config_home_from(Some(String::new()), Some("/h".into())),
+            Some(PathBuf::from("/h/.config"))
+        );
         assert_eq!(config_home_from(None, None), None);
+    }
+
+    #[test]
+    fn read_store_surfaces_non_notfound_errors() {
+        // A path that exists but is a directory makes read_to_string fail with a
+        // kind other than NotFound — that must propagate as Err, not be swallowed
+        // into an empty store.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_store(dir.path()).is_err());
     }
 }
