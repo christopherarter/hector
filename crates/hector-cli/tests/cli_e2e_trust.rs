@@ -79,7 +79,10 @@ fn unblessed_config_check_exits_1() {
         .stderr(predicates::str::contains("not trusted"));
 }
 
-/// After `trust`, the same `check` runs normally (passes here → exit 0).
+/// After `trust`, `check` admits the config and actually runs its gates — not
+/// a vacuous exit 0. A blocking gate yields exit 2, which is only reachable if
+/// trust passed AND the gate executed to its verdict (an untrusted config would
+/// exit 1; a config whose gate never ran would exit 0).
 #[test]
 fn blessed_config_check_runs() {
     let proj = tempfile::tempdir().unwrap();
@@ -87,7 +90,7 @@ fn blessed_config_check_runs() {
     let cfg = proj.path().join(".hector.yml");
     fs::write(
         &cfg,
-        "gates:\n  g:\n    files: \"*.rs\"\n    run: \"exit 0\"\n",
+        "gates:\n  g:\n    files: \"*.rs\"\n    run: \"exit 2\"\n",
     )
     .unwrap();
     let target = proj.path().join("a.rs");
@@ -109,7 +112,8 @@ fn blessed_config_check_runs() {
         .arg("--file")
         .arg(&target)
         .assert()
-        .success();
+        .failure()
+        .code(2);
 }
 
 /// Editing a gate script after blessing revokes trust → check exits 1.
