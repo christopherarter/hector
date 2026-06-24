@@ -43,4 +43,11 @@ fn trust_rejects_unparseable_config() {
         .assert()
         .failure()
         .code(1);
+
+    // The spec's other half: a rejected config must write nothing to the store.
+    let store = xdg.path().join("hector/trust.json");
+    assert!(
+        !store.exists(),
+        "bless must not write the store on parse failure: {store:?}"
+    );
 }
