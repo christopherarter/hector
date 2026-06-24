@@ -136,6 +136,57 @@ pub fn write_store(path: &Path, store: &TrustStore) -> Result<()> {
     Ok(())
 }
 
+/// Canonical absolute path used as the store key for `config_path`.
+fn canonical_key(config_path: &Path) -> Result<String> {
+    let canon = config_path
+        .canonicalize()
+        .with_context(|| format!("resolving {}", config_path.display()))?;
+    Ok(canon.to_string_lossy().to_string())
+}
+
+/// Verify `config_path` (and its gate scripts) match a blessed entry in the
+/// store at `store_path`. Fails closed with a fixed, actionable message.
+pub fn ensure_trusted_in(config_path: &Path, store_path: &Path) -> Result<()> {
+    let key = canonical_key(config_path)?;
+    let expected = compute_hash(config_path)?;
+    let store = read_store(store_path)?;
+    match store.entries.get(&key) {
+        Some(entry) if entry.hash == expected => Ok(()),
+        _ => anyhow::bail!("config/gates not trusted — review and run `hector trust`"),
+    }
+}
+
+/// Recompute the hash of `config_path` and write it to the store as blessed.
+/// Parse-validates the config first so a broken config is never blessed.
+pub fn bless_in(config_path: &Path, store_path: &Path, now: &str) -> Result<()> {
+    crate::config::parse_file(config_path)
+        .context("refusing to trust a config that does not parse")?;
+    let key = canonical_key(config_path)?;
+    let hash = compute_hash(config_path)?;
+    let mut store = read_store(store_path)?;
+    store.version = TRUST_STORE_VERSION;
+    store.entries.insert(
+        key,
+        TrustEntry {
+            hash,
+            blessed_at: now.to_string(),
+        },
+    );
+    write_store(store_path, &store)
+}
+
+/// Thin wrapper: enforce trust against the real out-of-repo store.
+pub fn ensure_trusted(config_path: &Path) -> Result<()> {
+    ensure_trusted_in(config_path, &trust_store_path()?)
+}
+
+/// Thin wrapper: bless against the real out-of-repo store, stamping `blessed_at`
+/// with the current UTC time.
+pub fn bless(config_path: &Path) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    bless_in(config_path, &trust_store_path()?, &now)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +353,78 @@ mod tests {
         // into an empty store.
         let dir = tempfile::tempdir().unwrap();
         assert!(read_store(dir.path()).is_err());
+    }
+
+    fn cfg_with_gate(dir: &Path) -> PathBuf {
+        let cfg = dir.join(".hector.yml");
+        write(
+            &cfg,
+            "gates:\n  g:\n    files: \"*\"\n    run: \".hector/gates/g.sh\"\n",
+        );
+        write(&dir.join(".hector/gates/g.sh"), "#!/bin/sh\nexit 0\n");
+        cfg
+    }
+
+    #[test]
+    fn bless_then_ensure_succeeds() {
+        let proj = tempfile::tempdir().unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let store_path = store.path().join("trust.json");
+        let cfg = cfg_with_gate(proj.path());
+        bless_in(&cfg, &store_path, "2026-06-24T00:00:00Z").unwrap();
+        assert!(ensure_trusted_in(&cfg, &store_path).is_ok());
+    }
+
+    #[test]
+    fn never_blessed_is_not_trusted() {
+        let proj = tempfile::tempdir().unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let cfg = cfg_with_gate(proj.path());
+        let err = ensure_trusted_in(&cfg, &store.path().join("trust.json"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("not trusted"),
+            "message must say not trusted: {err}"
+        );
+        assert!(
+            err.contains("hector trust"),
+            "message must point at `hector trust`: {err}"
+        );
+    }
+
+    #[test]
+    fn editing_a_gate_after_bless_revokes_trust() {
+        let proj = tempfile::tempdir().unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let store_path = store.path().join("trust.json");
+        let cfg = cfg_with_gate(proj.path());
+        bless_in(&cfg, &store_path, "t").unwrap();
+        // Tamper with the gate script.
+        write(
+            &proj.path().join(".hector/gates/g.sh"),
+            "#!/bin/sh\nexit 2\n",
+        );
+        assert!(ensure_trusted_in(&cfg, &store_path).is_err());
+    }
+
+    #[test]
+    fn editing_config_after_bless_revokes_trust() {
+        let proj = tempfile::tempdir().unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let store_path = store.path().join("trust.json");
+        let cfg = cfg_with_gate(proj.path());
+        bless_in(&cfg, &store_path, "t").unwrap();
+        write(&cfg, "gates:\n  g:\n    files: \"*\"\n    run: \"true\"\n");
+        assert!(ensure_trusted_in(&cfg, &store_path).is_err());
+    }
+
+    #[test]
+    fn bless_rejects_unparseable_config() {
+        let proj = tempfile::tempdir().unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let cfg = proj.path().join(".hector.yml");
+        write(&cfg, "schema_version: 2\nrules: {}\n"); // legacy → parser rejects
+        assert!(bless_in(&cfg, &store.path().join("trust.json"), "t").is_err());
     }
 }
