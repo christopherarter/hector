@@ -167,8 +167,9 @@ fn emit_generic_gates(out: &mut String) {
 }
 
 fn emit_linter_gate(out: &mut String, gate_id: &str, files: &str, run: &str) {
-    // Escape embedded double-quotes so the YAML double-quoted scalar stays valid.
-    let run_escaped = run.replace('"', "\\\"");
+    // Escape for a YAML double-quoted scalar: backslash first (so it isn't
+    // re-doubled), then the embedded double-quotes.
+    let run_escaped = run.replace('\\', "\\\\").replace('"', "\\\"");
     let _ = writeln!(
         out,
         "  {gate_id}:\n    files: [{files}]\n    run: \"{run_escaped}\""

@@ -191,6 +191,30 @@ fn init_single_package_npm_with_biome_drops_console_log() {
     );
 }
 
+/// Regression: the dynamic biome/eslint `run` strings carry embedded
+/// double-quotes (e.g. `--stdin-file-path="$HECTOR_FILE"`) that must be escaped
+/// so the scaffolded YAML stays valid under the STRICT parser. `hector validate`
+/// runs that strict parser and is not trust-gated, so this guards the escaping
+/// independently of the auto-bless wiring that also happens to catch it.
+#[test]
+fn init_biome_scaffold_strictly_validates() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("package.json"), "{}\n").unwrap();
+    fs::write(dir.path().join("biome.json"), "{}\n").unwrap();
+    run_init(dir.path());
+    let cfg = read_cfg(dir.path());
+    assert!(
+        cfg.contains("biome-check"),
+        "expected the dynamic biome-check linter gate:\n{cfg}"
+    );
+    let cfg_path = dir.path().join(".hector.yml");
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["validate", "--config", cfg_path.to_str().unwrap()])
+        .assert()
+        .code(0);
+}
+
 /// pnpm workspace + biome: scopes use the workspace `packages:` globs,
 /// `no-console-log` is dropped, and the wrapper uses `pnpm exec`.
 #[test]
