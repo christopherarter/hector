@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 /// Feed one labeled blob into the hasher with length prefixes on both the
 /// label and the content, so no two distinct (label, bytes) pairs can collide
@@ -60,6 +62,75 @@ pub fn compute_hash(config_path: &Path) -> Result<String> {
         }
     }
     Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+pub const TRUST_STORE_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TrustStore {
+    #[serde(default)]
+    pub version: u32,
+    #[serde(default)]
+    pub entries: BTreeMap<String, TrustEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustEntry {
+    pub hash: String,
+    pub blessed_at: String,
+}
+
+/// `$XDG_CONFIG_HOME` (if set and non-empty) else `$HOME/.config`. Pure
+/// resolver split out from the env read so it is testable without mutating
+/// process env.
+fn config_home_from(xdg: Option<String>, home: Option<String>) -> Option<PathBuf> {
+    if let Some(x) = xdg {
+        if !x.is_empty() {
+            return Some(PathBuf::from(x));
+        }
+    }
+    home.map(|h| PathBuf::from(h).join(".config"))
+}
+
+fn config_home() -> Option<PathBuf> {
+    config_home_from(
+        std::env::var("XDG_CONFIG_HOME").ok(),
+        std::env::var("HOME").ok(),
+    )
+}
+
+fn store_path_in(config_home: &Path) -> PathBuf {
+    config_home.join("hector").join("trust.json")
+}
+
+/// Absolute path to the out-of-repo trust store.
+pub fn trust_store_path() -> Result<PathBuf> {
+    let home = config_home().ok_or_else(|| {
+        anyhow::anyhow!("cannot resolve config home (set $XDG_CONFIG_HOME or $HOME)")
+    })?;
+    Ok(store_path_in(&home))
+}
+
+/// Read the store; a missing file yields an empty store (never an error).
+pub fn read_store(path: &Path) -> Result<TrustStore> {
+    match std::fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).with_context(|| format!("parsing {}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(TrustStore::default()),
+        Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+    }
+}
+
+/// Write the store atomically: serialize to a sibling temp file, then rename.
+pub fn write_store(path: &Path, store: &TrustStore) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
+    let json = serde_json::to_string_pretty(store)?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path).with_context(|| format!("renaming into {}", path.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -161,5 +232,54 @@ mod tests {
             "gates:\n  g:\n    files: \"*.rs\"\n    run: \"true\"\n",
         );
         assert!(compute_hash(&cfg).unwrap().starts_with("sha256:"));
+    }
+
+    #[test]
+    fn store_path_joins_under_config_home() {
+        let p = store_path_in(Path::new("/home/u/.config"));
+        assert_eq!(p, Path::new("/home/u/.config/hector/trust.json"));
+    }
+
+    #[test]
+    fn read_missing_store_is_empty_not_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = read_store(&dir.path().join("trust.json")).unwrap();
+        assert!(store.entries.is_empty());
+    }
+
+    #[test]
+    fn write_then_read_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/trust.json"); // parent must be created
+        let mut store = TrustStore {
+            version: TRUST_STORE_VERSION,
+            entries: std::collections::BTreeMap::new(),
+        };
+        store.entries.insert(
+            "/abs/.hector.yml".to_string(),
+            TrustEntry {
+                hash: "sha256:abc".into(),
+                blessed_at: "2026-06-24T00:00:00Z".into(),
+            },
+        );
+        write_store(&path, &store).unwrap();
+        let back = read_store(&path).unwrap();
+        assert_eq!(back.entries["/abs/.hector.yml"].hash, "sha256:abc");
+        assert_eq!(back.version, TRUST_STORE_VERSION);
+    }
+
+    #[test]
+    fn xdg_config_home_overrides_home() {
+        // config_home() prefers XDG_CONFIG_HOME. Test the pure resolver with an
+        // explicit value rather than mutating process env.
+        assert_eq!(
+            config_home_from(Some("/x".into()), Some("/h".into())),
+            Some(PathBuf::from("/x"))
+        );
+        assert_eq!(
+            config_home_from(None, Some("/h".into())),
+            Some(PathBuf::from("/h/.config"))
+        );
+        assert_eq!(config_home_from(None, None), None);
     }
 }
