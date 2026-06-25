@@ -2,7 +2,9 @@
 
 Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
-## [Unreleased] — 0.3 gates redesign
+## [Unreleased]
+
+## [0.3.0] — 2026-06-25 — gates redesign
 
 ### Added
 
