@@ -434,26 +434,11 @@ impl HectorEngine {
         let CheckInput::File { path, content } = input;
         let file_str = path.display().to_string();
 
-        let abs = match self.resolve_input_path(&path) {
-            Ok(abs) => abs,
-            Err(e) => {
-                let elapsed = start.elapsed().as_millis() as u64;
-                let verdict = Verdict::from_outcomes(
-                    vec![],
-                    vec![GateError {
-                        gate: "__internal".to_string(),
-                        file: file_str,
-                        reason: format!("{e:#}"),
-                    }],
-                    vec![],
-                    elapsed,
-                );
-                return Ok(CheckReport {
-                    verdict,
-                    explain: vec![],
-                });
-            }
-        };
+        // An out-of-config_dir path is an argument/config error, not a gate
+        // outcome: propagate it as `Err` so the CLI maps it to exit 1. Folding
+        // it into a synthetic `GateError` would yield exit 3 (InternalError),
+        // which makes adapters fail OPEN — silently defeating the guard.
+        let abs = self.resolve_input_path(&path)?;
         let match_path = relativize(&path, &self.config_dir);
 
         let mut collected = Collected::default();

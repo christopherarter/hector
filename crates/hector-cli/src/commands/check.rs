@@ -65,10 +65,18 @@ fn run_file(
         None => std::fs::read_to_string(&file)
             .with_context(|| format!("failed to read {}", file.display()))?,
     };
-    let report = engine.check_with_explain(CheckInput::File {
+    let report = match engine.check_with_explain(CheckInput::File {
         path: file,
         content,
-    })?;
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            // e.g. an external path resolving outside config_dir: an
+            // argument/config error, so exit 1 (mirrors the load-error path).
+            eprintln!("ERROR: {e:#}");
+            return Ok(1);
+        }
+    };
     if explain {
         print_explain(&report.explain);
     }
@@ -100,11 +108,30 @@ fn run_diff(
     let mut explains: Vec<GateExplain> = Vec::new();
     let mut elapsed = 0u64;
     for f in targets {
-        let content = std::fs::read_to_string(&f.path).unwrap_or_default();
-        let r = engine.check_with_explain(CheckInput::File {
+        // A changed file we can't read (deleted between diff-gen and check,
+        // permissions, non-UTF-8 bytes) is a hard error: fabricating empty
+        // content would run every gate against "" and let a real violation
+        // pass vacuously. Surface it as exit 1, never a silent empty pass.
+        let content = match std::fs::read_to_string(&f.path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!(
+                    "ERROR: failed to read changed file {}: {e}",
+                    f.path.display()
+                );
+                return Ok(1);
+            }
+        };
+        let r = match engine.check_with_explain(CheckInput::File {
             path: f.path.clone(),
             content,
-        })?;
+        }) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("ERROR: {e:#}");
+                return Ok(1);
+            }
+        };
         elapsed = elapsed.saturating_add(r.verdict.elapsed_ms);
         blocks.extend(r.verdict.blocks);
         errors.extend(r.verdict.errors);

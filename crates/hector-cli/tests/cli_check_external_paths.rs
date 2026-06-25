@@ -36,11 +36,14 @@ fn external_path_rejected_by_default() {
         .output()
         .unwrap();
 
-    // Must exit non-zero.
-    assert_ne!(
+    // An external-path rejection is an argument/config error: exit 1
+    // (the documented bucket), never exit 3 (InternalError) — exit 3 makes
+    // adapters fail OPEN, silently defeating this guard.
+    assert_eq!(
         out.status.code(),
-        Some(0),
-        "expected non-zero exit for external path"
+        Some(1),
+        "expected exit 1 (argument error) for external path, got {:?}",
+        out.status.code()
     );
 
     let stderr = String::from_utf8_lossy(&out.stderr);
