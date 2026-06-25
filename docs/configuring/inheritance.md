@@ -5,8 +5,6 @@ To reuse a set of rules across repos — or layer a strict profile on top of a b
 ```yaml
 schema_version: 2
 extends: ["./shared/base.yml", "./shared/strict.yml"]
-trust:
-  fingerprint: sha256:...
 rules:
   local-only:
     description: "A rule that lives only in this repo."
@@ -24,7 +22,7 @@ Hector resolves each parent depth-first (a parent may extend its own parents), d
 |-------|-----------|
 | `rules:` | Yes — a local rule overrides a parent rule with the same id. |
 | `skip:` globs | Yes — union'd across the whole chain and deduplicated. |
-| `trust:` | **No** — every file with rules carries its own signed fingerprint. |
+| trust | n/a — trust isn't a config field. You bless the root config in the out-of-repo store and its hash covers the whole `extends:` closure. See [Trust and `extends:`](#trust-and-extends). |
 | `schema_version:` | Must match across the chain; a mismatch errors at load. |
 
 ## Precedence on conflict
@@ -60,16 +58,15 @@ extends: ["./a.yml", "./b.yml"]
 
 To flip the precedence, reorder the list: `extends: ["./b.yml", "./a.yml"]`. The order is the priority, the same way a shell `PATH` resolves the first match. Making the order explicit at the call site beats burying the intent in merge rules — and pulling the conflicting rule down into the child settles it outright.
 
-## Trust is never inherited
+## Trust and `extends:`
 
-`trust:` blocks don't propagate. Every config file that contains rules — parent or child — must be signed on its own:
+Trust isn't a config field and isn't blessed per file. You bless the **root** config you run `hector check` against, and its blessed hash covers the entire `extends:` closure — every file it transitively extends, plus their gate scripts. One bless covers the chain:
 
 ```bash
-hector trust --config shared/base.yml
-hector trust --config .hector.yml
+hector trust            # blesses .hector.yml and everything it extends
 ```
 
-This keeps a parent change from silently altering what runs under a child's already-trusted fingerprint. See [The trust gate](../security/trust.md).
+So editing a parent — `shared/base.yml` or one of its gate scripts — invalidates the root's hash and forces a re-review before the next `check`. A parent change can't silently alter what runs under an already-blessed child. (You only bless a parent directly if you also run `hector check --config shared/base.yml` against it as a root in its own right.) See [The trust gate](../security/trust.md).
 
 ## Confirming the merged result
 
@@ -83,5 +80,5 @@ See [Inspecting your config](../operating/inspecting-config.md).
 
 ## See also
 
-- [The trust gate](../security/trust.md) — why each file signs itself
+- [The trust gate](../security/trust.md) — how one blessing covers the `extends:` closure
 - [Inspecting your config](../operating/inspecting-config.md) — `show-resolved-config`

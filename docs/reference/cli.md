@@ -29,7 +29,7 @@ hector check [--file <path>] [--diff <path>] [--content <string|->]
 
 ## `hector trust`
 
-Compute the trust fingerprint and write it into the config.
+Bless a config in the out-of-repo trust store so `hector check` will run it. Computes a SHA-256 over the config, every file it `extends:`, and their `.hector/gates/` scripts, and records it at `~/.config/hector/trust.json` (keyed by the config's absolute path).
 
 ```
 hector trust [--config <path>]
