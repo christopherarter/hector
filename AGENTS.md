@@ -4,9 +4,9 @@ Guidance for AI coding agents working in this repo.
 
 ## What this is
 
-Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — a tool-agnostic, static policy-enforcement gate for AI coding agents. Status: **0.3 "gates" redesign, Plan 1 (core engine + CLI) merged.** A gate is `files` (globs) + `run` (a shell command); hector matches a touched file to gates, runs each `run` once with the ABI on env + proposed content on stdin, and reads only the exit code (`2` = Block). No per-rule engines, no severity, no LLM. CLI ships `check`, `validate`, `init`, `explain`, `show-resolved-config`, `doctor`, `trust` (stub). Claude Code adapter at `adapters/claude-code/` (predates the redesign; adapter ABI is Plan 4). Authoritative design: `specs/2026-06-15-hector-gates-redesign-design.md` (supersedes the old engine model in `specs/2026-05-11-hector-plan-and-0.1-design.md`); per-phase plans in `plans/` (`plans/2026-06-15-hector-gates-redesign-core.md` = Plan 1).
+Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — a tool-agnostic, static policy-enforcement gate for AI coding agents. Status: **0.3 "gates" redesign, Plans 1 (core engine + CLI) and 2 (trust store) merged.** A gate is `files` (globs) + `run` (a shell command); hector matches a touched file to gates, runs each `run` once with the ABI on env + proposed content on stdin, and reads only the exit code (`2` = Block). No per-rule engines, no severity, no LLM. CLI ships `check`, `validate`, `init`, `explain`, `show-resolved-config`, `doctor`, `trust` (blesses the out-of-repo store; `check` fails closed — exit 1 — on untrusted config/gates). Claude Code adapter at `adapters/claude-code/` (predates the redesign; adapter ABI is Plan 4). Authoritative design: `specs/2026-06-15-hector-gates-redesign-design.md` (supersedes the old engine model in `specs/2026-05-11-hector-plan-and-0.1-design.md`); per-phase plans in `plans/` (`plans/2026-06-15-hector-gates-redesign-core.md` = Plan 1).
 
-**Not yet built (later plans):** the out-of-repo trust store (Plan 2 — `trust.rs` is kept but **unwired**, the `trust` command is a no-op stub); `hector verify` + the full `doctor` expansion (Plan 3 — `doctor` is currently a minimal static-check command); the adapter `--event`/ABI side (Plan 4).
+**Not yet built (later plans):** `hector verify` + the full `doctor` expansion (Plan 3 — `doctor` is currently a minimal static-check command); the adapter `--event`/ABI side (Plan 4).
 
 ## Rules
 
@@ -44,7 +44,7 @@ Cargo workspace, two crates:
   - `diff` — unified-diff parser (used by CLI `--diff` to enumerate changed files)
   - `engine` — the single gate-execution model: `gate::run_gate` spawns `sh -c <run>`, feeds stdin, enforces the timeout, and classifies the exit code into a `GateOutcome` (`Pass` / `Block { message }` / `Internal(InternalReason)`). No `RuleEngine` trait, no per-engine impls.
   - `runner` — orchestrates: load → `extends`-resolve → build per-gate scope matchers → for each gate run `run_gate` per matching file → fold into a `Verdict` → telemetry-log
-  - `trust` — canonical-YAML sha256 fingerprint. **Kept but unwired** (not called on load); the out-of-repo trust store replaces it in Plan 2.
+  - `trust` — out-of-repo allow-list at `~/.config/hector/trust.json` (XDG: `$XDG_CONFIG_HOME/hector/trust.json`). Hash covers the config bytes + every file under `.hector/gates/` (sorted by relative path); keyed by the config's canonical absolute path. Atomic write on `hector trust`. Enforcement is at the CLI `check` layer only — `HectorEngine::load` stays pure.
   - `verdict` — `Status` (Pass / Block / InternalError) + the locked JSON shape (`Verdict { blocks, errors, passed, .. }`, `Block`, `GateError`)
   - `disable` — `hector-disable: <gate-id>` line directives; file-wide (a directive anywhere suppresses that gate for that file). Directive ends at whitespace/`*`/`/`.
   - `telemetry` — `.hector/log.jsonl`, append-only check log of `PerGateRecord`s
@@ -55,7 +55,7 @@ Cargo workspace, two crates:
 1. **Extends.** `config::extends::resolve` does a cycle-detected DFS; inherited gates fill gaps but **local gates win on collision**.
 2. **Legacy rejection.** `config::parser` rejects any pre-0.3 config (top-level `schema_version:`, `rules:`, or `trust:`) with a curated error pointing at the gates format — there is no migration path (no install base).
 
-(Trust verification on load was removed; it returns in Plan 2 as the out-of-repo store.)
+(Trust is enforced at the CLI `check` layer — `check::run` calls `trust::ensure_trusted` before invoking the engine and exits 1 on missing/mismatch. `HectorEngine::load` stays pure; read-only commands do not enforce trust.)
 
 **The gate ABI** (locked stability surface — every adapter must satisfy it, every gate `run` may rely on it): `$HECTOR_FILE` (absolute path under check), `$HECTOR_ROOT` (project root = the gate's cwd), `$HECTOR_EVENT` (`edit`/`write`/`pre-commit`/`manual`), the proposed post-edit content on **stdin**. No string templating — the path travels only as an env value, never spliced into `run`.
 
@@ -64,7 +64,7 @@ Cargo workspace, two crates:
 **Exit-code contract** (`commands/check.rs`) — consumed by CI and editor adapters, do not break:
 
 - `0` — Pass (no warning tier exists)
-- `1` — config/load error (parse failure, missing file, unknown `--gate`)
+- `1` — config/load error (parse failure, missing file, unknown `--gate`, or untrusted config/gates)
 - `2` — Block (≥1 gate exited 2)
 - `3` — InternalError (≥1 gate crashed: 127 / timeout / signal)
 
@@ -82,4 +82,4 @@ Adapters fail-open on exit 3 by default; opt-in fail-closed via `HECTOR_FAIL_CLO
 - Test fixtures live in `tests/fixtures/` at the repo root; crate tests use relative paths.
 - `Cargo.lock` is gitignored (workspace policy) — do not commit.
 - Binary is `hector`, not `hector-cli`.
-- `trust.rs` and `tests/trust_canonical_json.rs` are dormant (the latter still pins a now-unparseable legacy shape); both get replaced when the Plan 2 trust store lands. `doctor` is intentionally minimal until Plan 3.
+- Trust enforcement lives in the CLI `check` command (`commands/check.rs`), not in `HectorEngine::load`. Read-only commands (`validate`, `explain`, `show-resolved-config`, `doctor`) do not enforce trust. `doctor` is intentionally minimal until Plan 3.

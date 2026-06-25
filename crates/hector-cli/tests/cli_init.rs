@@ -4,8 +4,10 @@ use std::path::Path;
 use tempfile::tempdir;
 
 fn run_init(dir: &Path) {
+    let xdg = tempdir().unwrap();
     Command::cargo_bin("hector")
         .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
         .args(["init", "--dir", dir.to_str().unwrap()])
         .assert()
         .success();
@@ -187,6 +189,30 @@ fn init_single_package_npm_with_biome_drops_console_log() {
         cfg.contains("npx biome"),
         "no lockfile → gate should use `npx`; got:\n{cfg}"
     );
+}
+
+/// Regression: the dynamic biome/eslint `run` strings carry embedded
+/// double-quotes (e.g. `--stdin-file-path="$HECTOR_FILE"`) that must be escaped
+/// so the scaffolded YAML stays valid under the STRICT parser. `hector validate`
+/// runs that strict parser and is not trust-gated, so this guards the escaping
+/// independently of the auto-bless wiring that also happens to catch it.
+#[test]
+fn init_biome_scaffold_strictly_validates() {
+    let dir = tempdir().unwrap();
+    fs::write(dir.path().join("package.json"), "{}\n").unwrap();
+    fs::write(dir.path().join("biome.json"), "{}\n").unwrap();
+    run_init(dir.path());
+    let cfg = read_cfg(dir.path());
+    assert!(
+        cfg.contains("biome-check"),
+        "expected the dynamic biome-check linter gate:\n{cfg}"
+    );
+    let cfg_path = dir.path().join(".hector.yml");
+    Command::cargo_bin("hector")
+        .unwrap()
+        .args(["validate", "--config", cfg_path.to_str().unwrap()])
+        .assert()
+        .code(0);
 }
 
 /// pnpm workspace + biome: scopes use the workspace `packages:` globs,
@@ -411,4 +437,43 @@ fn init_npm_workspaces_object_field() {
     let cfg = read_cfg(dir.path());
 
     assert!(cfg.contains("apps/**/src/**/*.ts"));
+}
+
+/// `init` auto-blesses, so a `check` against the scaffolded config runs
+/// without a separate `hector trust` step (it is not rejected as untrusted).
+#[test]
+fn init_auto_blesses_so_check_is_trusted() {
+    let proj = tempfile::tempdir().unwrap();
+    let xdg = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["init", "--dir"])
+        .arg(proj.path())
+        .assert()
+        .success();
+
+    let cfg = proj.path().join(".hector.yml");
+    let target = proj.path().join("a.rs");
+    std::fs::write(&target, "x\n").unwrap();
+
+    // Should NOT be rejected as untrusted. Some scaffolded gate may or may not
+    // block on this file, but the verdict must not be the trust exit-1.
+    let out = Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["check", "--config"])
+        .arg(&cfg)
+        .arg("--file")
+        .arg(&target)
+        .assert();
+    let code = out.get_output().status.code().unwrap();
+    // Must be a real verdict — pass (0) or block (2) — never untrusted (1) and
+    // never a crashed gate (3). `!= 1` alone would pass on an exit-3 regression.
+    assert!(
+        matches!(code, 0 | 2),
+        "init-blessed config must run to a real verdict (0 or 2), not be \
+         rejected as untrusted (1) or crash a gate (3); got {code}"
+    );
 }

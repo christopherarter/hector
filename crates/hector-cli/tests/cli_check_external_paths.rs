@@ -1,10 +1,11 @@
 /// Paths outside config_dir must be rejected by default.
 /// Pass `--allow-external-paths` to opt in.
+mod common;
+
 use assert_cmd::Command;
 use tempfile::tempdir;
 
-const GATE_YAML: &str =
-    "gates:\n  noop:\n    files: [\"*\"]\n    run: \"true\"\n";
+const GATE_YAML: &str = "gates:\n  noop:\n    files: [\"*\"]\n    run: \"true\"\n";
 
 /// A file whose canonical path falls outside the config_dir must be rejected
 /// with exit 1 and a stderr message mentioning "outside" or "external".
@@ -20,8 +21,11 @@ fn external_path_rejected_by_default() {
     let cfg = config_dir.path().join(".hector.yml");
     std::fs::write(&cfg, GATE_YAML).unwrap();
 
+    let xdg = common::blessed_store(&cfg);
+
     let out = Command::cargo_bin("hector")
         .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
         .args([
             "check",
             "--config",
@@ -58,8 +62,11 @@ fn external_path_allowed_with_flag() {
     let cfg = config_dir.path().join(".hector.yml");
     std::fs::write(&cfg, GATE_YAML).unwrap();
 
+    let xdg = common::blessed_store(&cfg);
+
     Command::cargo_bin("hector")
         .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
         .args([
             "check",
             "--config",

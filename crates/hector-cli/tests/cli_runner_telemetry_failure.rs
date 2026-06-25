@@ -6,6 +6,8 @@
 //    source of truth for verdicts.
 // 2. stderr contains the "telemetry append failed" diagnostic.
 
+mod common;
+
 use assert_cmd::Command;
 use std::fs;
 use tempfile::tempdir;
@@ -22,6 +24,8 @@ fn telemetry_failure_warns_to_stderr() {
     )
     .unwrap();
 
+    let xdg = common::blessed_store(&cfg);
+
     // Pre-place a regular file at `<cfg_dir>/.hector` so that
     // `create_dir_all(".hector")` inside telemetry::append fails (parent
     // exists but is not a directory).
@@ -29,6 +33,7 @@ fn telemetry_failure_warns_to_stderr() {
 
     let out = Command::cargo_bin("hector")
         .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
         .args([
             "check",
             "--config",

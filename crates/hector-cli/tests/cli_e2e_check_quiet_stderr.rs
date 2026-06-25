@@ -1,6 +1,8 @@
 //! Routine `hector check` invocations must stay quiet on stderr for
 //! passing gates. No diagnostic noise should appear on routine checks.
 
+mod common;
+
 use assert_cmd::Command;
 use std::fs;
 use tempfile::tempdir;
@@ -20,8 +22,11 @@ fn check_stays_quiet_on_stderr_for_passing_gate() {
     let file = project.join("ok.txt");
     fs::write(&file, "fine\n").unwrap();
 
+    let xdg = common::blessed_store(&cfg);
+
     let out = Command::cargo_bin("hector")
         .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
         .args([
             "check",
             "--config",

@@ -4,6 +4,12 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
 ## [Unreleased] — 0.3 gates redesign
 
+### Added
+
+- **Trust:** out-of-repo allow-list at `~/.config/hector/trust.json`; `hector
+  check` fails closed (exit 1) until `hector trust` blesses the config +
+  `.hector/gates/`; `hector init` auto-blesses.
+
 ### Breaking
 
 - **Config schema.** The top-level `rules:` key is replaced by `gates:`. Each
@@ -22,13 +28,11 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   `skip:` — all removed; configs using them fail at load with a pointed error.
 - `guide` subcommand folded into `hector explain` (now shows gates in scope
   for a file and their run commands).
-- `hector trust` temporarily unenforced — the out-of-repo trust store returns
-  in Plan 2; `hector trust` is a no-op stub that exits 0 with an advisory.
 
 ### Changed
 
 - `hector init` success message now advises `hector check --file <path>`
-  instead of the no-op `hector trust`.
+  after scaffolding (init auto-blesses, so no separate `hector trust` is needed).
 - `Explain` subcommand help reworded to gates vocabulary.
 - `ExecutionConfig.max_workers` removed (dispatch is sequential; only
   `timeout_secs` is used). Configs that set `execution.max_workers` continue

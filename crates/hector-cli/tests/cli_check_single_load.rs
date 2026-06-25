@@ -1,3 +1,5 @@
+mod common;
+
 use assert_cmd::Command;
 use std::fs;
 use tempfile::tempdir;
@@ -14,12 +16,15 @@ fn cli_check_loads_engine_exactly_once() {
     let src = tmp.path().join("x.txt");
     fs::write(&src, "x").unwrap();
 
+    let xdg = common::blessed_store(&cfg_path);
+
     let out = Command::cargo_bin("hector")
         .unwrap()
         .args(["check", "--file"])
         .arg(&src)
         .arg("--config")
         .arg(&cfg_path)
+        .env("XDG_CONFIG_HOME", xdg.path())
         .env("HECTOR_DEBUG_LOAD_COUNT", "1")
         .output()
         .unwrap();

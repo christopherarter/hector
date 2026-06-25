@@ -28,7 +28,13 @@ pub fn run(dir: &Path) -> Result<i32> {
     let runner = detect_js_runner(dir);
     let body = build_config(stack, workspace.as_ref(), linters, runner);
     std::fs::write(&cfg_path, body)?;
-    println!("scaffolded: {}", cfg_path.display());
+    hector_core::trust::bless(&cfg_path).map_err(|e| {
+        anyhow!(
+            "scaffolded {} but could not trust it: {e:#}",
+            cfg_path.display()
+        )
+    })?;
+    println!("scaffolded and trusted: {}", cfg_path.display());
     println!(
         "review the config, then run: hector check --file <path> --config {}",
         cfg_path.display()
@@ -161,9 +167,12 @@ fn emit_generic_gates(out: &mut String) {
 }
 
 fn emit_linter_gate(out: &mut String, gate_id: &str, files: &str, run: &str) {
+    // Escape for a YAML double-quoted scalar: backslash first (so it isn't
+    // re-doubled), then the embedded double-quotes.
+    let run_escaped = run.replace('\\', "\\\\").replace('"', "\\\"");
     let _ = writeln!(
         out,
-        "  {gate_id}:\n    files: [{files}]\n    run: \"{run}\""
+        "  {gate_id}:\n    files: [{files}]\n    run: \"{run_escaped}\""
     );
     out.push('\n');
 }
