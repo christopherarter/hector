@@ -1,6 +1,6 @@
 # OpenCode adapter
 
-The OpenCode adapter runs your Hector rules every time OpenCode edits or writes a file. When an edit breaks a rule, the adapter cancels the tool call, OpenCode hands the agent the verdict, and the agent rewrites the change to comply. The gate runs on every edit without you calling `hector check` by hand.
+The OpenCode adapter runs your Hector gates every time OpenCode edits or writes a file. When an edit breaks a gate, the adapter cancels the tool call, OpenCode hands the agent the verdict, and the agent rewrites the change to comply. The gate runs on every edit without you calling `hector check` by hand.
 
 The adapter ships in this repo at `adapters/opencode/` as a TypeScript plugin.
 
@@ -28,26 +28,24 @@ The plugin no-ops silently in any project without a `.hector.yml`, so it is safe
 
 ```bash
 hector init     # detects your stack and writes a starter .hector.yml
-hector trust    # fingerprints the config so Hector will run it
+hector trust    # records the config so Hector will run it
 ```
 
-Hector runs the scripts in your config, so it refuses to run one it hasn't seen. `hector trust` writes a fingerprint; any later edit invalidates it and you re-sign. See [The trust gate](../security/trust.md).
+Hector runs the commands in your config, so it refuses to run one it hasn't seen. `hector trust` records the config in the trust store; any later edit invalidates it and you re-sign. See [The trust store](../security/trust.md).
 
 ## Watch it block an edit
 
-Suppose your `.hector.yml` bans `DEBUG` markers in source:
+Suppose your `.hector.yml` bans `DEBUG` markers in TypeScript:
 
 ```yaml
-rules:
+# .hector.yml
+gates:
   no-debug:
-    description: "no DEBUG markers in source"
-    engine: script
-    scope: ["src/**/*"]
-    severity: error
-    script: "grep -nE 'DEBUG' {file} && exit 1 || exit 0"
+    files: "**/*.ts"
+    run: "! grep -nH 'DEBUG' \"$HECTOR_FILE\" || exit 2"
 ```
 
-Ask OpenCode to add a debug print to a file under `src/`. Before the `edit` tool writes, the adapter checks the proposed content, the `no-debug` rule fires, and the adapter throws. OpenCode cancels the tool call and surfaces the verdict to the agent, which sees that it broke `no-debug` and rewrites without the marker. A clean edit lands normally and you see nothing.
+Ask OpenCode to add a `DEBUG` marker to a `.ts` file. Before the `edit` tool writes, the adapter checks the proposed content, the `no-debug` gate exits `2`, and the adapter throws. OpenCode cancels the tool call and surfaces the verdict to the agent, which sees that it broke `no-debug` and rewrites without the marker. A clean edit lands normally and you see nothing.
 
 ## What runs, and when
 
@@ -77,7 +75,7 @@ Once the package is published, you can add it to a project's `opencode.json` and
 
 ## What isn't gated yet
 
-A few edits fall outside the adapter at 0.1d. Cover them by running `hector check` in CI:
+A few edits still fall outside the adapter. Cover them by running `hector check` in CI:
 
 - **Multi-file `apply_patch` edits.** OpenCode's batch patch tool bundles several files into one call, and the adapter does not split it apart. Use the `edit` and `write` tools for changes you want gated.
 - **Skills.** The [three policy skills](README.md#managing-policy-from-inside-the-agent) (`/hector-init`, `/hector-author`, `/hector-review`) are not wired into OpenCode yet. The skill files in `adapters/claude-code/skills/` follow the Agent Skills spec and will work in OpenCode once its skill-discovery path settles. Until then, run the CLI directly: `hector init`, then edit `.hector.yml` by hand.
@@ -101,7 +99,7 @@ If OpenCode edits a file and nothing happens, walk through these in order:
 
 ## How it works
 
-The plugin is a small TypeScript module that consumes the `@opencode-ai/plugin` types and registers one hook: `tool.execute.before` for pre-edit gating. It only shells out to the `hector` binary via Bun's `$` API and holds no policy logic of its own, so changing a rule never touches the plugin. It translates `hector check`'s exit codes into allow/reject per [the exit-code contract](README.md#the-exit-code-contract) - the one wrinkle is that the plugin *throws* to make OpenCode cancel the tool call, where the Claude Code hook exits `2`.
+The plugin is a small TypeScript module that consumes the `@opencode-ai/plugin` types and registers one hook: `tool.execute.before` for pre-edit gating. It only shells out to the `hector` binary via Bun's `$` API and holds no policy logic of its own, so changing a gate never touches the plugin. It translates `hector check`'s exit codes into allow/reject per [the exit-code contract](README.md#the-exit-code-contract) - the one wrinkle is that the plugin *throws* to make OpenCode cancel the tool call, where the Claude Code hook exits `2`.
 
 ## How it differs from the Claude Code adapter
 

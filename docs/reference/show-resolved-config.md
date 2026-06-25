@@ -1,119 +1,75 @@
 # `hector show-resolved-config`
 
-Read-only inspection command. Prints the post-`extends:` merged rule
-set so authors can confirm what their actual config looks like after
-inheritance.
+Read-only inspection command. Prints the post-`extends:` merged gate set so you can confirm what your config looks like after inheritance.
 
 ```bash
 hector show-resolved-config [--config .hector.yml] [--format tsv|yaml|json]
 ```
 
-Exit codes: `0` on success; `1` on config error (missing file, parse
-failure, unsupported schema). Never `2` — this command does not run
-rules.
+Exit codes: `0` on success; `1` on a config error (missing file, parse failure). Never `2` — this command does not run gates.
 
-This command does **not** verify the trust fingerprint. Operators
-typically reach for it precisely when debugging an as-yet-unsigned
-config, so trust enforcement would defeat the purpose. The command is
-read-only and never executes a `script:` rule.
+It does **not** verify trust. You typically reach for it precisely when debugging an as-yet-unblessed config, so trust enforcement would defeat the purpose.
 
 ## Origin attribution
 
-Every rule in the output is annotated with the canonical path of the
-file it was *defined in* — your local `.hector.yml`, an
-`extends:`-referenced parent, or a deeper transitive ancestor. When a
-rule id collides between the local file and an inherited one, the
-local definition wins (matching `extends::resolve` semantics) and the
-origin reflects that.
+Every gate in the output is annotated with the path of the file it was *defined in* — your local `.hector.yml`, an `extends:`-referenced parent, or a deeper ancestor. When a gate id collides between the local file and an inherited one, the local definition wins (matching `extends::resolve` semantics) and the origin reflects that.
 
 ## Output: TSV (default)
 
-Columns, in order, separated by a single tab; one rule per line; rows
-sorted by rule id; no header row.
+One gate per line, four columns separated by a single tab, sorted by gate id, no header row:
 
-| # | Column     | Notes |
-|---|------------|-------|
-| 1 | `id`       | Rule id from the merged config. |
-| 2 | `engine`   | One of `script`, `ast`. |
-| 3 | `severity` | One of `error`, `warning`. |
-| 4 | `scope`    | Comma-separated list of glob patterns. No tabs inside the cell. |
-| 5 | `fix_hint` | Empty cell when the rule has no fix_hint (column count is preserved). |
-| 6 | `origin`   | Canonical filesystem path of the file that defined the rule. |
+| # | Column | Notes |
+|---|--------|-------|
+| 1 | `gate` | Gate id from the merged config. |
+| 2 | `origin` | Path of the file that defined the gate. |
+| 3 | `files` | Comma-separated glob list. |
+| 4 | `run` | The gate's shell command. |
 
-Greppable / cuttable:
+Greppable and cuttable:
 
 ```bash
-hector show-resolved-config | cut -f1,2,6     # ids + engine + origin
-hector show-resolved-config | grep ast        # all ast rules
+hector show-resolved-config | cut -f1,2      # gate ids + origin
+hector show-resolved-config | grep biome     # the biome gate's row
 ```
 
 ## Output: YAML (`--format yaml`)
 
-Canonical `serde_yaml` rendering of a view that *intentionally* omits
-two fields from the live `Config` shape:
-
-- `trust:` is per-config-file. The post-merge view has no single source
-  file to fingerprint, so emitting one would mislead.
-- `extends:` is already consumed by the merge.
-
-Each rule entry is preceded by a `# origin: <path>` comment line so
-the inheritance source is visible in the rendered YAML.
+A sequence of `{ gate, origin, files, run }`, one entry per gate, sorted by gate id:
 
 ```yaml
-schema_version: 2
-rules:
-  # origin: /work/repo/parent.yml
-  inherited:
-    description: "from parent"
-    engine: script
-    scope:
-    - "*.txt"
-    severity: warning
-    script: "true"
-  # origin: /work/repo/.hector.yml
-  local-only:
-    description: "only in child"
-    engine: script
-    scope:
-    - "*.md"
-    severity: warning
-    script: "true"
+- gate: inherited
+  origin: /work/repo/base.yml
+  files:
+  - "*.txt"
+  run: "true"
+- gate: local-only
+  origin: /work/repo/.hector.yml
+  files:
+  - "*.md"
+  run: "true"
 ```
 
 ## Output: JSON (`--format json`)
 
-Pretty-printed `serde_json` rendering of the same view as YAML. Rules
-are sorted by id (the `BTreeMap` keys ordering is preserved through
-`serde_json::Map`'s insertion order). Each rule object carries an
-`origin` field with the canonical defining-file path.
+Pretty-printed array of the same `{ gate, origin, files, run }` objects, sorted by gate id:
 
 ```json
-{
-  "schema_version": 2,
-  "rules": {
-    "inherited": {
-      "description": "from parent",
-      "engine": "script",
-      "scope": ["*.txt"],
-      "severity": "warning",
-      "script": "true",
-      "origin": "/work/repo/parent.yml"
-    },
-    "local-only": {
-      "description": "only in child",
-      "engine": "script",
-      "scope": ["*.md"],
-      "severity": "warning",
-      "script": "true",
-      "origin": "/work/repo/.hector.yml"
-    }
+[
+  {
+    "gate": "inherited",
+    "origin": "/work/repo/base.yml",
+    "files": ["*.txt"],
+    "run": "true"
+  },
+  {
+    "gate": "local-only",
+    "origin": "/work/repo/.hector.yml",
+    "files": ["*.md"],
+    "run": "true"
   }
-}
+]
 ```
 
 ## Stability
 
-These three output shapes are a public contract. TSV column order, the
-YAML field set (sans `trust:` / `extends:`), and the JSON object
-structure all freeze with this command. Breaking changes go through a
-versioned `--format` value (e.g. `--format json-v2`).
+These three output shapes are a public contract. The TSV column order and the field set of the YAML/JSON objects freeze with this command. Breaking changes go through a versioned `--format` value (e.g. `--format json-v2`).

@@ -1,6 +1,6 @@
 # Diagnostics
 
-When checks misbehave — hooks not firing, a rule silently skipped, an "untrusted config" error — run `hector doctor` first. It's a read-only command that walks every load-time invariant Hector cares about and reports which one is broken and how to fix it:
+When checks misbehave — hooks not firing, an "untrusted config" error, a gate that won't run — start with `hector doctor`. It's a read-only, minimal static-check command that walks a fixed list of load-time invariants and reports which one is broken and how to fix it:
 
 ```bash
 hector doctor
@@ -10,59 +10,49 @@ Each row is a check with a status and, when something's wrong, a remediation hin
 
 For a machine-readable report, add `--format json`. The rest of this page is the contract for that output.
 
-## Output schema
+> `hector verify` and a fuller `doctor` are planned; today `doctor` runs the five static checks below.
 
-The set of field *names* and the meaning of each `status` value are stable; new
-fields land at the end of `Report` or `CheckResult` with `Option<…>`
-defaults so the schema stays additive.
+## The five checks
 
-## Top-level shape
-
-```json
-{
-  "hector_version": "0.2.0",
-  "checks": [ /* CheckResult[] */ ]
-}
-```
-
-| Field | Type | Meaning |
-|---|---|---|
-| `hector_version` | string | The version of the running `hector` binary. |
-| `checks` | array of `CheckResult` | Ordered, one row per check. Order is stable across runs. |
-
-## `CheckResult`
-
-```json
-{
-  "name": "trust",
-  "status": "pass",
-  "detail": "fingerprint matches",
-  "remediation": null
-}
-```
-
-| Field | Type | Meaning |
-|---|---|---|
-| `name` | string (snake_case) | Stable check id. See [check ids](#check-ids). |
-| `status` | `"pass"` \| `"warn"` \| `"fail"` | Outcome. Exit-code rule: any `fail` → exit 1; otherwise → exit 0. |
-| `detail` | string | One short sentence describing what was checked and what was found. May contain absolute paths, version numbers, or sizes. |
-| `remediation` | string \| null | Actionable hint when `status` is not `pass`. `null` on pass. |
-
-## Check ids
-
-These are emitted in this order:
+`doctor` emits exactly these checks, in this order:
 
 | `name` | What it verifies |
 |---|---|
 | `binary` | The running `hector` resolves to a path; reports the version. Always `pass`. |
+| `adapter` | `~/.claude/settings.json` exists and a PostToolUse hook references `hector` or the adapter's `hook.sh`. `warn` if the settings file is missing or no hook matches — not every user runs Claude Code. |
 | `config` | `<dir>/.hector.yml` exists. `fail` if missing. |
-| `parses` | The config (and every transitive `extends:` ancestor) parses. `fail` if the YAML is malformed or schema_version is unsupported. |
-| `trust` | The trust fingerprint matches the recomputed canonical hash. `fail` if it doesn't; `warn` if there's no config to verify. |
-| `schema` | `schema_version` is a supported value (currently `2`). `fail` on `1` (legacy bully — remediation: `hector migrate`). |
-| `scope_globs` | Every rule's `scope:` constructs a valid glob matcher. `fail` lists the offending rule(s). |
-| `capabilities` | Platform-level capability sandbox status. `pass` on Linux (CLONE_NEWNET enforces `network: false`). `warn` on macOS and other non-Linux targets where the sandbox is best-effort (script rules run unrestricted). Routine `hector check` no longer logs the best-effort advisory to stderr — this row is the single source of truth. |
-| `adapter` | `~/.claude/settings.json` exists and a PostToolUse hook references `hector` or the adapter's `hook.sh`. Missing settings file is `warn` (not every user runs Claude Code). |
-| `runtime_state` | `<dir>/.hector/` is writable (probed by writing+deleting a marker file). Reports sizes of `baseline.json`, `log.jsonl` if present. |
+| `parses` | The config (and every transitive `extends:` ancestor) parses. `fail` on malformed YAML or a rejected legacy config. |
+| `gate_scripts` | For each gate whose `run` is a single-token path beginning with `.hector/`, that the path exists and is executable. Inline commands (anything with a space) are skipped. `fail` lists the offending gate(s). |
+
+## Report shape
+
+```json
+{
+  "hector_version": "<x.y.z>",
+  "checks": [
+    {
+      "name": "config",
+      "status": "pass",
+      "detail": "/work/repo/.hector.yml exists",
+      "remediation": null
+    }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `hector_version` | string | Version of the running `hector` binary. |
+| `checks` | array of check objects | One per check, in the order above. |
+
+Each check object:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `name` | string | Stable check id (one of the five above). |
+| `status` | `"pass"` \| `"warn"` \| `"fail"` | Outcome. Any `fail` → exit `1`; otherwise → exit `0`. |
+| `detail` | string | One short sentence on what was checked and found. May contain absolute paths or version numbers. |
+| `remediation` | string \| null | Actionable hint when `status` is not `pass`; `null` on pass. |
 
 ## Exit codes
 
@@ -71,14 +61,11 @@ These are emitted in this order:
 | `0` | Every check is `pass` or `warn`. |
 | `1` | At least one check is `fail`. |
 
-These are *distinct* from `hector check`'s `0` / `1` / `2` contract.
-`doctor` never produces a `Verdict` and never participates in the
-adapter exit-code routing.
+These are *distinct* from `hector check`'s `0`/`1`/`2`/`3` contract. `doctor` never produces a `Verdict` and never participates in adapter exit-code routing.
 
 ## Stability
 
-- The set of `name` values is **additive-only**. New checks land at the end of the list.
-- `Status` values (`pass` / `warn` / `fail`) are frozen.
-- `detail` strings are human-readable and may change between releases — do not parse them.
-- `remediation` strings are human-readable and may change between releases — do not parse them.
+- The set of `name` values is **additive-only** — new checks land at the end of the list.
+- The `status` values (`pass` / `warn` / `fail`) are frozen.
+- `detail` and `remediation` strings are human-readable and may change between releases — do not parse them.
 - The exit-code rule (`0` for pass-or-warn, `1` for any fail) is frozen.

@@ -17,7 +17,7 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   Old `schema_version`, `engine:`, `severity:`, `skip:`, and `llm:` fields
   are rejected at parse time.
 - **Exit-code contract.** Exit 2 = Block (≥1 gate returned exit 2); exit 3 =
-  InternalError (engine runtime error); exit 0 = Pass or Warn.
+  InternalError (≥1 gate crashed: not-found / timeout / signal); exit 0 = Pass.
 - **Verdict schema 4 / telemetry schema 3.** `Verdict` no longer carries
   `deferred_rules`, `engine`, or `severity` fields. Telemetry `LogEntry`
   drops `semantic_verdict` and `semantic_skipped` variants.
@@ -38,9 +38,13 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   `timeout_secs` is used). Configs that set `execution.max_workers` continue
   to parse (serde ignores unknown fields).
 
-## Unreleased — 0.2 wire-format coordination
+## 0.2 wire-format coordination — superseded by 0.3, never released
 
-This release batches all four contract-shaped changes from
+> Historical record. The 0.2 line (engines, `llm:`, capability sandboxing, the
+> deferred semantic-eval envelope) was developed but never released; the 0.3
+> gates redesign above supersedes all of it. Kept for provenance.
+
+This work batched all four contract-shaped changes from
 `docs/audits/2026-05-24-check-end-to-end-audit.md` into one CHANGELOG
 section so adapters and consumers see them together. Skip to
 **Migrating to 0.2** below for the upgrade checklist.
@@ -202,7 +206,7 @@ section so adapters and consumers see them together. Skip to
 - Exit code semantics unchanged: deterministic block → 2 (deferred suppressed); pass + envelope → 0; pass + no envelope → 0.
 - New module `hector_core::verdict_deferred` exposes `DeferredVerdict`, `DeferredPayload`, `DeferredRule`, and `DEFERRED_SCHEMA_VERSION` (independent of `Verdict::SCHEMA_VERSION`).
 - New helper `hector_core::llm::prompt::build_evaluator_input(rules, primary, context)` — concatenates the (system, user) tuple from `build_prompt_split` for inclusion in the envelope's `_evaluator_input` field.
-- Wire format documented in [`docs/emit-semantic-payload.md`](docs/emit-semantic-payload.md).
+- Wire format was documented in `docs/emit-semantic-payload.md` (removed with the LLM-eval feature).
 - **Library-additive only.** No `Verdict` change, no exit-code change. Existing direct-API users (anthropic / openrouter / ollama) are unaffected.
 
 ### Subagent semantic-eval — `hector record-verdict` (H2)
@@ -211,7 +215,7 @@ section so adapters and consumers see them together. Skip to
 - `--verdict` is a clap `ValueEnum`; invalid values are rejected at parse time.
 - First invocation against a fresh log lazily stamps a `session_init` record so the log starts with the canonical first-record type.
 - Exit codes: `0` success, `1` telemetry write failure. Never `2` — `record-verdict` is not a gate.
-- Wire format and trust model documented in [`docs/record-verdict.md`](docs/record-verdict.md).
+- Wire format and trust model were documented in `docs/record-verdict.md` (removed with the LLM-eval feature).
 - **Library-additive only.** No new core surface; reuses `hector_core::telemetry::{append, LogEntry::SemanticVerdict}` shipped in D1.
 
 ### Subagent semantic-eval — Claude Code adapter mode (H3)
@@ -248,7 +252,7 @@ section so adapters and consumers see them together. Skip to
 - **Backwards compat:** `hector_core::telemetry::read_all` accepts the pre-D1 flat shape via an untagged fallback and lifts each line into the closest typed variant. A one-time stderr deprecation warning fires per process when the fallback is used. The fallback will be removed at the 0.3 verdict freeze.
 - New CLI subcommand `hector session start` stamps a `session_init` record explicitly. `hector session record` stamps one lazily on its first invocation per session.
 - **Breaking (library):** `pub enum LogEntry` replaces `pub struct LogEntry` in `hector_core::telemetry`. Pre-1.0; consumers using the writer should migrate to constructing the appropriate variant.
-- Wire format documented in [`docs/telemetry.md`](docs/telemetry.md).
+- Wire format documented in [`docs/operating/telemetry.md`](docs/operating/telemetry.md).
 
 ## 0.1b — Engine set complete
 

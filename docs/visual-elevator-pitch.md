@@ -19,16 +19,14 @@ flowchart LR
         Proposed["AI proposes an edit"]
         Check{"Does this fit<br/>the repo's rules?"}
         Clean["Clean edit lands<br/>work keeps flowing"]
-        Warn["Warning<br/>teach without stopping"]
         Block["Block edit<br/>agent rewrites before it moves on"]
-        Signal["Telemetry<br/>see noisy, valuable, and dead rules"]
+        Signal["Telemetry<br/>see noisy, valuable, and dead gates"]
         Bridge["Late cleanup becomes<br/>live guidance"]
 
         Intent --> Gate
         Proposed --> Gate
         Gate --> Check
         Check -->|yes| Clean
-        Check -->|needs attention| Warn
         Check -->|no| Block
         Block --> Proposed
         Check --> Signal
@@ -44,7 +42,7 @@ flowchart LR
 - **For teams:** Hector makes standards enforceable at the moment code is written, not after the review queue is already full.
 - **For agents:** Hector gives precise feedback, so the agent can correct itself instead of guessing what "good" means in this repo.
 - **For reviewers:** Hector absorbs the repetitive policy checks, leaving humans more room for design, product judgment, and taste.
-- **For operators:** Hector leaves a trail, so teams can see which rules are helping, which are noisy, and which need tightening.
+- **For operators:** Hector leaves a trail, so teams can see which gates are helping, which are noisy, and which need tightening.
 
 ## One sentence
 

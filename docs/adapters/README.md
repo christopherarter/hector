@@ -15,7 +15,16 @@ An adapter wires Hector into a coding agent so policy runs automatically on ever
 
 The exact hook names and coverage differ, but the contract is the same across agents:
 
-1. **On each edit or proposed edit** — run `hector check` against the file or proposed content. On exit `2`, gating hooks reject the edit so the agent retries.
+1. **On each edit or proposed edit** — collapse the host's hook payload into Hector's ABI and run `hector check` against the file. On exit `2`, gating hooks reject the edit so the agent retries.
+
+Every adapter normalizes its host into the same ABI, so one gate command runs unchanged everywhere:
+
+| Channel | Value |
+|---------|-------|
+| `$HECTOR_FILE` | Absolute path to the file under check. |
+| `$HECTOR_ROOT` | Project root — also the gate's working directory. |
+| `$HECTOR_EVENT` | `edit`, `write`, `pre-commit`, or `manual`. |
+| stdin | The proposed post-edit content. |
 
 The adapter only shells out to the `hector` binary. It doesn't reimplement any policy logic.
 
@@ -25,7 +34,7 @@ Adapters translate [`hector check`'s exit codes](../operating/running-checks.md)
 
 | `hector` exit | Adapter action |
 |---------------|----------------|
-| `0` (pass / warn) | Allow the edit. |
+| `0` (pass) | Allow the edit. |
 | `2` (block) | Reject the edit; the agent retries. |
 | `1` (config error) | **Fail-open** — log and allow. An unrelated problem, like a broken config, shouldn't block the agent's work. |
 | `3` (internal error) | **Fail-open by default** — log and allow. Set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` to make internal errors block where the host lifecycle can still block. |
@@ -46,9 +55,9 @@ If Claude Code hooks aren't firing, run [`hector doctor`](../operating/diagnosti
 
 Adapters that support skills ship three for managing policy without leaving the session:
 
-- **`/hector-init`** scaffolds a `.hector.yml` from your project's stack, migrating rules from existing linters where it can.
-- **`/hector-author`** adds, tightens, or removes a rule, and tests it against fixtures before you commit. Reach for it with requests like "ban `unwrap()` in `src/`" or "make `no-debug` a warning."
-- **`/hector-review`** reads your telemetry log and reports which rules are noisy, which never fire, and which look dead, so you can prune them.
+- **`/hector-init`** scaffolds a `.hector.yml` from your project's stack, migrating checks from existing linters where it can.
+- **`/hector-author`** adds, tightens, or removes a gate, and tests it against fixtures before you commit. Reach for it with requests like "ban `unwrap()` in `src/`" or "stop gating `no-debug`."
+- **`/hector-review`** reads your telemetry log and reports which gates are noisy, which never fire, and which look dead, so you can prune them.
 
 Claude Code ships all three today; other adapters wire them up as their skill-discovery paths settle.
 

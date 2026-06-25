@@ -1,22 +1,22 @@
 # Running checks
 
-`hector check` runs your rules against a file and returns a verdict. It's what your adapter calls on every edit, and what you run by hand to test a rule.
+`hector check` runs your gates against a file and returns a verdict. It's what your adapter calls on every edit, and what you run by hand to test a gate.
 
 ```bash
 hector check --file src/auth.rs
 ```
 
-Hector loads `.hector.yml`, verifies its trust fingerprint, matches the file against each rule's scope, runs the matched rules, and prints a verdict.
+Hector loads `.hector.yml`, confirms the config is trusted, then runs every gate whose `files` globs match the path — one `run` invocation per matching file. It reads only each gate's exit code, folds them into a single verdict, and prints it.
 
 ## Choosing what to check
 
 | Flag | Checks |
 |------|--------|
 | `--file <path>` | A single file on disk. |
-| `--diff <path>` | A unified diff, for rules that reason about changes. |
-| `--content <string\|->` | Proposed post-edit content instead of disk — pass `-` to read from stdin. Requires `--file` for scope matching. For pre-edit adapters. |
+| `--diff <path>` | A unified diff; each changed file is checked. |
+| `--content <string\|->` | Proposed post-edit content instead of reading `--file` from disk — pass `-` to read it from stdin. Requires `--file`; conflicts with `--diff`. |
 
-`--content` is for adapters that gate an edit *before* it lands on disk. `script` rules still read the on-disk file; AST rules see the proposed content. See [Running a shell check](../writing-rules/shell-checks.md).
+`--content` evaluates a *proposed* edit before it lands on disk — the case an adapter hits when it gates an agent's write before committing it. The proposed content reaches every matching gate the same way on-disk content does: on **stdin**. There is no engine/on-disk split — a gate sees the bytes you pass, whether they came from disk or `--content`.
 
 ## Exit codes
 
@@ -24,16 +24,16 @@ The exit code is the contract — adapters and CI branch on it:
 
 | Code | Meaning |
 |------|---------|
-| `0` | **Pass or Warn** — all rules evaluated cleanly, or only `warning`-severity rules fired. |
-| `1` | **Config error** — untrusted fingerprint, parse failure, missing file. |
-| `2` | **Block** — at least one `error`-severity violation. |
-| `3` | **Internal error** — at least one rule failed to evaluate (AST refused the diff, script failed to spawn). |
+| `0` | **Pass** — no gate blocked and none crashed. |
+| `1` | **Config or load error** — untrusted config or gates, parse failure, missing file, unknown `--gate`. No verdict is produced. |
+| `2` | **Block** — at least one gate exited `2`. |
+| `3` | **Internal error** — at least one gate crashed (command not found, not executable, timed out, or killed by a signal). |
 
-`0` and `2` are the normal pass/block signals. `1` means *fix your config*. `3` means *a rule couldn't run* — distinct from *a rule found a problem*.
+There is no warn tier. `0` and `2` are the normal pass/block signals. `1` means *fix your config or trust it*. `3` means *a gate couldn't run* — distinct from *a gate found a problem*. A gate blocks only by exiting `2`; every other clean exit (`0`, `1`, `3`–`125`) is a pass, so a tool that exits `1` on findings passes unless its `run` remaps that to `2`.
 
 ## Fail-open vs. fail-closed on internal errors
 
-Exit `3` is an open question: a rule couldn't run, so Hector can't say pass or block. Adapters **fail-open** on `3` by default — the edit is allowed, because an unrelated problem (say, a script that failed to spawn) shouldn't block an agent's work.
+Exit `3` is an open question: a gate couldn't run, so Hector can't say pass or block. Adapters **fail-open** on `3` by default — the edit is allowed, because an unrelated problem (a script that failed to spawn, say) shouldn't block an agent's work.
 
 To flip that and treat internal errors as blocking, set:
 
@@ -41,28 +41,19 @@ To flip that and treat internal errors as blocking, set:
 export HECTOR_FAIL_CLOSED_ON_INTERNAL=1
 ```
 
-Use fail-closed where a skipped check is unacceptable — for example, a CI gate where a rule silently not running would let a violation through.
-
-## Output format
-
-`--format human` (default) prints a readable verdict. `--format json` prints the machine-readable [Verdict JSON](../reference/verdict-json.md):
-
-```bash
-hector check --file src/auth.rs --format json
-```
+Use fail-closed where a skipped check is unacceptable — a CI gate where a gate silently not running would let a violation through.
 
 ## Other useful flags
 
 | Flag | Effect |
 |------|--------|
-| `--config <path>` | Use a config other than `.hector.yml`. |
-| `--rule <id>` | Evaluate only this rule. Repeatable; multiple flags are OR'd. |
-| `--explain` | After the verdict, print a per-rule outcome report to stderr. |
+| `--config <path>` | Load a config other than `.hector.yml`. |
+| `--gate <id>` | Run only this gate. Repeatable; multiple flags are OR'd. |
 
-See the [CLI reference](../reference/cli.md) for the complete list.
+For JSON output (`--format json`) and the complete flag list, see the [CLI reference](../reference/cli.md) and [Verdict JSON](../reference/verdict-json.md).
 
 ## See also
 
-- [Verdict JSON](../reference/verdict-json.md) — the `--format json` shape and exit codes
-- [Inspecting your config](inspecting-config.md) — read-only commands that never run a rule
+- [Verdict JSON](../reference/verdict-json.md) — the machine-readable verdict and exit codes
+- [Inspecting your config](inspecting-config.md) — read-only commands that never run a gate
 - [Diagnostics](diagnostics.md) — `hector doctor` when checks behave unexpectedly

@@ -1,29 +1,37 @@
 # Hector documentation
 
-Hector is a policy-enforcement pipeline for AI coding agents. You write rules in a `.hector.yml`; Hector checks each edit an agent makes and blocks the ones that break your policy.
+Hector is a policy-enforcement gate for AI coding agents. You write **gates** in a `.hector.yml`; when an agent edits a file, Hector runs the gates that match it and blocks the edits that break your policy.
 
-New here? Start with [Getting started](getting-started.md) — you'll have a working rule gating real edits in a few minutes.
+A gate is two fields — the files it watches and a shell command to run:
+
+```yaml
+# .hector.yml
+gates:
+  no-console:
+    files: "**/*.ts"
+    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+```
+
+Hector runs `run`, reads its exit code, and blocks the edit when the code is `2`. That is the whole model — no engines, no severities, no rule DSL. The gate owns the decision.
+
+New here? Start with [Getting started](getting-started.md) — you'll have a gate blocking a real edit in a few minutes.
 
 Want the big picture first? See the [Visual elevator pitch](visual-elevator-pitch.md), then the [Architecture diagram](architecture.md).
 
-## Writing rules
+## Writing gates
 
-The core of Hector. Pick an engine for the job, then write the rule.
-
-- [Rules overview](writing-rules/README.md) — the anatomy of a rule and which engine to reach for
-- [Running a shell check](writing-rules/shell-checks.md) — the `script` engine
-- [Matching code structure](writing-rules/matching-code.md) — the `ast` engine
+- [Anatomy of a gate](writing-gates/README.md) — `files`, `run`, and the exit-code contract
+- [Gate recipes](writing-gates/recipes.md) — grep checks, linters over stdin, and whole-tree tools
 
 ## Configuring
 
-- [Targeting files](configuring/targeting-files.md) — `scope:` globs and `skip:` patterns
-- [Severity and disabling rules](configuring/severity-and-disabling.md) — `error` vs `warning`, and `hector-disable:` directives
-- [Sharing config with `extends:`](configuring/inheritance.md) — inherit rules across repos
-- [Baselines](configuring/baselines.md) — silence pre-existing violations
+- [Targeting files](configuring/targeting-files.md) — the `files:` globs each gate matches
+- [Disabling a gate in-line](configuring/disabling.md) — `hector-disable:` directives
+- [Sharing config with `extends:`](configuring/inheritance.md) — inherit gates across repos
 
 ## Connecting your agent
 
-- [Adapters overview](adapters/README.md) — what an adapter is and the fail-open contract
+- [Adapters overview](adapters/README.md) — what an adapter is, the ABI it speaks, and the fail-open contract
 - [Claude Code](adapters/claude-code.md)
 - [OpenCode](adapters/opencode.md)
 - [Reasonix](../adapters/reasonix/README.md)
@@ -31,15 +39,14 @@ The core of Hector. Pick an engine for the job, then write the rule.
 
 ## Running and inspecting
 
-- [Running checks](operating/running-checks.md) — `hector check`, exit codes, fail-closed
-- [Inspecting your config](operating/inspecting-config.md) — `explain`, `guide`, `show-resolved-config`
+- [Running checks](operating/running-checks.md) — `hector check`, exit codes, fail-open
+- [Inspecting your config](operating/inspecting-config.md) — `explain` and `show-resolved-config`
 - [Diagnostics](operating/diagnostics.md) — `hector doctor`
 - [Telemetry](operating/telemetry.md) — the `.hector/log.jsonl` check log
 
-## Trust and sandboxing
+## Trust
 
-- [The trust gate](security/trust.md) — why Hector won't run an unsigned config
-- [Capability sandboxing](security/capabilities.md) — network and write isolation for `script:` rules
+- [The trust store](security/trust.md) — why Hector won't run an unblessed config, and how `hector trust` works
 
 ## Reference
 

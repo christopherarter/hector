@@ -1,117 +1,63 @@
 # Config schema
 
-The full shape of `.hector.yml`. For guides on writing rules and configuring scope and severity, see [Writing rules](../writing-rules/README.md) and [Configuring](../configuring/targeting-files.md).
+The full shape of `.hector.yml`. For a guided introduction, see [Anatomy of a gate](../writing-gates/README.md); for inheritance, see [Sharing config with `extends:`](../configuring/inheritance.md).
+
+A config has three top-level keys. Only `gates` is required:
+
+```yaml
+# .hector.yml
+extends: ["./base.yml"]   # optional — inherit gates from parent configs
+execution:                # optional — execution tuning
+  timeout_secs: 30
+gates:                    # required — your policy, keyed by gate id
+  no-console:
+    files: "**/*.ts"
+    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+```
 
 ## Top-level
 
-```yaml
-schema_version: 2          # required
-
-extends: ["./base.yml"]    # optional — inherit from parent configs
-
-trust:                     # written by `hector trust`
-  fingerprint: sha256:...
-
-skip: ["vendor/**"]        # optional — extra skip globs
-
-execution:                 # optional — parallelism tuning
-  max_workers: 8
-
-rules:                     # required — the policy rules, keyed by id
-  rule-id:
-    # ...
-```
-
 | Key | Type | Required | Notes |
 |-----|------|----------|-------|
-| `schema_version` | integer | yes | Must be `2`. `1` is legacy bully — run `hector migrate`. |
-| `extends` | list of strings | no | Parent config paths. See [Sharing config with `extends:`](../configuring/inheritance.md). |
-| `trust` | block | written by tool | The signed fingerprint. See [The trust gate](../security/trust.md). |
-| `skip` | list of strings | no | Globs added to the built-in skip set. See [Targeting files](../configuring/targeting-files.md). |
-| `execution` | block | no | See [Execution block](#execution-block). |
-| `rules` | map of id → rule | yes | The policy rules. See [Rule](#rule). |
+| `gates` | map of id → [gate](#gate) | yes | Your policy. Each key is a gate id you choose. |
+| `extends` | list of strings | no | Parent config paths, resolved depth-first. Local gates win on an id collision. See [Sharing config with `extends:`](../configuring/inheritance.md). |
+| `execution` | block | no | See [Execution](#execution). Defaults apply when omitted. |
 
-## Rule
+There is no `schema_version`, `trust`, `skip`, `rules`, `severity`, or `engine` key. A config carrying any of those is a pre-0.3 config and is rejected at load with an error pointing at this format.
 
-Keyed by a rule id you choose. Four fields are always required; the rest depend on the engine.
+## Gate
 
-```yaml
-rules:
-  no-console-log:
-    description: "No console.log in committed source."   # required
-    engine: script                                       # required
-    scope: ["src/**/*.ts"]                               # required
-    severity: error                                      # required
-    script: "grep -nE 'console\\.log\\(' {file} && exit 1 || exit 0"
-    output: passthrough
-    capabilities:
-      network: false
-      writes: cwd-only
-    fix_hint: "Remove the console.log or use the logger."
-```
-
-| Field | Type | Required | Engines | Notes |
-|-------|------|----------|---------|-------|
-| `description` | string | yes | all | Shown when the rule fires. |
-| `engine` | enum | yes | all | `script` or `ast`. |
-| `scope` | string or list | yes | all | Glob(s). A bare string is treated as a one-element list. |
-| `severity` | enum | yes | all | `error` or `warning`. |
-| `script` | string | for `script` | `script` | Shell command; `{file}` expands to the path. |
-| `output` | enum | no | `script` | `passthrough` (default) or `parsed`. |
-| `pattern` | string | for `ast` | `ast` | ast-grep pattern. |
-| `language` | string | for `ast` | `ast` | ast-grep language name; required (no inference). |
-| `capabilities` | block | no | `script` | Network/write sandbox. See [Capabilities block](#capabilities-block). |
-| `fix_hint` | string | no | all | Suggestion attached to the violation. |
-
-A field set for the wrong engine is ignored — `language` on a `script` rule, for example, does nothing.
-
-## Capabilities block
-
-Per-`script`-rule sandbox. Defaults to no network and no writes outside the working directory.
+A gate is exactly two fields:
 
 ```yaml
-capabilities:
-  network: false        # default false
-  writes: cwd-only      # default none
+gates:
+  biome:
+    files: ["src/**/*.ts", "src/**/*.tsx"]
+    run: ".hector/gates/biome.sh"
 ```
 
-| Field | Type | Values | Default |
-|-------|------|--------|---------|
-| `network` | bool | `true` / `false` | `false` |
-| `writes` | enum | `none`, `cwd-only`, `tmp`, `unrestricted` | `none` |
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `files` | string or list of strings | yes | Glob(s) the gate matches. A bare string is treated as a one-element list. A pattern without `/` matches at any depth — `*.ts` is equivalent to `**/*.ts`. See [Targeting files](../configuring/targeting-files.md). |
+| `run` | string | yes | A shell command, handed to `sh -c` verbatim. Exit `2` to block. See [Anatomy of a gate](../writing-gates/README.md). |
 
-Enforcement is platform-dependent and partly advisory. See [Capability sandboxing](../security/capabilities.md).
+`run` receives no string templating — there is no `{file}`. The path under check arrives as `$HECTOR_FILE`, the project root as `$HECTOR_ROOT`, the trigger as `$HECTOR_EVENT`, and the proposed post-edit content on stdin. `run` may be an inline command or a path to a script under `.hector/gates/`; the shell makes no distinction.
 
-## Execution block
-
-Tunes the worker pool that dispatches rules in parallel.
+## Execution
 
 ```yaml
 execution:
-  max_workers: 8
+  timeout_secs: 30
 ```
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `max_workers` | integer | Max worker threads. `0` clamps to 1. |
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `timeout_secs` | integer | `30` | Per-gate wall-clock budget. A gate that exceeds it is killed and reported as an internal error, never a silent pass. Clamped to a minimum of 1. |
 
-Absent, the pool defaults to `min(8, num_cpus)`. The `HECTOR_MAX_WORKERS` environment variable overrides whatever is set here.
-
-## Enums
-
-| Enum | Values |
-|------|--------|
-| `engine` | `script`, `ast` |
-| `severity` | `error`, `warning` |
-| `output` | `passthrough`, `parsed` |
-| `writes` | `none`, `cwd-only`, `tmp`, `unrestricted` |
-
-## Removed engines
-
-A config that still declares `engine: semantic` or `engine: session` is rejected at load with a pointed error naming the rule (e.g. `rule 'X': engine 'semantic' was removed in hector 0.2 — delete this rule or rewrite it as a script or ast rule`). Run `hector migrate` to strip such rules and the old `llm:` block automatically; it prints a `note:` to stderr for each thing it removes.
+The `HECTOR_TIMEOUT` environment variable overrides `timeout_secs` at run time. Dispatch is sequential; there is no worker-pool tuning.
 
 ## See also
 
-- [Writing rules](../writing-rules/README.md) — what each engine does with these fields
-- [Verdict JSON](verdict-json.md) — the output shape `hector check` produces
-- [CLI reference](cli.md) — commands that read this config
+- [Anatomy of a gate](../writing-gates/README.md) — what `files` and `run` do
+- [Verdict JSON](verdict-json.md) — the output `hector check` produces
+- [CLI reference](cli.md) — the commands that read this config
