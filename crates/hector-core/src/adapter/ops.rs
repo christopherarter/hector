@@ -128,10 +128,12 @@ fn install_jsonhook(
     let mut value = load_settings(&settings)?;
     let entry = (spec.build_entry)(&command);
     let patch = sync_hook_array(&mut value, spec.array_key, entry, &marker);
-    write_settings(&settings, &value)?;
     Ok(match patch {
         PatchResult::AlreadyPresent => InstallResult::AlreadyPresent,
-        PatchResult::Added => InstallResult::Installed,
+        PatchResult::Added => {
+            write_settings(&settings, &value)?;
+            InstallResult::Installed
+        }
     })
 }
 
@@ -149,13 +151,18 @@ fn install_plugin(
             file.display()
         )]));
     }
+    let new_bytes = spec.source.as_bytes();
     let existed = file.exists();
-    atomic_write(&file, spec.source.as_bytes())?;
+    if existed {
+        if let Ok(cur) = std::fs::read(&file) {
+            if cur == new_bytes {
+                return Ok(InstallResult::AlreadyPresent);
+            }
+        }
+    }
+    atomic_write(&file, new_bytes)?;
     let mut files = BTreeMap::new();
-    files.insert(
-        spec.filename.to_string(),
-        sha256_hex(spec.source.as_bytes()),
-    );
+    files.insert(spec.filename.to_string(), sha256_hex(new_bytes));
     write_sidecar(
         &dir,
         &AdapterSidecar {
@@ -237,10 +244,10 @@ fn uninstall_plugin(
     let dir = plugin_dir(spec, env, scope);
     let file = dir.join(spec.filename);
     if dry_run {
-        return Ok(InstallResult::DryRun(vec![format!(
-            "remove {}",
-            file.display()
-        )]));
+        return Ok(InstallResult::DryRun(vec![
+            format!("remove {}", file.display()),
+            format!("remove {}", crate::adapter::sidecar_path(&dir).display()),
+        ]));
     }
     let _ = std::fs::remove_file(&file);
     let _ = std::fs::remove_file(crate::adapter::sidecar_path(&dir));
@@ -441,5 +448,86 @@ mod tests {
         assert!(st.detected && st.installed && st.registered);
         assert_eq!(st.intact, Some(true));
         assert_eq!(st.current, Some(true));
+    }
+
+    #[test]
+    fn install_jsonhook_idempotent_leaves_settings_byte_identical() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        let settings_path = tmp.path().join(".reasonix/settings.json");
+        let before = std::fs::read_to_string(&settings_path).unwrap();
+        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        let after = std::fs::read_to_string(&settings_path).unwrap();
+        assert_eq!(
+            before, after,
+            "settings file must not be rewritten on AlreadyPresent"
+        );
+    }
+
+    #[test]
+    fn install_plugin_identical_content_is_already_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        let again = install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        assert!(
+            matches!(again.result, InstallResult::AlreadyPresent),
+            "identical re-install must return AlreadyPresent"
+        );
+    }
+
+    #[test]
+    fn install_plugin_changed_content_is_updated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        let file = e.project_root.join(".opencode/plugins/hector.ts");
+        std::fs::write(&file, b"// changed").unwrap();
+        let again = install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        assert!(
+            matches!(again.result, InstallResult::Updated),
+            "changed content must return Updated"
+        );
+    }
+
+    #[test]
+    fn uninstall_dry_run_removes_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        let hook = e.config_home.join("hector/adapters/reasonix/hook.sh");
+        uninstall(&harness("reasonix"), &e, Scope::Global, true).unwrap();
+        assert!(hook.exists(), "dry-run must not remove the hook artifact");
+        let settings_path = tmp.path().join(".reasonix/settings.json");
+        let val: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
+        let arr = val["hooks"]["PreToolUse"].as_array().unwrap();
+        assert!(
+            !arr.is_empty(),
+            "dry-run must not remove the settings entry"
+        );
+    }
+
+    #[test]
+    fn status_before_install_is_not_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        let st = status(&harness("reasonix"), &e, Scope::Global).unwrap();
+        assert!(!st.installed);
+        assert!(!st.registered);
+        assert!(st.intact.is_none());
+        assert!(st.current.is_none());
+    }
+
+    #[test]
+    fn uninstall_plugin_removes_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        let file = e.project_root.join(".opencode/plugins/hector.ts");
+        assert!(file.exists());
+        uninstall(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        assert!(!file.exists(), "uninstall must remove the plugin file");
     }
 }
