@@ -6,11 +6,13 @@
 //!
 //! Checks kept for the gate model:
 //!   1. binary — hector binary + version (always pass once we're running)
-//!   2. adapter — Claude Code PostToolUse hook wired to hector
-//!   3. config  — `.hector.yml` exists
-//!   4. parses  — config parses (extends resolved)
-//!   5. gate_scripts — each gate whose `run` names a single-token path that
+//!   2. config  — `.hector.yml` exists
+//!   3. parses  — config parses (extends resolved)
+//!   4. gate_scripts — each gate whose `run` names a single-token path that
 //!      starts with `.hector/` exists and is executable
+//!   5. adapters — one row per supported harness that is detected on this
+//!      machine or has hector installed: pass when installed+registered, fail
+//!      when registered-but-broken (hook artifact missing), warn otherwise
 //!
 //! Dropped from the old model: trust fingerprint, schema_version probe,
 //! scope_globs (Rule-based), engine/EngineKind availability, capability
@@ -18,6 +20,7 @@
 
 use crate::cli::OutputFormat;
 use anyhow::Result;
+use hector_core::adapter::{all_harnesses, status, AdapterEnv, HarnessStatus, Scope};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -53,13 +56,15 @@ pub fn run(dir: &Path, format: OutputFormat) -> Result<i32> {
         dir: dir.to_path_buf(),
         config_path: dir.join(".hector.yml"),
     };
-    let checks: Vec<CheckResult> = vec![
+    let mut checks: Vec<CheckResult> = vec![
         check_binary(),
-        check_adapter(),
         check_config_present(&ctx),
         check_config_parses(&ctx),
         check_gate_scripts(&ctx),
     ];
+    if let Ok(env) = AdapterEnv::from_process(dir.to_path_buf()) {
+        checks.extend(check_adapters(&env));
+    }
     let report = Report {
         hector_version: env!("CARGO_PKG_VERSION").to_string(),
         checks,
@@ -223,73 +228,69 @@ fn check_run_path(dir: &Path, gate_id: &str, run: &str) -> Option<String> {
     None
 }
 
-/// Locate `~/.claude/settings.json`.
-fn load_claude_settings() -> Option<(PathBuf, serde_json::Value)> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    let path = PathBuf::from(home).join(".claude").join("settings.json");
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let value = serde_json::from_str(&raw).ok()?;
-    Some((path, value))
+/// Decide the (status, detail, remediation) triple for a harness that is
+/// detected or installed. Split out of `adapter_check` so the if/else-if ladder
+/// stays under the cognitive-complexity cap.
+fn adapter_verdict(s: &HarnessStatus) -> (Status, String, Option<String>) {
+    if s.registered && !s.installed {
+        (
+            Status::Fail,
+            "registered in settings but hook artifact is missing (broken)".to_string(),
+            Some(format!("re-run `hector init --harness {}`", s.harness)),
+        )
+    } else if !s.installed {
+        (
+            Status::Warn,
+            "harness detected; hector hook not installed".to_string(),
+            Some(format!("run `hector init --harness {}`", s.harness)),
+        )
+    } else if !s.registered {
+        (
+            Status::Warn,
+            "hook artifact present but not registered in settings".to_string(),
+            Some(format!("re-run `hector init --harness {}`", s.harness)),
+        )
+    } else if s.intact == Some(false) {
+        (
+            Status::Warn,
+            "hook artifact modified since install".to_string(),
+            Some("re-run `hector init` to restore".to_string()),
+        )
+    } else if s.current == Some(false) {
+        (
+            Status::Warn,
+            "hook artifact outdated".to_string(),
+            Some("re-run `hector init` to update".to_string()),
+        )
+    } else {
+        (Status::Pass, "installed and registered".to_string(), None)
+    }
 }
 
-fn claude_hook_wired(settings: &serde_json::Value) -> bool {
-    let Some(post) = settings
-        .get("hooks")
-        .and_then(|h| h.get("PostToolUse"))
-        .and_then(|p| p.as_array())
-    else {
-        return false;
-    };
-    post.iter().any(|matcher_block| {
-        matcher_block
-            .get("hooks")
-            .and_then(|hs| hs.as_array())
-            .map(|hooks| {
-                hooks.iter().any(|h| {
-                    h.get("command")
-                        .and_then(|c| c.as_str())
-                        .is_some_and(|cmd| cmd.contains("hector") || cmd.contains("hook.sh"))
-                })
-            })
-            .unwrap_or(false)
+/// Map one harness's status to a doctor CheckResult. Returns None for a
+/// harness that is neither present nor installed (no signal worth a line).
+fn adapter_check(s: &HarnessStatus) -> Option<CheckResult> {
+    if !s.detected && !s.installed {
+        return None;
+    }
+    let (status, detail, remediation) = adapter_verdict(s);
+    Some(CheckResult {
+        name: s.harness,
+        status,
+        detail,
+        remediation,
     })
 }
 
-fn check_adapter() -> CheckResult {
-    let Some((path, settings)) = load_claude_settings() else {
-        return CheckResult {
-            name: "adapter",
-            status: Status::Warn,
-            detail: "Claude Code adapter not detected (~/.claude/settings.json missing)".into(),
-            remediation: Some(
-                "if you use Claude Code, install the adapter — see docs/adapters/claude-code.md"
-                    .into(),
-            ),
-        };
-    };
-    if claude_hook_wired(&settings) {
-        CheckResult {
-            name: "adapter",
-            status: Status::Pass,
-            detail: format!(
-                "Claude Code PostToolUse hook references hector ({})",
-                path.display()
-            ),
-            remediation: None,
-        }
-    } else {
-        CheckResult {
-            name: "adapter",
-            status: Status::Warn,
-            detail: format!(
-                "{} present but no PostToolUse hook references hector",
-                path.display()
-            ),
-            remediation: Some(
-                "install the adapter or add a PostToolUse entry calling hector — see docs/adapters/claude-code.md".into(),
-            ),
-        }
-    }
+/// Per-harness adapter checks. Uses Local scope because `hector init` defaults
+/// to a project-local install and `doctor` runs in a project; a status() error
+/// for a harness is skipped rather than failing the whole report.
+fn check_adapters(env: &AdapterEnv) -> Vec<CheckResult> {
+    all_harnesses()
+        .iter()
+        .filter_map(|h| status(h, env, Scope::Local).ok())
+        .filter_map(|s| adapter_check(&s))
+        .collect()
 }
 
 #[cfg(test)]
@@ -394,39 +395,6 @@ mod tests {
     }
 
     #[test]
-    fn hook_wired_finds_hector_command() {
-        let v: serde_json::Value = serde_json::from_str(
-            r#"{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"hector check"}]}]}}"#,
-        )
-        .unwrap();
-        assert!(claude_hook_wired(&v));
-    }
-
-    #[test]
-    fn hook_wired_finds_adapter_hook_sh() {
-        let v: serde_json::Value = serde_json::from_str(
-            r#"{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"$ROOT/hooks/hook.sh post"}]}]}}"#,
-        )
-        .unwrap();
-        assert!(claude_hook_wired(&v));
-    }
-
-    #[test]
-    fn hook_wired_rejects_unrelated_command() {
-        let v: serde_json::Value = serde_json::from_str(
-            r#"{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}"#,
-        )
-        .unwrap();
-        assert!(!claude_hook_wired(&v));
-    }
-
-    #[test]
-    fn hook_wired_rejects_empty_object() {
-        let v: serde_json::Value = serde_json::from_str(r"{}").unwrap();
-        assert!(!claude_hook_wired(&v));
-    }
-
-    #[test]
     fn gate_scripts_warn_when_config_missing() {
         let d = tempdir().unwrap();
         let r = check_gate_scripts(&ctx_with(d.path()));
@@ -461,5 +429,115 @@ mod tests {
         let result = check_run_path(d.path(), "g", ".hector/gates/missing.sh");
         assert!(result.is_some());
         assert!(result.unwrap().contains("not found"));
+    }
+
+    fn adapter_env(tmp: &std::path::Path) -> hector_core::adapter::AdapterEnv {
+        hector_core::adapter::AdapterEnv {
+            home: tmp.to_path_buf(),
+            config_home: tmp.join(".config"),
+            project_root: tmp.join("proj"),
+        }
+    }
+
+    #[test]
+    fn check_adapters_reports_installed_reasonix_as_pass() {
+        let tmp = tempfile::tempdir().unwrap();
+        let env = adapter_env(tmp.path());
+        let h = hector_core::adapter::all_harnesses()
+            .into_iter()
+            .find(|h| h.name == "reasonix")
+            .unwrap();
+        hector_core::adapter::install(&h, &env, hector_core::adapter::Scope::Global, false)
+            .unwrap();
+        let checks = check_adapters(&env);
+        let r = checks
+            .iter()
+            .find(|c| c.name == "reasonix")
+            .expect("reasonix reported");
+        assert_eq!(r.status, Status::Pass);
+        assert!(r.detail.contains("installed"));
+    }
+
+    #[test]
+    fn check_adapters_reports_broken_adapter_as_fail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let env = adapter_env(tmp.path());
+        let h = hector_core::adapter::all_harnesses()
+            .into_iter()
+            .find(|h| h.name == "reasonix")
+            .unwrap();
+        hector_core::adapter::install(&h, &env, hector_core::adapter::Scope::Global, false)
+            .unwrap();
+        // Delete the materialized artifact dir but leave the settings entry → broken.
+        std::fs::remove_dir_all(env.config_home.join("hector/adapters/reasonix")).unwrap();
+        let checks = check_adapters(&env);
+        let r = checks
+            .iter()
+            .find(|c| c.name == "reasonix")
+            .expect("reasonix reported");
+        assert_eq!(r.status, Status::Fail);
+    }
+
+    fn harness_status(detected: bool, installed: bool, registered: bool) -> HarnessStatus {
+        HarnessStatus {
+            harness: "reasonix",
+            detected,
+            installed,
+            registered,
+            intact: Some(true),
+            current: Some(true),
+        }
+    }
+
+    #[test]
+    fn adapter_check_skips_when_neither_detected_nor_installed() {
+        let s = harness_status(false, false, false);
+        assert!(adapter_check(&s).is_none());
+    }
+
+    #[test]
+    fn adapter_check_warns_when_detected_but_not_installed() {
+        let s = harness_status(true, false, false);
+        let r = adapter_check(&s).expect("detected harness reported");
+        assert_eq!(r.status, Status::Warn);
+        assert!(r.detail.contains("not installed"));
+        assert!(r
+            .remediation
+            .unwrap()
+            .contains("hector init --harness reasonix"));
+    }
+
+    #[test]
+    fn adapter_check_warns_when_installed_but_not_registered() {
+        let s = harness_status(true, true, false);
+        let r = adapter_check(&s).expect("installed harness reported");
+        assert_eq!(r.status, Status::Warn);
+        assert!(r.detail.contains("not registered"));
+    }
+
+    #[test]
+    fn adapter_check_warns_when_artifact_modified() {
+        let mut s = harness_status(true, true, true);
+        s.intact = Some(false);
+        let r = adapter_check(&s).expect("modified harness reported");
+        assert_eq!(r.status, Status::Warn);
+        assert!(r.detail.contains("modified"));
+    }
+
+    #[test]
+    fn adapter_check_warns_when_artifact_outdated() {
+        let mut s = harness_status(true, true, true);
+        s.current = Some(false);
+        let r = adapter_check(&s).expect("outdated harness reported");
+        assert_eq!(r.status, Status::Warn);
+        assert!(r.detail.contains("outdated"));
+    }
+
+    #[test]
+    fn adapter_check_passes_when_installed_and_registered() {
+        let s = harness_status(true, true, true);
+        let r = adapter_check(&s).expect("healthy harness reported");
+        assert_eq!(r.status, Status::Pass);
+        assert!(r.remediation.is_none());
     }
 }
