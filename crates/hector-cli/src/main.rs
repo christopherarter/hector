@@ -33,7 +33,27 @@ fn main() -> Result<()> {
         )?,
         Command::Trust { config } => commands::trust::run(&config)?,
         Command::Validate { config } => commands::validate::run(&config)?,
-        Command::Init { dir } => commands::init::run(&dir)?,
+        Command::Init {
+            dir,
+            harnesses,
+            global,
+            yes,
+            no_hook,
+            hook_only,
+            uninstall,
+            dry_run,
+        } => commands::init::run(
+            &dir,
+            &commands::init::Options {
+                harnesses,
+                global,
+                yes,
+                no_hook,
+                hook_only,
+                uninstall,
+                dry_run,
+            },
+        )?,
         Command::Doctor { dir, format } => commands::doctor::run(&dir, format)?,
         Command::Explain {
             file,

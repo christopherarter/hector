@@ -48,14 +48,22 @@ fn init_scaffolds_for_rust_project() {
 }
 
 #[test]
-fn init_refuses_to_overwrite() {
+fn init_existing_config_is_nonfatal_skipped() {
+    // An existing .hector.yml must no longer be a hard error — init skips
+    // scaffolding and prints a "already present (skipped)" note, but succeeds.
+    let xdg = tempdir().unwrap();
     let dir = tempdir().unwrap();
     fs::write(dir.path().join(".hector.yml"), "existing\n").unwrap();
     Command::cargo_bin("hector")
         .unwrap()
-        .args(["init", "--dir", dir.path().to_str().unwrap()])
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args(["init", "--dir", dir.path().to_str().unwrap(), "--no-hook"])
         .assert()
-        .failure();
+        .success()
+        .stdout(predicates::str::contains("already present (skipped)"));
+    // Original file content must be preserved.
+    let content = fs::read_to_string(dir.path().join(".hector.yml")).unwrap();
+    assert_eq!(content, "existing\n");
 }
 
 /// The grep-based gates must use `case $?` routing and exit 2 to block

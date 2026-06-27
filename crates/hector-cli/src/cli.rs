@@ -67,10 +67,33 @@ pub enum Command {
         #[arg(long, default_value = ".hector.yml")]
         config: PathBuf,
     },
-    /// Detect stack and scaffold a starter .hector.yml
+    /// Detect stack and scaffold a starter .hector.yml, then wire hector's hook
+    /// into your coding agents.
     Init {
         #[arg(long, default_value = ".")]
         dir: PathBuf,
+        /// Harness(es) to wire up (repeatable); `all` selects every supported
+        /// harness. Omit to auto-detect and confirm.
+        #[arg(long = "harness", value_name = "NAME")]
+        harnesses: Vec<String>,
+        /// Patch user-level settings instead of project-local.
+        #[arg(long)]
+        global: bool,
+        /// Skip the install confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+        /// Scaffold the config but install no hooks (legacy behavior).
+        #[arg(long)]
+        no_hook: bool,
+        /// Skip config scaffolding; only wire hooks.
+        #[arg(long)]
+        hook_only: bool,
+        /// Remove hector hooks and materialized artifacts.
+        #[arg(long)]
+        uninstall: bool,
+        /// Print intended changes without writing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Diagnose the local install, config, and adapter wiring.
     ///

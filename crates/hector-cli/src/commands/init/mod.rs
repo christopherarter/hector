@@ -8,19 +8,52 @@
 //! design rationale.
 
 mod detect;
+mod onboard;
 
 use anyhow::{anyhow, Result};
 use detect::{detect_js_runner, detect_linters, detect_workspace, JsRunner, LinterSet, Workspace};
 use std::fmt::Write as _;
 use std::path::Path;
 
-pub fn run(dir: &Path) -> Result<i32> {
+// Five bools are required by the CLI surface (harness wiring flags); the
+// struct_excessive_bools lint would force a state-machine refactor that
+// obscures direct flag mapping. The dead_code allow covers fields consumed
+// by onboard::run_hook_phase once Task 6 replaces the stub.
+#[allow(clippy::struct_excessive_bools, dead_code)]
+pub struct Options {
+    pub harnesses: Vec<String>,
+    pub global: bool,
+    pub yes: bool,
+    pub no_hook: bool,
+    pub hook_only: bool,
+    pub uninstall: bool,
+    pub dry_run: bool,
+}
+
+pub fn run(dir: &Path, opts: &Options) -> Result<i32> {
+    if opts.no_hook && opts.hook_only {
+        return Err(anyhow!("--no-hook and --hook-only are mutually exclusive"));
+    }
+
+    if !opts.hook_only && !opts.uninstall {
+        scaffold_config(dir)?;
+    }
+
+    if opts.no_hook {
+        return Ok(0);
+    }
+
+    let env = hector_core::adapter::AdapterEnv::from_process(dir.to_path_buf())?;
+    onboard::run_hook_phase(&env, opts)
+}
+
+/// Scaffold + bless `.hector.yml`, treating an existing config as a no-op
+/// (previously a hard error).
+fn scaffold_config(dir: &Path) -> Result<()> {
     let cfg_path = dir.join(".hector.yml");
     if cfg_path.exists() {
-        return Err(anyhow!(
-            "{} already exists; refusing to overwrite",
-            cfg_path.display()
-        ));
+        println!("config: {} already present (skipped)", cfg_path.display());
+        return Ok(());
     }
     let stack = detect_stack(dir);
     let workspace = detect_workspace(dir);
@@ -35,11 +68,7 @@ pub fn run(dir: &Path) -> Result<i32> {
         )
     })?;
     println!("scaffolded and trusted: {}", cfg_path.display());
-    println!(
-        "review the config, then run: hector check --file <path> --config {}",
-        cfg_path.display()
-    );
-    Ok(0)
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -394,5 +423,22 @@ mod tests {
         let s = single_root_scopes(&[".ts", ".js"], "src/**/*.{ext}");
         assert!(s.contains("\"src/**/*.ts\""));
         assert!(s.contains("\"src/**/*.js\""));
+    }
+
+    #[test]
+    fn run_with_existing_config_and_no_hook_is_ok_not_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(".hector.yml"), "gates: {}\n").unwrap();
+        let opts = Options {
+            harnesses: vec![],
+            global: false,
+            yes: false,
+            no_hook: true,
+            hook_only: false,
+            uninstall: false,
+            dry_run: false,
+        };
+        let code = run(tmp.path(), &opts).unwrap();
+        assert_eq!(code, 0); // previously this path returned Err
     }
 }
