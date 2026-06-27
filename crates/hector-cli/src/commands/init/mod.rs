@@ -426,6 +426,22 @@ mod tests {
     }
 
     #[test]
+    fn run_rejects_no_hook_and_hook_only_together() {
+        let tmp = tempfile::tempdir().unwrap();
+        let opts = Options {
+            harnesses: vec![],
+            global: false,
+            yes: false,
+            no_hook: true,
+            hook_only: true,
+            uninstall: false,
+            dry_run: false,
+        };
+        let err = run(tmp.path(), &opts).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"));
+    }
+
+    #[test]
     fn run_with_existing_config_and_no_hook_is_ok_not_error() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join(".hector.yml"), "gates: {}\n").unwrap();
