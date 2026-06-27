@@ -17,8 +17,7 @@ use std::path::Path;
 
 // Five bools are required by the CLI surface (harness wiring flags); the
 // struct_excessive_bools lint would force a state-machine refactor that
-// obscures direct flag mapping. The dead_code allow covers fields consumed
-// by onboard::run_hook_phase once Task 6 replaces the stub.
+// obscures direct flag mapping.
 #[allow(clippy::struct_excessive_bools)]
 pub struct Options {
     pub harnesses: Vec<String>,

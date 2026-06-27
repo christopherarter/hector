@@ -106,20 +106,31 @@ fn parse_confirm(line: &str) -> bool {
     a.is_empty() || a == "y" || a == "yes"
 }
 
-fn print_outcome(harness: &str, result: &InstallResult, hint: &str, uninstalling: bool) {
+/// Pure formatter for a per-harness outcome line (or lines, for dry-run).
+fn format_outcome(
+    harness: &str,
+    result: &InstallResult,
+    hint: &str,
+    uninstalling: bool,
+) -> Vec<String> {
     match result {
-        InstallResult::Installed if uninstalling => println!("  {harness:<12} removed"),
-        InstallResult::Installed => println!("  {harness:<12} installed — {hint}"),
-        InstallResult::Updated => println!("  {harness:<12} updated — {hint}"),
-        InstallResult::AlreadyPresent => println!("  {harness:<12} already present"),
-        InstallResult::Skipped(why) => println!("  {harness:<12} skipped: {why}"),
-        InstallResult::Failed(why) => println!("  {harness:<12} failed: {why}"),
+        InstallResult::Installed if uninstalling => vec![format!("  {harness:<12} removed")],
+        InstallResult::Installed => vec![format!("  {harness:<12} installed — {hint}")],
+        InstallResult::Updated => vec![format!("  {harness:<12} updated — {hint}")],
+        InstallResult::AlreadyPresent => vec![format!("  {harness:<12} already present")],
+        InstallResult::Skipped(why) => vec![format!("  {harness:<12} skipped: {why}")],
+        InstallResult::Failed(why) => vec![format!("  {harness:<12} failed: {why}")],
         InstallResult::DryRun(plan) => {
-            println!("  {harness:<12} dry-run:");
-            for line in plan {
-                println!("      {line}");
-            }
+            let mut lines = vec![format!("  {harness:<12} dry-run:")];
+            lines.extend(plan.iter().map(|l| format!("      {l}")));
+            lines
         }
+    }
+}
+
+fn print_outcome(harness: &str, result: &InstallResult, hint: &str, uninstalling: bool) {
+    for line in format_outcome(harness, result, hint, uninstalling) {
+        println!("{line}");
     }
 }
 
@@ -154,5 +165,24 @@ mod tests {
     fn select_explicit_dedup_and_order() {
         let names = select_harness_names(&["pi".to_string(), "pi".to_string()]).unwrap();
         assert_eq!(names, vec!["pi"]);
+    }
+
+    #[test]
+    fn format_outcome_covers_every_variant() {
+        use hector_core::adapter::InstallResult::*;
+        assert!(format_outcome("reasonix", &Installed, "h", false)[0].contains("installed"));
+        assert!(format_outcome("reasonix", &Installed, "h", true)[0].contains("removed"));
+        assert!(format_outcome("pi", &Updated, "h", false)[0].contains("updated"));
+        assert!(format_outcome("pi", &AlreadyPresent, "h", false)[0].contains("already present"));
+        assert!(
+            format_outcome("pi", &Skipped("x".to_string()), "h", false)[0].contains("skipped: x")
+        );
+        assert!(
+            format_outcome("pi", &Failed("y".to_string()), "h", false)[0].contains("failed: y")
+        );
+        let dr = format_outcome("pi", &DryRun(vec!["write a".to_string()]), "h", false);
+        assert_eq!(dr.len(), 2);
+        assert!(dr[0].contains("dry-run"));
+        assert!(dr[1].contains("write a"));
     }
 }

@@ -100,6 +100,18 @@ fn uninstall_removes_hook() {
     assert!(!home
         .join(".config/hector/adapters/reasonix/hook.sh")
         .exists());
+    let settings: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(home.join(".reasonix/settings.json")).unwrap(),
+    )
+    .unwrap();
+    let arr = settings["hooks"]["PreToolUse"].as_array().unwrap();
+    assert!(
+        arr.iter().all(|e| !e["command"]
+            .as_str()
+            .unwrap_or("")
+            .contains("adapters/reasonix/hook.sh")),
+        "uninstall must remove the hector PreToolUse entry"
+    );
 }
 
 #[test]
@@ -111,9 +123,16 @@ fn no_tty_without_yes_or_harness_skips_hooks() {
     std::fs::create_dir_all(home.join(".reasonix")).unwrap();
 
     // assert_cmd pipes stdin (non-TTY); bare init must not install.
-    hector(&home, &project)
+    let out = hector(&home, &project)
         .args(["init", "--hook-only"])
         .assert()
-        .success();
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert!(
+        String::from_utf8(out).unwrap().contains("re-run with"),
+        "non-TTY path must print the re-run hint"
+    );
     assert!(!home.join(".reasonix/settings.json").exists());
 }
