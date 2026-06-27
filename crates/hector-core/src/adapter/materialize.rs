@@ -58,7 +58,8 @@ pub fn sidecar_path(dir: &Path) -> PathBuf {
 }
 
 pub fn write_sidecar(dir: &Path, sidecar: &AdapterSidecar) -> Result<()> {
-    let json = serde_json::to_string_pretty(sidecar)?;
+    let json =
+        serde_json::to_string_pretty(sidecar).with_context(|| "serializing adapter sidecar")?;
     atomic_write(&sidecar_path(dir), json.as_bytes())
 }
 
@@ -131,5 +132,19 @@ mod tests {
     fn read_sidecar_absent_is_none() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_sidecar(tmp.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn read_sidecar_malformed_json_is_err() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(sidecar_path(tmp.path()), b"{ not json").unwrap();
+        assert!(read_sidecar(tmp.path()).is_err());
+    }
+
+    #[test]
+    fn read_sidecar_io_error_is_err() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(sidecar_path(tmp.path())).unwrap();
+        assert!(read_sidecar(tmp.path()).is_err());
     }
 }
