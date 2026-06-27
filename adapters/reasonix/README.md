@@ -6,6 +6,39 @@ Runs `hector check --file <path> --content -` on every `write_file` or `edit_fil
 
 ## Install
 
+```bash
+hector init --harness reasonix
+```
+
+This patches `~/.reasonix/settings.json` (Reasonix only supports user-global
+scope) to register a `PreToolUse` hook matching `^(write_file|edit_file|multi_edit)$`.
+The adapter artifact is written atomically to
+`~/.config/hector/adapters/reasonix/hook.sh` and a `.hector-adapter.json` sidecar
+(per-file sha256 + version) is placed alongside it. A backup of the prior settings
+file is saved as `<settings>.bak` on the first write; re-runs are idempotent
+(unchanged → "already present", changed artifact → "updated").
+
+Verify the install:
+
+```bash
+hector doctor
+```
+
+To remove the hook:
+
+```bash
+hector init --uninstall --harness reasonix
+```
+
+This removes the hook entry, the materialized artifact, and the sidecar from
+`~/.config/hector/adapters/reasonix/`. Your `.hector.yml` and trust store are
+untouched.
+
+## Manual fallback
+
+Use these steps if the `hector` binary is not available (e.g., bootstrapping a
+fresh machine before you can build):
+
 1. Build / install the `hector` binary:
 
    ```bash
@@ -24,7 +57,6 @@ The hook is a silent no-op in any project that lacks `.hector.yml`, so installin
 
 - `hector` on `PATH`
 - `jq` on `PATH` (parses the Reasonix stdin payload)
-- `python3` on `PATH` (synthesizes post-edit content for `edit_file`)
 - `bash`
 
 ## How it works

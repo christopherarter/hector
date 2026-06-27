@@ -8,9 +8,40 @@ OpenCode plugin integration for Hector. A static per-file gate that uses OpenCod
 
 ## Install
 
-You need:
+```bash
+hector init --harness opencode
+```
+
+This writes the adapter plugin atomically to `<project>/.opencode/plugins/hector.ts`
+(project-scoped; OpenCode does not expose a global plugin directory). A
+`.hector-adapter.json` sidecar (per-file sha256 + version) is placed alongside
+the artifact. Re-runs are idempotent (unchanged → "already present", changed
+artifact → "updated").
+
+Verify the install:
+
+```bash
+hector doctor
+```
+
+To remove the hook:
+
+```bash
+hector init --uninstall --harness opencode
+```
+
+This removes the materialized artifact and sidecar from `.opencode/plugins/`.
+Your `.hector.yml` and trust store are untouched.
+
+## Requirements
+
 - The `hector` binary on PATH (`cargo install hector` or release binary).
 - OpenCode (which ships Bun). No extra runtime install required.
+
+## Manual fallback
+
+Use these steps if the `hector` binary is not available (e.g., bootstrapping a
+fresh machine before you can build):
 
 ### Local development
 
@@ -75,11 +106,6 @@ The plugin honours the `hector` CLI exit-code contract from `commands/check.rs`:
 - **No `apply_patch` interception.** OpenCode's multi-file patch tool would need per-file extraction; large refactors via `apply_patch` are not gated. Use `edit` / `write` or run `hector check` manually in CI to cover them.
 - **No skills.** The Claude Code adapter ships `/hector-init`, `/hector-author`, `/hector-review`. Those SKILL.md files live in `adapters/claude-code/skills/` and are written against the Anthropic Skills spec — they'll work in OpenCode once we settle on a shared skills directory or a sidecar install (`malhashemi/opencode-skills`).
 
-## Requirements
-
-- `hector` ≥ 0.1 on PATH.
-- OpenCode (any version that supports the plugin Hooks interface with `tool.execute.before`).
-
 ## Diagnostic
 
 If hooks aren't firing:
@@ -88,7 +114,8 @@ If hooks aren't firing:
 2. Check `.hector.yml` is present in the project root.
 3. Check `.hector.yml` is trusted: `hector trust`.
 4. Confirm the plugin is loaded — OpenCode logs plugin discovery at startup.
-5. Run the bundled test against your install:
+5. Run `hector doctor` for a structured health report.
+6. Run the bundled test against your install:
 
    ```bash
    PATH="$(pwd)/target/release:${PATH}" \

@@ -4,6 +4,27 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
 ## [Unreleased]
 
+### Added
+
+- **`hector init` harness onboarding.** `hector init` now installs hector's
+  hook into detected coding agents with a detect-then-confirm UX. Bare `hector
+  init` auto-detects installed harnesses (claude-code, reasonix, pi, opencode)
+  and prompts before writing anything. New flags: `--harness <name|all>`
+  (repeatable; selects explicitly), `--yes` (skip prompt), `--hook-only` (skip
+  config scaffold), `--no-hook` (config only, legacy behaviour), `--dry-run`
+  (print plan, write nothing), `--uninstall` (remove hook entry + artifacts;
+  leaves `.hector.yml` and trust store untouched), `--global` (claude-code and
+  pi only: write to user-global settings instead of project). Adapter artifacts
+  are written atomically to `~/.config/hector/adapters/<harness>/`; a
+  `.hector-adapter.json` sidecar (per-file sha256 + version) tracks installed
+  state. Re-runs are idempotent.
+- **`hector doctor` per-harness adapter status.** `doctor` now reports a row
+  for each installed harness inside the existing `checks[]` array — name is the
+  harness id (`claude-code`, `reasonix`, `pi`, `opencode`), same
+  `{name, status, detail, remediation}` shape as other checks. A registered
+  harness with a missing artifact → `fail` → exit 1; modified or outdated
+  artifact → `warn`; ok → `pass`; not installed/registered → row omitted.
+
 ## [0.3.0] — 2026-06-25 — gates redesign
 
 ### Added

@@ -12,15 +12,43 @@ The extension is a pure translation layer between pi's lifecycle and the
 |----------|--------|
 | `tool_call` (`write` / `edit`) | Compute the proposed content, run `hector check --file <path> --content - --format json`, and `return { block: true, reason }` on a block (exit 2) — where `reason` is the blocking gate's message, parsed from the JSON verdict's `blocks[].message`. The check runs against piped stdin — nothing is written to disk. |
 
+## Install
+
+```bash
+hector init --harness pi
+```
+
+This writes the adapter plugin atomically to `<project>/.pi/extensions/hector.ts`
+(default) or `~/.pi/agent/extensions/hector.ts` with `--global`. A
+`.hector-adapter.json` sidecar (per-file sha256 + version) is placed alongside
+the artifact. A backup of any prior settings is saved as `<settings>.bak` on the
+first write; re-runs are idempotent (unchanged → "already present", changed
+artifact → "updated").
+
+Verify the install:
+
+```bash
+hector doctor
+```
+
+To remove the hook:
+
+```bash
+hector init --uninstall --harness pi
+```
+
+This removes the materialized artifact and sidecar from the extensions directory.
+Your `.hector.yml` and trust store are untouched.
+
 ## Requirements
 
 - The `hector` binary on `PATH` (`cargo install hector` or a release binary), ≥ 0.1.
 - Node ≥ 22.6 (pi's runtime; also required for the bundled `node:test` suite).
 
-## Install
+## Manual fallback
 
-The extension silently no-ops in any project without a `.hector.yml`, so a
-global install is safe.
+Use these steps if the `hector` binary is not available (e.g., bootstrapping a
+fresh machine before you can build):
 
 ### Local development
 
@@ -91,7 +119,8 @@ If the gate isn't firing:
 2. `.hector.yml` is present in the project root.
 3. `.hector.yml` is trusted: `hector trust`.
 4. pi loaded the extension (check pi's extension discovery logs / `/reload`).
-5. Run the bundled suite against your install:
+5. Run `hector doctor` for a structured health report.
+6. Run the bundled suite against your install:
 
    ```bash
    PATH="$(pwd)/target/release:${PATH}" \

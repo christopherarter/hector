@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "DEPRECATED: install.sh is superseded by \`hector init --harness reasonix\`. This script is kept only as a fallback for environments without the hector binary." >&2
+echo "Run \`hector init --harness reasonix\` instead for atomic writes, idempotency, and \`hector doctor\` integration." >&2
+
 # Install or refresh the Hector Reasonix PreToolUse hook in Reasonix settings.
 #
 # This keeps onboarding repeatable and also cleans up stale Hector Reasonix
