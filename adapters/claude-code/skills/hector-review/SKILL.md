@@ -1,72 +1,93 @@
 ---
 name: hector-review
-description: Reviews hector rule health from the telemetry log. Use when the user says "review my hector rules", "check rule health", "which hector rules are noisy", "find dead hector rules", "hector review", or asks for an audit of .hector.yml.
+description: Reviews hector gate health from the telemetry log. Use when the user says "review my hector gates", "check gate health", "which hector gates are noisy", "find dead hector gates", "hector review", or asks for an audit of .hector.yml.
 metadata:
   author: dynamik-dev
-  version: 0.1.1
+  version: 0.2.0
   category: workflow-automation
-  tags: [linting, telemetry, rule-pruning]
+  tags: [linting, telemetry, gate-pruning]
 ---
 
 # Hector Review
 
-Audit the rule set against telemetry. Surface candidates for removal, downgrade, or scope adjustment.
+Audit the gate set against telemetry. Surface candidates for removal, scope
+adjustment, or a source fix.
 
 ## Source of truth
 
-`.hector/log.jsonl` — one record per check invocation. Schema:
+`.hector/log.jsonl` — one record per check invocation, with a **per-gate**
+breakdown. Each line:
 
 ```json
-{"timestamp": "...", "kind": "check", "file": "src/foo.rs", "rule_id": null, "status": "pass"|"warn"|"block", "elapsed_ms": 42}
+{
+  "type": "check",
+  "ts": "2026-06-15T00:00:00Z",
+  "file": "src/foo.rs",
+  "status": "block",
+  "elapsed_ms": 42,
+  "gates": [
+    {"gate": "no-debug", "status": "block", "elapsed_ms": 30},
+    {"gate": "no-todo",  "status": "pass",  "elapsed_ms": 12}
+  ]
+}
 ```
 
-- `kind: "check"` rows come from `hector check --file <path>` (the per-edit gate). `file` is the path that was checked.
-
-**Granularity at 0.1:** records are **per check invocation**, not per rule. `rule_id` is always `null`; when a `check` runs three rules against one file, the log has one row whose `status` is the most severe of the three. Rule-level breakdowns arrive in 0.2.
-
-That means at 0.1 you can recommend on **file patterns and scopes**, not on individual rule IDs. To attribute a block to a specific rule, the user has to re-run `hector check --file <path>` and read the verdict JSON.
+- The top-level `status` is the most severe of the gates that ran (`block` >
+  `internal_error` > `pass`). There is no `warn` tier.
+- `gates[]` attributes the outcome to each gate by id, so you can recommend on
+  **specific gates**, not just files. `gates` is empty when no gate matched the file.
+- A gate with `status: "internal_error"` carries a `reason` (timeout, not_found,
+  …) — it *couldn't run*, which is a broken gate, not a finding.
 
 ## Process
 
 1. Read `.hector/log.jsonl`.
-2. Aggregate over the last N entries (default last 1000 or all if fewer), grouping by `file` (and by `rule_id` once it is populated).
-3. Surface concerning patterns at the file-or-scope level:
-   - **High block rate for a file or directory** (>50%): either rules covering it are too strict, or that file genuinely needs fixing at the source.
-   - **Scope with zero blocks across many runs**: at least one rule on that scope may be dead, or the scope is too broad and only ever matches green files.
-   - **Slow checks** (high `elapsed_ms`): which rule fires there is unknown until 0.2 — recommend the user run `hector check --file <path>` to attribute.
-4. Cross-reference findings against `.hector.yml` scopes to point at the candidate rule(s) by glob, since you can't point at them by `rule_id` yet.
+2. Aggregate over the last N entries (default last 1000, or all if fewer),
+   grouping by `gates[].gate` (and cross-referencing `file`).
+3. Surface concerning patterns per gate:
+   - **High block rate** (>50% of the files a gate ran on): the gate may be too
+     strict, or the code it covers genuinely needs fixing at the source.
+   - **Zero blocks across many runs**: the gate may be dead — its `files` scope
+     never matches anything dirty, or it never fires. Confirm it still earns its keep.
+   - **Recurring `internal_error`**: the gate is broken (read its `reason`) — fix
+     or remove it; a gate that can't run protects nothing.
+   - **Slow gates** (high `elapsed_ms`): flag for optimization or a narrower scope.
 
 ## Recommendations
 
-For each concerning file or scope, propose ONE of:
-- **Investigate source**: high block rate may be a real codebase problem to fix in code, not in the rule.
-- **Tighten scope**: narrow a glob so a noisy rule fires only where it should.
-- **Downgrade severity**: `error` → `warning` for a rule whose scope keeps getting blocked.
-- **Run a follow-up check**: when the offender's rule is ambiguous (multiple rules cover the file), suggest `hector check --file <path> --format json` to identify which rule blocked.
+For each concerning gate, propose ONE of:
+- **Investigate source**: a high block rate may be a real codebase problem to fix
+  in code, not in the gate.
+- **Tighten the `files` scope**: narrow the glob so a noisy gate fires only where
+  it should.
+- **Remove the gate**: a gate that never blocks (and isn't meant as a tripwire)
+  is noise in the config.
+- **Fix a broken gate**: for recurring `internal_error`, repair the `run` command
+  or the tool it shells out to.
 
-Never apply recommendations silently. Present each one and ask the user.
+Never apply recommendations silently. Present each one and ask the user. To
+re-confirm what a gate does on a file, run `hector check --file <path> --gate
+<id> --format json` and read the verdict.
 
 ## Output format
 
 ```
 Reviewed N entries from .hector/log.jsonl (date range A → B).
 
-Per-file health:
+Per-gate health:
 
-| File or scope        | Status counts                | Note / recommendation                                   |
-|----------------------|------------------------------|---------------------------------------------------------|
-| src/api/handlers.rs  | pass: 12, warn: 0, block: 7  | High block rate — investigate source or tighten scope   |
-| tests/**             | pass: 84, warn: 0, block: 0  | No blocks — confirm rules with scope `tests/**` still earn their keep |
-| crates/codegen/*.rs  | pass: 6, warn: 3, block: 0   | Slow (avg elapsed_ms = 480) — re-run with `--file` to attribute      |
+| Gate            | Runs | pass | block | error | Note / recommendation                                  |
+|-----------------|------|------|-------|-------|--------------------------------------------------------|
+| no-debug        | 31   | 24   | 7     | 0     | High block rate (23%) — investigate src/api or tighten |
+| no-todo         | 84   | 84   | 0     | 0     | No blocks — confirm it still earns its keep            |
+| eslint-check    | 12   | 9    | 0     | 3     | Broken (reason: not_found) — eslint missing on PATH    |
 
-To attribute a block to a specific rule (0.1 limitation):
-  hector check --file <path> --config .hector.yml --format json
+To re-confirm a gate on a file:
+  hector check --file <path> --gate <id> --format json
 ```
 
-Always include the disclaimer line that at 0.1 the log is per-check, not per-rule.
+## Notes
 
-## Limitations at 0.1
-
-- `rule_id` is `null` in every log entry; recommendations are per-file or per-scope, not per-rule.
-- A single `check` row's `status` is the most severe of the rules that ran, so a `block` on a file does not say which rule blocked.
-- Rule-level breakdowns are planned for 0.2 (`rule_id` will be populated and one row will be emitted per rule per check).
+- Records are per check invocation with a per-gate breakdown; group by
+  `gates[].gate` to attribute outcomes to a specific gate.
+- Statuses are `pass`, `block`, and `internal_error` — there is no `warn`.

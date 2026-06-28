@@ -1,66 +1,103 @@
 ---
 name: hector-author
-description: Authors, modifies, or removes rules in .hector.yml. Use when the user says "add a hector rule for X", "ban Y", "tighten <rule-id>", "make <rule-id> a warning", "remove <rule-id>", "change the scope of <rule-id>", or asks to apply recommendations from /hector-review.
+description: Authors, modifies, or removes gates in .hector.yml. Use when the user says "add a hector gate for X", "ban Y", "tighten <gate-id>", "stop gating <gate-id>", "remove <gate-id>", "change the scope of <gate-id>", or asks to apply recommendations from /hector-review.
 metadata:
   author: dynamik-dev
-  version: 0.1.0
+  version: 0.2.0
   category: workflow-automation
-  tags: [linting, rule-authoring, config-editing]
+  tags: [linting, gate-authoring, config-editing]
 ---
 
 # Hector Author
 
-Interactive authoring for `.hector.yml`. Every proposed rule is tested against a fixture before being written.
+Interactive authoring for `.hector.yml`. Every proposed gate is tested against a
+fixture before being written.
 
 If no `.hector.yml` exists, stop and tell the user to run `/hector-init` first.
+
+## The gate model
+
+A gate is exactly two fields — there are no engines, severities, or output modes:
+
+```yaml
+gates:
+  no-debug:
+    files: "**/*.ts"          # glob, or a list of globs
+    run: "! grep -nH 'DEBUG' \"$HECTOR_FILE\" || exit 2"
+```
+
+- `files` — the glob(s) the gate watches. A bare pattern with no `/` (e.g.
+  `*.py`) also matches at any depth.
+- `run` — a shell command handed to `sh -c`. The gate **owns the verdict via its
+  exit code**: exit `2` blocks the edit; `0` (and any other non-`2` code up to
+  125) passes. `126`/`127`/timeout are treated as a broken gate (internal error),
+  not a block.
+- The path under check arrives as `$HECTOR_FILE` (absolute). The proposed
+  post-edit content arrives on **stdin**. `$HECTOR_ROOT` (project root) and
+  `$HECTOR_EVENT` (`edit`/`write`/`pre-commit`/`manual`) are also set. There is
+  no path templating — the path travels only as `$HECTOR_FILE`, never spliced
+  into `run`.
+- On block, the gate's combined stdout+stderr becomes the message the agent sees,
+  so make the command print why it blocked.
 
 ## Triggers
 
 The user wants to:
-- Add a new rule ("ban X", "warn on Y").
-- Modify an existing rule (tighten, change scope, change severity).
-- Remove a rule ("drop X").
-- Convert a rule between engines (script ↔ ast).
+- Add a new gate ("ban X", "block Y").
+- Modify an existing gate (tighten its command, change its `files` scope).
+- Remove a gate ("drop X").
 
-## Engine routing
+## Gate patterns
 
-Pick the engine based on what the rule needs to detect:
+**Ban a pattern (grep).** Block when a forbidden string appears. `grep` exits `0`
+on a match, `1` when clean, `≥2` on error — map those to the gate contract:
 
-| Rule shape | Engine |
-|---|---|
-| "Run this linter command" | `script` |
-| "Match this AST shape exactly" (e.g., `as any`, `eval(...)`) | `ast` |
+```yaml
+  no-console-log:
+    files: ["src/**/*.ts", "src/**/*.tsx"]
+    run: "grep -nE 'console\\.log\\(' \"$HECTOR_FILE\"; case $? in 0) exit 2;; 1) exit 0;; *) exit $?;; esac"
+```
+
+**Wrap a linter (stdin).** Feed the proposed content to a linter so the gate runs
+pre-write. Most linters exit non-zero on findings; remap that to `2` to block:
+
+```yaml
+  ruff-check:
+    files: ["**/*.py"]
+    run: "ruff check --quiet --stdin-filename \"$HECTOR_FILE\" - || exit 2"
+```
+
+**Multi-line scripts.** Use a YAML block scalar so newlines survive — a plain or
+folded (`>`) scalar collapses them and can turn the whole script into one comment
+that silently passes (the parser rejects the all-comment case, but block scalars
+are the right idiom):
+
+```yaml
+  guard:
+    files: "*.rs"
+    run: |
+      grep -q 'FORBIDDEN' "$HECTOR_FILE" && exit 2
+      exit 0
+```
 
 ## Process
 
-1. Read `.hector.yml` to see existing rules.
-2. Draft the new rule with appropriate engine + scope + severity.
-3. Build a fixture file that exercises the rule (a clean version + a dirty version).
-4. Run hector against the fixture:
+1. Read `.hector.yml` to see existing gates.
+2. Draft the gate: `files` scope + a `run` command that exits `2` to block.
+3. Build two fixtures: a **dirty** file the gate should block, and a **clean** one
+   it should pass.
+4. Test each by feeding the fixture's content on stdin and isolating the new gate:
    ```bash
-   hector check --file /tmp/dirty.<ext>
+   printf '%s' "$(cat dirty.py)"  | hector check --file dirty.py --content - --gate ruff-check ; echo "dirty exit: $?"   # expect 2
+   printf '%s' "$(cat clean.py)"  | hector check --file clean.py --content - --gate ruff-check ; echo "clean exit: $?"   # expect 0
    ```
-5. Verify the rule fires on dirty input and passes on clean input.
-6. If the test passes, write the rule into `.hector.yml`.
-7. Run `hector trust` to update the fingerprint.
-
-## Required fields by engine
-
-- `script`: `description`, `engine: script`, `scope`, `severity`, `script` (with `{file}` substitution).
-- `ast`: `description`, `engine: ast`, `scope`, `severity`, `pattern`, `language`.
-
-## Capabilities (script + ast)
-
-By default, all script rules run with `network: false, writes: none`. If a rule needs to write within the project, add:
-
-```yaml
-capabilities:
-  network: false
-  writes: cwd-only
-```
-
-Don't grant `network: true` or `writes: unrestricted` unless the user explicitly asks.
+5. Verify the gate exits `2` on dirty input and `0` on clean input.
+6. If both hold, write the gate into `.hector.yml`.
+7. Run `hector trust` to re-bless the config — edits invalidate the trust
+   fingerprint, so checks refuse to run until you do.
 
 ## Test before write
 
-Always test the rule against a fixture BEFORE writing to `.hector.yml`. A rule that doesn't fire on dirty input is worse than no rule — it gives false confidence.
+Always test the gate against a fixture BEFORE writing to `.hector.yml`. A gate
+that doesn't exit `2` on dirty input is worse than no gate — it gives false
+confidence. A gate that exits `2` on clean input blocks every edit in scope.
