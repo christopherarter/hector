@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
     pub extends: Vec<String>,
@@ -17,6 +18,7 @@ pub struct Config {
 /// `HECTOR_TIMEOUT` env var overrides this at run time. Dispatch is
 /// sequential; parallelism tuning is not exposed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExecutionConfig {
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
@@ -40,6 +42,7 @@ impl Default for ExecutionConfig {
 /// The path under check arrives as `$HECTOR_FILE`; proposed content arrives
 /// on stdin. `run` may be an inline command or a path to a script.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Gate {
     #[serde(deserialize_with = "files_one_or_many")]
     pub files: Vec<String>,

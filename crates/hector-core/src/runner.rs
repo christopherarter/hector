@@ -648,6 +648,35 @@ mod gate_dispatch_tests {
     }
 
     #[test]
+    fn hector_file_is_absolute_for_gates() {
+        // ABI lock: `$HECTOR_FILE` handed to a gate is always an absolute path,
+        // so a gate can match it without guessing whether it's relative. The
+        // gate blocks (exit 2) iff `$HECTOR_FILE` is *not* absolute; a Pass
+        // verdict proves the engine resolved it to an absolute path. Guards the
+        // pi-harness report that `$HECTOR_FILE` was unexpectedly relative.
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            ".hector.yml",
+            "gates:\n  abs:\n    files: \"**/*.rs\"\n    run: \"case \\\"$HECTOR_FILE\\\" in /*) exit 0;; *) exit 2;; esac\"\n",
+        );
+        let target = write(dir.path(), "a.rs", "x\n");
+        let engine = HectorEngine::load(&dir.path().join(".hector.yml")).unwrap();
+        let v = engine
+            .check(CheckInput::File {
+                path: target,
+                content: "x\n".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            v.status,
+            Status::Pass,
+            "$HECTOR_FILE must be absolute (gate blocks on a non-absolute path): {:?}",
+            v.blocks
+        );
+    }
+
+    #[test]
     fn disable_directive_suppresses_a_gate() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
