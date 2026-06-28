@@ -422,8 +422,10 @@ impl HectorEngine {
         if let Some(reason) = self.skip_reason(check_id, match_path, content) {
             return CheckStatus::Skipped(reason);
         }
+        let abs_buf = abs.to_path_buf();
         let env = GateEnv {
-            file: abs,
+            file: Some(abs),
+            files: std::slice::from_ref(&abs_buf),
             root: &self.config_dir,
             event: &self.options.event,
         };

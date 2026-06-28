@@ -1,19 +1,24 @@
 //! The one execution model: run a gate command, read its exit code.
 //!
-//! Contract (see spec §3): exit `2` → Block; `126`/`127`/`≥128`/timeout →
-//! InternalError; everything else → Pass. On Block the combined trimmed
-//! stdout+stderr is the message.
+//! Contract (see spec §3): exit `0` → Pass; `1`–`125` → Block;
+//! `126`/`127`/`≥128`/signal/timeout → InternalError (broken-gate fail-open).
+//! On Block the combined trimmed stdout+stderr is the message.
 
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
 /// The ABI handed to a gate, materialized as process environment + cwd.
 pub struct GateEnv<'a> {
-    /// Absolute path to the file under check (`$HECTOR_FILE`).
-    pub file: &'a Path,
+    /// Absolute path to the single file under check (`$HECTOR_FILE`).
+    /// `None` when the caller is operating over a set of files with no
+    /// single primary target (in which case `$HECTOR_FILE` is not set).
+    pub file: Option<&'a Path>,
+    /// All files under check, exported as `$HECTOR_FILES` (newline-joined,
+    /// absolute paths). Per-file checks set this to the singleton `[file]`.
+    pub files: &'a [PathBuf],
     /// Project root; also the gate's cwd (`$HECTOR_ROOT`).
     pub root: &'a Path,
     /// Trigger: `write` | `pre-commit` (`$HECTOR_EVENT`).
@@ -59,18 +64,26 @@ pub fn run_gate(
     content: Option<&[u8]>,
     timeout: Duration,
 ) -> GateOutcome {
-    let mut child = match Command::new("sh")
-        .arg("-c")
+    let files_str = env
+        .files
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c")
         .arg(run)
         .current_dir(env.root)
-        .env("HECTOR_FILE", env.file)
         .env("HECTOR_ROOT", env.root)
         .env("HECTOR_EVENT", env.event)
+        .env("HECTOR_FILES", files_str)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
+        .stderr(Stdio::piped());
+    if let Some(f) = env.file {
+        cmd.env("HECTOR_FILE", f);
+    }
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return GateOutcome::Internal(InternalReason::Spawn(e.to_string())),
     };
@@ -130,7 +143,11 @@ fn classify(status: std::process::ExitStatus, stdout: &str, stderr: &str) -> Gat
         }
     }
     match status.code() {
-        Some(2) => {
+        Some(0) => GateOutcome::Pass,
+        Some(126) => GateOutcome::Internal(InternalReason::NotExecutable),
+        Some(127) => GateOutcome::Internal(InternalReason::NotFound),
+        Some(c) if c >= 128 => GateOutcome::Internal(InternalReason::HighExit(c)),
+        Some(c) if (1..=125).contains(&c) => {
             let message = [stdout.trim(), stderr.trim()]
                 .into_iter()
                 .filter(|s| !s.is_empty())
@@ -138,10 +155,8 @@ fn classify(status: std::process::ExitStatus, stdout: &str, stderr: &str) -> Gat
                 .join("\n");
             GateOutcome::Block { message }
         }
-        Some(126) => GateOutcome::Internal(InternalReason::NotExecutable),
-        Some(127) => GateOutcome::Internal(InternalReason::NotFound),
-        Some(c) if c >= 128 => GateOutcome::Internal(InternalReason::HighExit(c)),
-        _ => GateOutcome::Pass,
+        // None == terminated without code on non-unix; treat as internal.
+        _ => GateOutcome::Internal(InternalReason::HighExit(-1)),
     }
 }
 
@@ -152,7 +167,17 @@ mod tests {
 
     fn env_for<'a>(file: &'a std::path::Path, root: &'a std::path::Path) -> GateEnv<'a> {
         GateEnv {
-            file,
+            file: Some(file),
+            files: &[],
+            root,
+            event: "manual",
+        }
+    }
+
+    fn env_with_files<'a>(root: &'a std::path::Path, files: &'a [PathBuf]) -> GateEnv<'a> {
+        GateEnv {
+            file: None,
+            files,
             root,
             event: "manual",
         }
@@ -171,13 +196,24 @@ mod tests {
     }
 
     #[test]
-    fn exit_one_is_pass() {
+    fn exit_one_is_block() {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("x.txt");
         let out = run_gate("exit 1", &env_for(&f, dir.path()), None, t());
         assert!(
-            matches!(out, GateOutcome::Pass),
-            "exit 1 must be Pass (opt-in blocking)"
+            matches!(out, GateOutcome::Block { .. }),
+            "exit 1 must block (nonzero = block)"
+        );
+    }
+
+    #[test]
+    fn exit_125_is_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("x.txt");
+        let out = run_gate("exit 125", &env_for(&f, dir.path()), None, t());
+        assert!(
+            matches!(out, GateOutcome::Block { .. }),
+            "exit 125 must block (upper edge of 1-125 range)"
         );
     }
 
@@ -283,5 +319,25 @@ mod tests {
             t(),
         );
         assert!(matches!(out, GateOutcome::Block { .. }));
+    }
+
+    #[test]
+    fn hector_files_is_exported_newline_joined() {
+        // Both paths must appear in $HECTOR_FILES (newline-joined). Gate greps
+        // for each; exits 1 (blocks) when both are present, 0 (passes) otherwise.
+        let dir = tempfile::tempdir().unwrap();
+        let files = vec![PathBuf::from("/p/a.rs"), PathBuf::from("/p/b.rs")];
+        let out = run_gate(
+            "echo \"$HECTOR_FILES\" | grep -q 'a.rs' \
+             && echo \"$HECTOR_FILES\" | grep -q 'b.rs' \
+             && exit 1 || exit 0",
+            &env_with_files(dir.path(), &files),
+            None,
+            t(),
+        );
+        assert!(
+            matches!(out, GateOutcome::Block { .. }),
+            "both files must be visible in $HECTOR_FILES; got: {out:?}"
+        );
     }
 }
