@@ -59,6 +59,7 @@ On block, the check's combined stdout+stderr becomes the message the agent sees,
 ```yaml
   ts-quality:
     files: "src/**/*.ts"
+    on: [pre-commit]
     steps:
       - name: typecheck
         run: "tsc --noEmit"
