@@ -57,11 +57,17 @@ If hooks aren't firing for any agent, run [`hector doctor`](../operating/diagnos
 
 Adapters that support skills ship three for managing policy without leaving the session:
 
-- **`/hector-init`** scaffolds a `.hector.yml` from your project's stack, migrating checks from existing linters where it can.
-- **`/hector-author`** adds, tightens, or removes a gate, and tests it against fixtures before you commit. Reach for it with requests like "ban `unwrap()` in `src/`" or "stop gating `no-debug`."
-- **`/hector-review`** reads your telemetry log and reports which gates are noisy, which never fire, and which look dead, so you can prune them.
+- **`hector-config`** is the authoring guide: the `{files, run}` gate schema, the
+  exit-code contract, and the common patterns, with a fixture-test loop. `hector
+  init` installs it as a real skill into every detected agent, and `hector schema`
+  prints it on demand.
+- **`/hector-init`** scaffolds a `.hector.yml` from your project's stack.
+- **`/hector-review`** reads your telemetry log and reports which gates are noisy,
+  which never fire, and which look dead.
 
-Claude Code ships all three today, bundled with its **plugin** package — install the plugin (marketplace or the layout in `adapters/claude-code/`) to get them. The `hector init --harness claude-code` settings-hook install wires the gate but not the skills. Other adapters wire skills up as their skill-discovery paths settle.
+`hector init` installs `hector-config` for every agent it wires (all four support
+the Agent Skills spec). `/hector-init` and `/hector-review` ship with the Claude
+Code plugin today; other agents gain them as their needs settle.
 
 ## See also
 

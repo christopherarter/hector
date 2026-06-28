@@ -29,7 +29,7 @@ It is **read-only**: it produces findings and recommendations but applies no edi
 | Behavior | **Load intel → audit → report** (read-only) | The maintainer decides fixes; the skill never edits adapter files. Keeps the tool safe to run anytime. |
 | Structure | **Shared procedure + per-harness reference files** | One audit procedure, written once; adding a harness = adding one reference file. Four harnesses already exist, so the abstraction pays for itself immediately. |
 
-This skill is distinct from — and does **not** replace — the consumer-facing skills shipped *inside* each adapter (e.g. `adapters/claude-code/skills/{hector,hector-init,hector-author,hector-review}`). Those help an adapter's users author and run policy; this audits the adapter itself.
+This skill is distinct from — and does **not** replace — the consumer-facing skills shipped *inside* each adapter (e.g. `adapters/claude-code/skills/{hector-config,hector-init,hector-review}`). Those help an adapter's users author and run policy; this audits the adapter itself.
 
 ## 3. Layout
 
@@ -171,7 +171,7 @@ The first real run replaces this with the version/changelog entry it observed.
 
 - **Applying fixes.** Read-only by design; the report recommends, the maintainer edits.
 - **Auditing `hector` core.** This skill audits adapter ↔ harness contract only.
-- **Replacing consumer-facing adapter skills.** `hector`, `hector-init`, `hector-author`, `hector-review` remain the user-facing surface.
+- **Replacing consumer-facing adapter skills.** `hector-config`, `hector-init`, `hector-review` remain the user-facing surface.
 - **Other harness references.** `pi.md` / `opencode.md` / `reasonix.md` are deferred; each follows the §5 template when built.
 
 ## 7. Testing / validation

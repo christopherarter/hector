@@ -59,6 +59,8 @@ hector init --harness all        # every supported agent
 hector init --global             # user-level settings, not the project
 ```
 
+It also installs a `hector-config` authoring skill so the agent knows how to write and fix gates; run `hector schema` to read the format yourself.
+
 `hector doctor` verifies the wiring (one row per agent); `hector init --uninstall --harness <name>` removes it. Per-agent paths, scopes, and manual fallbacks are in the [adapter docs](docs/adapters/README.md).
 
 ## Documentation

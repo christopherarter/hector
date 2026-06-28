@@ -24,7 +24,7 @@ To remove the hook, its artifacts, and the sidecar (leaving `.hector.yml` and th
 hector init --uninstall --harness claude-code
 ```
 
-This settings-hook install gives you the **gate**. The three policy skills (`/hector-init`, `/hector-author`, `/hector-review`) ship with the plugin package instead — see [Author and review gates from inside Claude](#author-and-review-gates-from-inside-claude) below.
+This settings-hook install gives you the **gate** and installs the `hector-config` authoring skill into `.claude/skills/hector-config/`. `/hector-init` and `/hector-review` ship with the plugin package — see [Author and review gates from inside Claude](#author-and-review-gates-from-inside-claude) below.
 
 If you wrote `.hector.yml` by hand instead of letting `hector init` scaffold it, trust it before checks will run:
 
@@ -58,7 +58,7 @@ Every adapter follows the [same lifecycle](README.md#what-adapters-do); here is 
 
 ## Author and review gates from inside Claude
 
-The adapter ships the three standard policy skills — `/hector-init`, `/hector-author`, and `/hector-review` (see [Managing policy from inside the agent](README.md#managing-policy-from-inside-the-agent) for what each does). They are bundled with the Claude Code **plugin**, not the `hector init` settings-hook install, so install the plugin to get them.
+`hector init --harness claude-code` installs the **`hector-config`** authoring skill into `.claude/skills/hector-config/` — the gate schema, the exit-code contract, and common patterns with a fixture-test loop. Run `hector schema` any time to print the same guide at the terminal. `/hector-init` and `/hector-review` ship with the Claude Code **plugin** instead (see [Managing policy from inside the agent](README.md#managing-policy-from-inside-the-agent)).
 
 The plugin layout lives in this repo at `adapters/claude-code/`. For local development, link it into Claude Code's plugin directory and restart:
 

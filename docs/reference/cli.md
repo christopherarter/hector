@@ -124,6 +124,19 @@ hector show-resolved-config [--config <path>] [--format tsv|yaml|json]
 
 See [`show-resolved-config` output](show-resolved-config.md).
 
+## `hector schema`
+
+Print the canonical gate-authoring guide — the `.hector.yml` `{files, run}`
+schema, the exit-code contract, and the common gate patterns. Read-only; loads
+no config. This is the same guide `hector init` installs into each agent as the
+`hector-config` skill.
+
+```
+hector schema
+```
+
+**Exit codes:** always `0`.
+
 ## Read-only commands
 
-`validate`, `doctor`, `explain`, and `show-resolved-config` never run a gate or write telemetry. They exit `0` on success and `1` on a config error — never `2`. Trust is enforced only by `check`; these commands run against an unblessed config so you can debug it.
+`validate`, `doctor`, `explain`, `show-resolved-config`, and `schema` never run a gate or write telemetry. They exit `0` on success and `1` on a config error — never `2`. Trust is enforced only by `check`; these commands run against an unblessed config so you can debug it.
