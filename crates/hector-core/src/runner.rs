@@ -37,7 +37,7 @@ impl Default for CheckOptions {
 /// One row of the `--explain` report. Surfaced to the CLI via [`CheckReport`],
 /// kept out of the verdict JSON (whose shape is locked).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GateExplain {
+pub struct CheckExplain {
     pub check_id: String,
     pub outcome: ExplainOutcome,
 }
@@ -56,7 +56,7 @@ pub enum ExplainOutcome {
 #[derive(Debug, Clone)]
 pub struct CheckReport {
     pub verdict: Verdict,
-    pub explain: Vec<GateExplain>,
+    pub explain: Vec<CheckExplain>,
 }
 
 /// Input to a check. Checks evaluate the whole proposed file; the diff is
@@ -98,7 +98,7 @@ struct Collected {
     errors: Vec<GateError>,
     passed: Vec<String>,
     records: Vec<PerCheckRecord>,
-    explain: Vec<GateExplain>,
+    explain: Vec<CheckExplain>,
 }
 
 impl Collected {
@@ -164,7 +164,7 @@ impl Collected {
             }
         };
         if collect_explain {
-            self.explain.push(GateExplain {
+            self.explain.push(CheckExplain {
                 check_id: check_id.to_string(),
                 outcome,
             });
@@ -358,7 +358,7 @@ impl HectorEngine {
     /// cache. A relative path is matched directly (already config-dir-relative);
     /// an absolute path is stripped against the canonical config dir first.
     /// An unknown check id returns `false`.
-    pub fn gate_matches_path(&self, check_id: &str, file: &Path) -> bool {
+    pub fn check_matches_path(&self, check_id: &str, file: &Path) -> bool {
         let match_path: PathBuf = if file.is_relative() {
             PathBuf::from(file)
         } else {
@@ -385,7 +385,7 @@ impl HectorEngine {
         if !self.options.checks.is_empty() && !self.options.checks.contains(check_id) {
             return Some("filtered".to_string());
         }
-        if !self.gate_matches_path(check_id, match_path) {
+        if !self.check_matches_path(check_id, match_path) {
             return Some("out_of_scope".to_string());
         }
         if crate::disable::is_disabled(content, check_id) {

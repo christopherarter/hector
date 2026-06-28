@@ -128,7 +128,7 @@ pub enum Command {
         #[arg(long, default_value = "tsv")]
         format: ShowFormat,
     },
-    /// Print the canonical gate-authoring guide (the `.hector.yml` schema and
+    /// Print the canonical check-authoring guide (the `.hector.yml` schema and
     /// patterns). Read-only.
     Schema,
 }

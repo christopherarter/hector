@@ -75,7 +75,7 @@ fn doctor_passes_on_clean_gates_config() {
     assert_eq!(out.status.code(), Some(0));
     let s = String::from_utf8_lossy(&out.stdout);
     // The four always-present gate-model checks must appear.
-    for needle in ["binary", "config", "parses", "gate_scripts"] {
+    for needle in ["binary", "config", "parses", "check_scripts"] {
         assert!(s.contains(needle), "expected `{needle}` row in: {s}");
     }
 }
@@ -177,7 +177,7 @@ fn doctor_json_output_is_valid_for_clean_gates_config() {
     assert!(v.get("checks").is_some(), "must have checks array");
     let checks = v["checks"].as_array().unwrap();
     // Clean machine → only the four core gate-model checks (no adapter rows):
-    // binary, config, parses, gate_scripts.
+    // binary, config, parses, check_scripts.
     assert_eq!(checks.len(), 4, "gates model doctor has 4 core checks: {v}");
     // Each check has name, status, detail.
     for c in checks {

@@ -8,7 +8,7 @@
 //!   1. binary — hector binary + version (always pass once we're running)
 //!   2. config  — `.hector.yml` exists
 //!   3. parses  — config parses (extends resolved)
-//!   4. gate_scripts — each gate whose `run` names a single-token path that
+//!   4. check_scripts — each check whose `run` names a single-token path that
 //!      starts with `.hector/` exists and is executable
 //!   5. adapters — one row per supported harness that is detected on this
 //!      machine or has hector installed: pass when installed+registered, fail
@@ -60,7 +60,7 @@ pub fn run(dir: &Path, format: OutputFormat) -> Result<i32> {
         check_binary(),
         check_config_present(&ctx),
         check_config_parses(&ctx),
-        check_gate_scripts(&ctx),
+        check_script_paths(&ctx),
     ];
     if let Ok(env) = AdapterEnv::from_process(dir.to_path_buf()) {
         checks.extend(check_adapters(&env));
@@ -161,12 +161,12 @@ fn check_config_parses(ctx: &DoctorContext) -> CheckResult {
 /// `.hector/`, check that the path exists and is executable. Inline commands
 /// (e.g. `grep -q TODO && exit 2`) are skipped — detection: `run` contains a
 /// space or doesn't look like a file path.
-fn check_gate_scripts(ctx: &DoctorContext) -> CheckResult {
+fn check_script_paths(ctx: &DoctorContext) -> CheckResult {
     let cfg = match hector_core::config::parse_file_with_extends(&ctx.config_path) {
         Ok(c) => c,
         Err(_) => {
             return CheckResult {
-                name: "gate_scripts",
+                name: "check_scripts",
                 status: Status::Warn,
                 detail: "skipped (config does not parse)".into(),
                 remediation: None,
@@ -181,14 +181,14 @@ fn check_gate_scripts(ctx: &DoctorContext) -> CheckResult {
     }
     if bad.is_empty() {
         CheckResult {
-            name: "gate_scripts",
+            name: "check_scripts",
             status: Status::Pass,
             detail: format!("{} check(s) checked", cfg.checks.len()),
             remediation: None,
         }
     } else {
         CheckResult {
-            name: "gate_scripts",
+            name: "check_scripts",
             status: Status::Fail,
             detail: format!("missing/non-executable check script(s): {}", bad.join("; ")),
             remediation: Some(
@@ -202,7 +202,7 @@ fn check_gate_scripts(ctx: &DoctorContext) -> CheckResult {
 /// Returns `Some(problem description)` if `run` looks like a script path that
 /// is missing or not executable; `None` if the command is inline or the script
 /// is fine.
-fn check_run_path(dir: &Path, gate_id: &str, run: &str) -> Option<String> {
+fn check_run_path(dir: &Path, check_id: &str, run: &str) -> Option<String> {
     // Inline command: contains a space → skip.
     if run.contains(' ') {
         return None;
@@ -213,7 +213,7 @@ fn check_run_path(dir: &Path, gate_id: &str, run: &str) -> Option<String> {
     }
     let script = dir.join(run);
     if !script.exists() {
-        return Some(format!("{gate_id}: {run} not found"));
+        return Some(format!("{check_id}: {run} not found"));
     }
     // Check executable bit (Unix only; on Windows always passes).
     #[cfg(unix)]
@@ -221,7 +221,7 @@ fn check_run_path(dir: &Path, gate_id: &str, run: &str) -> Option<String> {
         use std::os::unix::fs::PermissionsExt;
         if let Ok(meta) = std::fs::metadata(&script) {
             if meta.permissions().mode() & 0o111 == 0 {
-                return Some(format!("{gate_id}: {run} not executable"));
+                return Some(format!("{check_id}: {run} not executable"));
             }
         }
     }
@@ -395,21 +395,21 @@ mod tests {
     }
 
     #[test]
-    fn gate_scripts_warn_when_config_missing() {
+    fn check_scripts_warn_when_config_missing() {
         let d = tempdir().unwrap();
-        let r = check_gate_scripts(&ctx_with(d.path()));
+        let r = check_script_paths(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Warn);
     }
 
     #[test]
-    fn gate_scripts_pass_for_inline_commands() {
+    fn check_scripts_pass_for_inline_commands() {
         let d = tempdir().unwrap();
         fs::write(
             d.path().join(".hector.yml"),
             "checks:\n  g:\n    files: \"*.rs\"\n    run: \"grep -q TODO && exit 2 || exit 0\"\n",
         )
         .unwrap();
-        let r = check_gate_scripts(&ctx_with(d.path()));
+        let r = check_script_paths(&ctx_with(d.path()));
         assert_eq!(r.status, Status::Pass);
     }
 

@@ -22,7 +22,7 @@ struct ExplainEntry<'a> {
 }
 
 fn status_for(engine: &HectorEngine, check_id: &str, file: &Path) -> &'static str {
-    if engine.gate_matches_path(check_id, file) {
+    if engine.check_matches_path(check_id, file) {
         "match"
     } else {
         "skip"

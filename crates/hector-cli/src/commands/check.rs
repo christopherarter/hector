@@ -1,6 +1,6 @@
 use crate::cli::OutputFormat;
 use anyhow::{Context, Result};
-use hector_core::runner::{CheckInput, CheckOptions, ExplainOutcome, GateExplain, HectorEngine};
+use hector_core::runner::{CheckExplain, CheckInput, CheckOptions, ExplainOutcome, HectorEngine};
 use hector_core::verdict::{Status, Verdict};
 use std::collections::HashSet;
 use std::io::Read;
@@ -21,7 +21,7 @@ pub fn run(
     // Trust gate: refuse an unblessed or tampered config/checks before the engine
     // loads or any check runs. This hashes the config + `.hector/gates/` now; a
     // write between here and check execution is a known, accepted TOCTOU window
-    // (the direnv-model limitation — no file locking in 0.3).
+    // (the direnv-model limitation — no file locking in 0.4).
     if let Err(e) = hector_core::trust::ensure_trusted(config) {
         eprintln!("ERROR: {e:#}");
         return Ok(1);
@@ -105,7 +105,7 @@ fn run_diff(
     let mut blocks = Vec::new();
     let mut errors = Vec::new();
     let mut passed = Vec::new();
-    let mut explains: Vec<GateExplain> = Vec::new();
+    let mut explains: Vec<CheckExplain> = Vec::new();
     let mut elapsed = 0u64;
     for f in targets {
         // A changed file we can't read (deleted between diff-gen and check,
@@ -164,7 +164,7 @@ fn validate_check_filter(engine: &HectorEngine, checks: &[String]) -> Option<i32
     }
 }
 
-fn print_explain(rows: &[GateExplain]) {
+fn print_explain(rows: &[CheckExplain]) {
     for row in rows {
         let outcome = match &row.outcome {
             ExplainOutcome::Fire => "fire".to_string(),
