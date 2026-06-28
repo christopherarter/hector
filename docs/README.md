@@ -9,7 +9,7 @@ A gate is two fields — the files it watches and a shell command to run:
 gates:
   no-console:
     files: "**/*.ts"
-    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'console.log' || exit 2"  # proposed content arrives on stdin
 ```
 
 Hector runs `run`, reads its exit code, and blocks the edit when the code is `2`. That is the whole model — no engines, no severities, no rule DSL. The gate owns the decision.

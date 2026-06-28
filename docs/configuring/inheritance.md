@@ -25,7 +25,7 @@ Inherited gates fill gaps only — they never overwrite. When the same gate id i
 gates:
   no-todo:
     files: "src/**/*"
-    run: "! grep -nH TODO \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n TODO || exit 2"  # proposed content arrives on stdin
 
 # b.yml
 gates:

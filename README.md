@@ -9,7 +9,7 @@ A **gate** is a glob and a shell command. When an agent edits a matching file, H
 gates:
   no-console:
     files: "**/*.ts"
-    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'console.log' || exit 2"  # proposed content arrives on stdin
 ```
 
 No engines, no severities, no rule DSL — the gate owns the decision through its exit code.

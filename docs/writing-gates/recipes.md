@@ -10,10 +10,10 @@ The simplest gate: block an edit when a forbidden string appears.
 gates:
   no-focused-tests:
     files: "**/*.test.ts"
-    run: "! grep -nH '\\.only(' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n '\\.only(' || exit 2"  # proposed content arrives on stdin
 ```
 
-`grep` exits `0` on a match, so `! grep …` flips that to a failure on a hit, and `|| exit 2` turns the failure into a block. `-nH` makes grep print `file:line:match`, which becomes the message the agent sees.
+`grep` exits `0` on a match, so `! grep …` flips that to a failure on a hit, and `|| exit 2` turns the failure into a block. `-n` makes grep include line numbers in its output, which becomes the message the agent sees.
 
 ## Run a linter over the proposed content
 

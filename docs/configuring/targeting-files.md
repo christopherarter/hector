@@ -7,7 +7,7 @@ Every gate has a `files:` glob — the pattern that decides which files the gate
 gates:
   no-console:
     files: "**/*.ts"                       # one glob
-    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'console.log' || exit 2"  # proposed content arrives on stdin
 
   ts-style:
     files: ["src/**/*.ts", "app/**/*.ts"]  # or a list

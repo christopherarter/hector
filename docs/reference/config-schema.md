@@ -12,7 +12,7 @@ execution:                # optional — execution tuning
 gates:                    # required — your policy, keyed by gate id
   no-console:
     files: "**/*.ts"
-    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'console.log' || exit 2"  # proposed content arrives on stdin
 ```
 
 ## Top-level

@@ -21,12 +21,12 @@ Create a `.hector.yml` in your repo root:
 gates:
   no-debug:
     files: "src/**/*.ts"
-    run: "! grep -nH 'DEBUG' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'DEBUG' || exit 2"
 ```
 
 A gate is two fields. `files` is the glob it watches; `run` is a shell command Hector runs against each matching file. Hector reads only the command's exit code: **exit `2` blocks the edit**, anything else lets it through.
 
-The `run` here negates a grep. `grep` exits `0` when it finds `DEBUG`, so `! grep …` succeeds when the file is clean and fails when it isn't, and `|| exit 2` turns that failure into a block. The path under check arrives as `$HECTOR_FILE` — there is no `{file}` templating.
+The `run` here negates a grep. `grep` exits `0` when it finds `DEBUG`, so `! grep …` succeeds when the proposed content is clean and fails when it isn't, and `|| exit 2` turns that failure into a block. Grep reads the proposed post-edit content from stdin; `$HECTOR_FILE` carries the path under check — there is no `{file}` templating.
 
 ## Trust the config
 

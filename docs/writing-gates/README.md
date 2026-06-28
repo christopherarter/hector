@@ -8,7 +8,7 @@ Here is a complete gate:
 gates:
   no-console:
     files: "src/**/*.ts"
-    run: "! grep -nH 'console.log' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'console.log' || exit 2"
 ```
 
 That's the whole surface. A gate has exactly two fields:
@@ -32,8 +32,8 @@ Blocking is opt-in. A tool that exits `1` when it finds problems — `grep`, `es
 
 ```sh
 phpstan analyse "$HECTOR_FILE" || exit 2          # block if the tool fails
-grep -q 'TODO' "$HECTOR_FILE" && exit 2 || true   # block if a pattern is present
-! grep -q 'TODO' "$HECTOR_FILE" || exit 2         # same, in negated form
+grep -q 'TODO' && exit 2 || true   # block if a pattern is present
+! grep -q 'TODO' || exit 2         # same, in negated form
 ```
 
 ## What the gate's output becomes

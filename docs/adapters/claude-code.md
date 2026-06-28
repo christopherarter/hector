@@ -43,7 +43,7 @@ Here is the whole point of the adapter, end to end. Suppose your `.hector.yml` b
 gates:
   no-debug:
     files: "**/*.ts"
-    run: "! grep -nH 'DEBUG' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'DEBUG' || exit 2"  # proposed content arrives on stdin
 ```
 
 Ask Claude to add a `DEBUG` marker to a `.ts` file. The instant Claude writes the edit, the adapter runs `hector check` against that file, the `no-debug` gate exits `2`, and Claude Code rejects the edit. Claude reads the returned block message — the gate's own output — sees that it broke `no-debug`, and rewrites the change without the marker. The retry happens in the transcript while you watch; you never touched the keyboard.

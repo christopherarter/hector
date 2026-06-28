@@ -45,7 +45,7 @@ Suppose your `.hector.yml` bans `DEBUG` markers in TypeScript:
 gates:
   no-debug:
     files: "**/*.ts"
-    run: "! grep -nH 'DEBUG' \"$HECTOR_FILE\" || exit 2"
+    run: "! grep -n 'DEBUG' || exit 2"  # proposed content arrives on stdin
 ```
 
 Ask OpenCode to add a `DEBUG` marker to a `.ts` file. Before the `edit` tool writes, the adapter checks the proposed content, the `no-debug` gate exits `2`, and the adapter throws. OpenCode cancels the tool call and surfaces the verdict to the agent, which sees that it broke `no-debug` and rewrites without the marker. A clean edit lands normally and you see nothing.
