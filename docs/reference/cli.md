@@ -57,15 +57,28 @@ hector validate [--config <path>]
 
 ## `hector init`
 
-Detect the project stack and scaffold a starter `.hector.yml`, then bless it.
+Scaffold a starter `.hector.yml` and wire Hector into your coding agents. Two phases:
+
+1. **Scaffold + trust.** Detects your stack (Rust / Node / Python, including workspaces) and existing linters (biome / eslint / ruff), writes a `.hector.yml`, and trusts it for you. An existing config is left untouched (and not re-trusted — run [`hector trust`](#hector-trust) yourself if you hand-edit it).
+2. **Wire hooks.** Detects installed agents — Claude Code, Reasonix, pi, OpenCode — and, after you confirm, installs Hector's edit hook into each. Materialized hook artifacts plus a `.hector-adapter.json` sidecar (per-file sha256 + version) land under `~/.config/hector/adapters/<harness>/` for settings-hook agents, or the agent's plugin directory for plugin agents. Re-runs are idempotent.
 
 ```
-hector init [--dir <path>]
+hector init [--dir <path>] [--harness <name>]... [--global] [--yes]
+            [--no-hook] [--hook-only] [--uninstall] [--dry-run]
 ```
 
-| Flag | Default |
-|------|---------|
-| `--dir <path>` | `.` |
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--dir <path>` | `.` | Project directory to scaffold and install into. |
+| `--harness <name>` | — | Wire this agent explicitly instead of auto-detecting. Repeatable; `all` selects every supported agent. One of `claude-code`, `reasonix`, `pi`, `opencode`. |
+| `--global` | off | Patch user-level settings (e.g. `~/.claude/settings.json`, `~/.pi/agent/extensions/`) instead of the project. Reasonix is always user-global; OpenCode is always project-scoped, regardless of this flag. |
+| `--yes` | off | Skip the confirmation prompt and install every detected agent. Required to wire hooks non-interactively (CI, pipes) — without a TTY and without `--yes`, init prints what it detected and installs nothing. |
+| `--no-hook` | off | Scaffold and trust the config only; install no hooks. Mutually exclusive with `--hook-only`. |
+| `--hook-only` | off | Skip scaffolding; only wire hooks. |
+| `--uninstall` | off | Remove Hector's hooks and materialized artifacts. Leaves `.hector.yml` and the trust store untouched. |
+| `--dry-run` | off | Preview the hook writes and settings patches without making them. Note: the config scaffold + trust is **not** part of the dry run — it still writes and trusts `.hector.yml`. Pair with `--hook-only` to preview hooks without scaffolding. |
+
+**Exit codes:** `0` on success; `3` if every attempted hook install failed; `1` on a scaffold/trust error.
 
 ## `hector doctor`
 

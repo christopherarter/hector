@@ -56,15 +56,17 @@ printf 'const x = "DEBUG"\n' | hector check --file src/app.ts --content -
 
 The content arrives on the gate's stdin, so a gate can inspect the new bytes without them ever touching disk.
 
-## Scaffold instead of hand-writing
+## Scaffold and connect your agent
 
-To skip the blank page, run:
+The blank page is optional, and so is wiring your agent by hand. From a fresh project, one command does both:
 
 ```bash
 hector init
 ```
 
-It detects your project's stack and writes a starter `.hector.yml`, then blesses it for you. Review it and adjust.
+`hector init` detects your stack and writes a starter `.hector.yml` (the same shape as the gate above, tuned for Rust, Node, or Python), trusts it for you, then detects your installed agents — Claude Code, Reasonix, pi, OpenCode — and, after you confirm, installs Hector's edit hook into each. From then on the gate runs on every edit the agent makes; you never call `hector check` by hand.
+
+Review the generated gates and adjust. If you change the config after init, re-run `hector trust`. Target a single agent with `--harness <name>`, wire all four with `--harness all`, or preview the writes with `--dry-run` — see the [CLI reference](reference/cli.md#hector-init) for every flag and the [adapter docs](adapters/README.md) for per-agent details.
 
 ## Where to go next
 

@@ -2,12 +2,14 @@
 
 An adapter wires Hector into a coding agent so policy runs automatically on every edit, instead of you calling `hector check` by hand. The adapter hooks the agent's edit events, runs `hector check`, and translates the exit code into "allow" or "reject this edit."
 
-| Adapter | Agent | Language | Install |
-|---------|-------|----------|---------|
-| [Claude Code](claude-code.md) | Claude Code | bash + `jq` | `/plugin install` |
-| [OpenCode](opencode.md) | OpenCode | TypeScript | File drop or npm |
-| [Reasonix](../../adapters/reasonix/README.md) | DeepSeek-Reasonix | bash + `jq` + Python | Settings hook |
-| [pi](../../adapters/pi/README.md) | pi | TypeScript | Extension |
+**`hector init` installs these for you.** Run it with no arguments to detect every agent you have and wire them all at once; the per-agent command targets just one. The per-adapter pages below cover scopes, paths, and manual fallbacks.
+
+| Adapter | Agent | Wire it in | Under the hood |
+|---------|-------|------------|----------------|
+| [Claude Code](claude-code.md) | Claude Code | `hector init --harness claude-code` | `PostToolUse` hook in `.claude/settings.json` |
+| [OpenCode](opencode.md) | OpenCode | `hector init --harness opencode` | plugin file in `.opencode/plugins/` (project-scoped) |
+| [Reasonix](../../adapters/reasonix/README.md) | DeepSeek-Reasonix | `hector init --harness reasonix` | `PreToolUse` hook in `~/.reasonix/settings.json` (user-global) |
+| [pi](../../adapters/pi/README.md) | pi | `hector init --harness pi` | extension in `.pi/extensions/` |
 
 *Aider, pre-commit, and MCP adapters are planned.*
 
@@ -47,9 +49,9 @@ Every adapter needs:
 
 - the `hector` binary on `PATH`,
 - a `.hector.yml` in the project root,
-- a trusted config (`hector trust`).
+- a trusted config (`hector trust` — or let `hector init` scaffold and trust one).
 
-If Claude Code hooks aren't firing, run [`hector doctor`](../operating/diagnostics.md) — its `adapter` check confirms Claude Code wiring. Other adapters document their own diagnostics in their adapter pages.
+If hooks aren't firing for any agent, run [`hector doctor`](../operating/diagnostics.md) — it reports one adapter row per agent (detected / installed / registered / intact), so you can see exactly which wiring is missing.
 
 ## Managing policy from inside the agent
 
@@ -59,7 +61,7 @@ Adapters that support skills ship three for managing policy without leaving the 
 - **`/hector-author`** adds, tightens, or removes a gate, and tests it against fixtures before you commit. Reach for it with requests like "ban `unwrap()` in `src/`" or "stop gating `no-debug`."
 - **`/hector-review`** reads your telemetry log and reports which gates are noisy, which never fire, and which look dead, so you can prune them.
 
-Claude Code ships all three today; other adapters wire them up as their skill-discovery paths settle.
+Claude Code ships all three today, bundled with its **plugin** package — install the plugin (marketplace or the layout in `adapters/claude-code/`) to get them. The `hector init --harness claude-code` settings-hook install wires the gate but not the skills. Other adapters wire skills up as their skill-discovery paths settle.
 
 ## See also
 

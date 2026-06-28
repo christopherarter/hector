@@ -4,31 +4,34 @@ The OpenCode adapter runs your Hector gates every time OpenCode edits or writes 
 
 The adapter ships in this repo at `adapters/opencode/` as a TypeScript plugin.
 
-## Install the plugin
+## Install
 
-You need the `hector` binary on your `PATH`. OpenCode ships Bun, so there is no separate runtime to install. Build Hector and confirm it is reachable:
+With the `hector` binary on your `PATH`, one command wires the plugin and scaffolds a trusted config:
 
 ```bash
-cargo build --release   # produces ./target/release/hector
-hector --version
+hector init --harness opencode
 ```
 
-Then symlink the plugin into your project's plugin directory and restart OpenCode:
+This writes the adapter to `<project>/.opencode/plugins/hector.ts` with a `.hector-adapter.json` sidecar (per-file sha256 + version) alongside it, then scaffolds and trusts a starter `.hector.yml`. OpenCode plugins are **project-scoped** — there is no global plugin directory, so `--global` has no effect here. Re-runs are idempotent (unchanged → "already present", changed artifact → "updated").
+
+OpenCode ships Bun, so there is no separate runtime to install. Restart OpenCode so it discovers the plugin, then verify the wiring:
 
 ```bash
-mkdir -p .opencode/plugins
-ln -sf /path/to/hector/adapters/opencode/src/index.ts .opencode/plugins/hector.ts
+hector doctor
 ```
 
-OpenCode discovers plugins in `.opencode/plugins/` on startup and loads `hector.ts` automatically.
-
-## Set up a project
-
-The plugin no-ops silently in any project without a `.hector.yml`, so it is safe to leave installed everywhere. To start gating a project, scaffold a config and sign it:
+To remove it:
 
 ```bash
-hector init     # detects your stack and writes a starter .hector.yml
-hector trust    # records the config so Hector will run it
+hector init --uninstall --harness opencode
+```
+
+This deletes the materialized plugin and its sidecar from `.opencode/plugins/`. Your `.hector.yml` and trust store are untouched.
+
+If you wrote `.hector.yml` by hand instead of letting `hector init` scaffold it, trust it before checks will run:
+
+```bash
+hector trust
 ```
 
 Hector runs the commands in your config, so it refuses to run one it hasn't seen. `hector trust` records the config in the trust store; any later edit invalidates it and you re-sign. See [The trust store](../security/trust.md).
@@ -53,16 +56,23 @@ Every adapter follows the [same lifecycle](README.md#what-adapters-do); OpenCode
 
 **Before every edit.** When OpenCode's `edit` or `write` tool proposes a change, the adapter shadow-writes the proposed content, runs `hector check --file <path>`, then restores the pre-edit file before OpenCode executes the tool. A block throws, and OpenCode cancels the edit so the agent retries.
 
-## Installing across every project
+## Manual install
 
-To gate every project at once, symlink the plugin into OpenCode's global plugin directory instead of a single repo:
+Use these only if the `hector` binary isn't available (for example, bootstrapping a fresh machine before you can build it) — otherwise prefer `hector init` above, which writes the same file and keeps a sidecar so `hector doctor` can verify it.
+
+Symlink the plugin source into the project's plugin directory and restart OpenCode:
+
+```bash
+mkdir -p .opencode/plugins
+ln -sf /path/to/hector/adapters/opencode/src/index.ts .opencode/plugins/hector.ts
+```
+
+To gate **every** project at once, symlink into OpenCode's global plugin directory instead. (`hector init` is project-scoped; this manual route is the only way to install globally.) Because the plugin no-ops where there is no `.hector.yml`, a global install only acts on projects you have set up:
 
 ```bash
 mkdir -p ~/.config/opencode/plugins
 ln -sf /path/to/hector/adapters/opencode/src/index.ts ~/.config/opencode/plugins/hector.ts
 ```
-
-Because the plugin no-ops where there is no `.hector.yml`, a global install only acts on projects you have set up.
 
 Once the package is published, you can add it to a project's `opencode.json` and let OpenCode install it via Bun on first load:
 
@@ -86,9 +96,10 @@ If OpenCode edits a file and nothing happens, walk through these in order:
 
 1. Confirm `hector --version` runs on your `PATH`.
 2. Confirm `.hector.yml` exists in the project root.
-3. Confirm the config is trusted by running `hector trust`.
+3. Confirm the config is trusted (`hector init` does this; otherwise run `hector trust`).
 4. Confirm OpenCode loaded the plugin. It logs plugin discovery at startup; look for `hector.ts` in the log.
-5. Run the bundled test against your build to prove the wiring end to end:
+5. Run `hector doctor` — its `opencode` adapter row shows whether the plugin is installed and intact.
+6. Run the bundled test against your build to prove the wiring end to end:
 
    ```bash
    PATH="$(pwd)/target/release:${PATH}" \
@@ -109,7 +120,7 @@ The two adapters share the same contract: shell out to `hector`, gate edits on e
 |--------|-------------|----------|
 | Language | bash + `jq` | TypeScript on Bun |
 | Reject an edit | `PostToolUse` exit `2` | `tool.execute.before` throw |
-| Skills | three shipped | not ported yet |
+| Skills | three shipped (plugin) | not ported yet |
 
 ## See also
 

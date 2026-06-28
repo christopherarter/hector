@@ -43,13 +43,31 @@ cargo install --git https://github.com/christopherarter/hector hector-cli
 
 Then run `hector --version`.
 
+## Connect your agent
+
+`hector init` takes you from clone to gated in one command. It scaffolds a starter `.hector.yml`, trusts it, then detects your coding agents and wires Hector's edit hook into each — so policy runs on every edit without you calling `hector check` by hand:
+
+```sh
+hector init
+```
+
+It detects Claude Code, Reasonix, pi, and OpenCode, asks before touching anything, and installs the hook. Target one explicitly, wire them all, or patch your user account instead of the project:
+
+```sh
+hector init --harness opencode   # just one agent
+hector init --harness all        # every supported agent
+hector init --global             # user-level settings, not the project
+```
+
+`hector doctor` verifies the wiring (one row per agent); `hector init --uninstall --harness <name>` removes it. Per-agent paths, scopes, and manual fallbacks are in the [adapter docs](docs/adapters/README.md).
+
 ## Documentation
 
 Full docs are in [`docs/`](docs/README.md) — start with [Getting started](docs/getting-started.md), the [Visual elevator pitch](docs/visual-elevator-pitch.md), or the [Architecture diagram](docs/architecture.md).
 
 ## Adapters
 
-Each adapter collapses one harness's edit hook into the gate ABI (`$HECTOR_FILE`, `$HECTOR_ROOT`, `$HECTOR_EVENT`, proposed content on stdin) and runs `hector check`.
+Each adapter collapses one harness's edit hook into the gate ABI (`$HECTOR_FILE`, `$HECTOR_ROOT`, `$HECTOR_EVENT`, proposed content on stdin) and runs `hector check`. `hector init` installs whichever of these it detects — the per-adapter pages cover the mechanics, scopes, and manual installs.
 
 - **Claude Code** — `adapters/claude-code/`. PostToolUse hook, plus three skills. See [docs/adapters/claude-code.md](docs/adapters/claude-code.md).
 - **OpenCode** — `adapters/opencode/`. `tool.execute.before` gates proposed edits. See [docs/adapters/opencode.md](docs/adapters/opencode.md).

@@ -31,6 +31,8 @@ Want the big picture first? See the [Visual elevator pitch](visual-elevator-pitc
 
 ## Connecting your agent
 
+`hector init` detects your agents and wires the hook for you — start there, then reach for a page below for per-agent paths, scopes, and manual installs.
+
 - [Adapters overview](adapters/README.md) — what an adapter is, the ABI it speaks, and the fail-open contract
 - [Claude Code](adapters/claude-code.md)
 - [OpenCode](adapters/opencode.md)

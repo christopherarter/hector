@@ -4,29 +4,29 @@ The Claude Code adapter runs your Hector gates every time Claude edits a file. W
 
 The adapter ships in this repo at `adapters/claude-code/`. It predates the 0.3 gates redesign, so its alignment to the gate ABI (`$HECTOR_FILE`, the proposed post-edit content on stdin, exit `2` blocks) is still in progress under Plan 4; the `.hector.yml` gate format shown below is current regardless.
 
-## Install the plugin
+## Install
 
-You need the `hector` binary and `jq` on your `PATH` first. Build Hector and check both are reachable:
-
-```bash
-cargo build --release   # produces ./target/release/hector
-hector --version
-jq --version
-```
-
-Then link the adapter into Claude Code's plugin directory and restart so it loads:
+With the `hector` binary and `jq` on your `PATH`, one command wires the hook and scaffolds a trusted config:
 
 ```bash
-ln -sf "$(pwd)/adapters/claude-code" ~/.claude/plugins/data/hector
+hector init --harness claude-code
 ```
 
-Once Hector is published to the plugin marketplace you can skip the symlink and run `/plugin install hector` instead.
+This patches `<project>/.claude/settings.json` (or `~/.claude/settings.json` with `--global`) to register a `PostToolUse` hook matching `Edit|Write`, and materializes the hook scripts to `~/.config/hector/adapters/claude-code/` with a `.hector-adapter.json` sidecar (per-file sha256 + version). A backup of the prior settings file is written as `<settings>.bak` on the first patch; re-runs are idempotent. Restart (or reload) Claude Code so it picks up the new hook, then verify:
 
-## Set up a project
+```bash
+hector doctor
+```
 
-The adapter stays silent in any project that has no `.hector.yml`, so installing it globally is safe. To start gating a project, scaffold a config and sign it.
+To remove the hook, its artifacts, and the sidecar (leaving `.hector.yml` and the trust store):
 
-Run `/hector-init` in the project. Claude detects your stack (Rust, Node, Python) and writes a starter `.hector.yml`. Review the gates it generated, then trust the file:
+```bash
+hector init --uninstall --harness claude-code
+```
+
+This settings-hook install gives you the **gate**. The three policy skills (`/hector-init`, `/hector-author`, `/hector-review`) ship with the plugin package instead — see [Author and review gates from inside Claude](#author-and-review-gates-from-inside-claude) below.
+
+If you wrote `.hector.yml` by hand instead of letting `hector init` scaffold it, trust it before checks will run:
 
 ```bash
 hector trust
@@ -58,19 +58,27 @@ Every adapter follows the [same lifecycle](README.md#what-adapters-do); here is 
 
 ## Author and review gates from inside Claude
 
-The adapter ships the three standard policy skills — `/hector-init`, `/hector-author`, and `/hector-review`. See [Managing policy from inside the agent](README.md#managing-policy-from-inside-the-agent) for what each does.
+The adapter ships the three standard policy skills — `/hector-init`, `/hector-author`, and `/hector-review` (see [Managing policy from inside the agent](README.md#managing-policy-from-inside-the-agent) for what each does). They are bundled with the Claude Code **plugin**, not the `hector init` settings-hook install, so install the plugin to get them.
+
+The plugin layout lives in this repo at `adapters/claude-code/`. For local development, link it into Claude Code's plugin directory and restart:
+
+```bash
+ln -sf "$(pwd)/adapters/claude-code" ~/.claude/plugins/data/hector
+```
+
+Once Hector is published to the plugin marketplace you can skip the symlink and run `/plugin install hector` instead. The plugin registers the same `PostToolUse` gate, so install it *or* run `hector init --harness claude-code` — not both.
 
 ## When edits aren't being gated
 
 If Claude edits a file and nothing happens, walk through these in order:
 
-1. Confirm the plugin landed where Claude Code expects it. The hook lives at `${CLAUDE_PLUGIN_ROOT}/hooks/hook.sh` and must be executable. If you see `hook.sh: No such file or directory`, reinstall or re-create the symlink above.
+1. Confirm the hook is where Claude Code expects it. For an `init` install, that's the `PostToolUse` entry in `.claude/settings.json` (or `~/.claude/settings.json` with `--global`) pointing at `~/.config/hector/adapters/claude-code/hook.sh`, and that file must be executable. For a plugin install, the hook resolves to `${CLAUDE_PLUGIN_ROOT}/hooks/hook.sh`. A `hook.sh: No such file or directory` means the install didn't land — re-run `hector init --harness claude-code` or re-create the plugin symlink.
 2. Confirm `hector --version` runs on your `PATH`.
 3. Confirm `.hector.yml` exists in the project root.
-4. Confirm the config is trusted by running `hector trust`.
+4. Confirm the config is trusted (`hector init` does this; otherwise run `hector trust`).
 5. Trace a single event end to end: `bash -x adapters/claude-code/hooks/hook.sh post-tool-use < event.json`.
 
-For a one-shot health check, run [`hector doctor`](../operating/diagnostics.md). Its `adapter` check confirms the wiring without you tracing anything by hand.
+For a one-shot health check, run [`hector doctor`](../operating/diagnostics.md). Its `claude-code` adapter row confirms the wiring without you tracing anything by hand.
 
 ## How it works
 
