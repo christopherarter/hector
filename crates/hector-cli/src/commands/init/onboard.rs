@@ -281,6 +281,14 @@ mod tests {
         assert!(
             format_skill_outcome("pi", &AlreadyPresent, false)[0].contains("skill already present")
         );
+        assert!(
+            format_skill_outcome("pi", &Skipped("x".to_string()), false)[0]
+                .contains("skill skipped: x")
+        );
+        assert!(
+            format_skill_outcome("pi", &Failed("y".to_string()), false)[0]
+                .contains("skill failed: y")
+        );
         let dr = format_skill_outcome("pi", &DryRun(vec!["write a".to_string()]), false);
         assert_eq!(dr.len(), 2);
         assert!(dr[0].contains("skill dry-run"));

@@ -467,8 +467,12 @@ fn init_dry_run_plans_skill_installs_for_explicit_harnesses() {
         .clone();
     let s = String::from_utf8_lossy(&out);
     assert!(
-        s.contains("pi") && s.contains("skill dry-run"),
-        "dry-run must plan the pi skill install:\n{s}"
+        s.contains("pi"),
+        "dry-run output must mention the pi harness:\n{s}"
+    );
+    assert!(
+        s.contains("skill dry-run"),
+        "dry-run must plan a skill install:\n{s}"
     );
     assert!(
         s.contains("skills/hector-config/SKILL.md"),
