@@ -1,0 +1,19 @@
+# Keep the Docker build context small + correct. The only docker build in this
+# repo is the opt-in onboarding feature test (tests/e2e/init/), whose context is
+# the repo root (the adapter registry `include_str!`s files under adapters/).
+# Exclude everything the build doesn't need; KEEP Cargo.toml, crates/, adapters/.
+target/
+.git/
+node_modules/
+**/node_modules/
+tests/e2e/*/runs/
+.repowise/
+.claude/
+.hector/
+*.profraw
+.DS_Store
+# Docs/specs/plans aren't needed by the build (only Cargo.toml + crates/ +
+# adapters/, plus tests/e2e/init/drive.sh for the runtime stage).
+specs/
+plans/
+docs/
