@@ -1,23 +1,16 @@
 ---
-name: hector-author
-description: Authors, modifies, or removes gates in .hector.yml. Use when the user says "add a hector gate for X", "ban Y", "tighten <gate-id>", "stop gating <gate-id>", "remove <gate-id>", "change the scope of <gate-id>", or asks to apply recommendations from /hector-review.
+name: hector-config
+description: Authors, modifies, or removes gates in a hector .hector.yml. Use when the user says "add a hector gate for X", "ban Y", "tighten <gate-id>", "stop gating <gate-id>", "remove <gate-id>", "change the scope of a gate", or asks how to write a hector config.
+license: MIT
 metadata:
   author: dynamik-dev
-  version: 0.2.0
-  category: workflow-automation
-  tags: [linting, gate-authoring, config-editing]
+  version: 1.0.0
 ---
 
-# Hector Author
+# Authoring hector gates
 
-Interactive authoring for `.hector.yml`. Every proposed gate is tested against a
-fixture before being written.
-
-If no `.hector.yml` exists, stop and tell the user to run `/hector-init` first.
-
-## The gate model
-
-A gate is exactly two fields — there are no engines, severities, or output modes:
+A hector policy lives in `.hector.yml` at the project root. A **gate** is exactly
+two fields — there are no engines, severities, or output modes:
 
 ```yaml
 gates:
@@ -30,22 +23,14 @@ gates:
   `*.py`) also matches at any depth.
 - `run` — a shell command handed to `sh -c`. The gate **owns the verdict via its
   exit code**: exit `2` blocks the edit; `0` (and any other non-`2` code up to
-  125) passes. `126`/`127`/timeout are treated as a broken gate (internal error),
-  not a block.
+  125) passes. `126`/`127`/timeout are treated as a broken gate, not a block.
 - The path under check arrives as `$HECTOR_FILE` (absolute). The proposed
   post-edit content arrives on **stdin**. `$HECTOR_ROOT` (project root) and
   `$HECTOR_EVENT` (`edit`/`write`/`pre-commit`/`manual`) are also set. There is
   no path templating — the path travels only as `$HECTOR_FILE`, never spliced
   into `run`.
-- On block, the gate's combined stdout+stderr becomes the message the agent sees,
-  so make the command print why it blocked.
-
-## Triggers
-
-The user wants to:
-- Add a new gate ("ban X", "block Y").
-- Modify an existing gate (tighten its command, change its `files` scope).
-- Remove a gate ("drop X").
+- On block, the gate's combined stdout+stderr becomes the message the agent
+  sees, so make the command print why it blocked.
 
 ## Gate patterns
 
@@ -69,8 +54,7 @@ pre-write. Most linters exit non-zero on findings; remap that to `2` to block:
 
 **Multi-line scripts.** Use a YAML block scalar so newlines survive — a plain or
 folded (`>`) scalar collapses them and can turn the whole script into one comment
-that silently passes (the parser rejects the all-comment case, but block scalars
-are the right idiom):
+that silently passes:
 
 ```yaml
   guard:
@@ -82,14 +66,15 @@ are the right idiom):
 
 ## Process
 
-1. Read `.hector.yml` to see existing gates.
+1. Read `.hector.yml` to see existing gates (if none exists, scaffold one with
+   `hector init`).
 2. Draft the gate: `files` scope + a `run` command that exits `2` to block.
 3. Build two fixtures: a **dirty** file the gate should block, and a **clean** one
    it should pass.
-4. Test each by feeding the fixture's content on stdin and isolating the new gate:
+4. Test each by feeding the fixture's content on stdin and isolating the gate:
    ```bash
-   printf '%s' "$(cat dirty.py)"  | hector check --file dirty.py --content - --gate ruff-check ; echo "dirty exit: $?"   # expect 2
-   printf '%s' "$(cat clean.py)"  | hector check --file clean.py --content - --gate ruff-check ; echo "clean exit: $?"   # expect 0
+   hector check --file dirty.py --content - --gate ruff-check < dirty.py ; echo "dirty exit: $?"   # expect 2
+   hector check --file clean.py --content - --gate ruff-check < clean.py ; echo "clean exit: $?"   # expect 0
    ```
 5. Verify the gate exits `2` on dirty input and `0` on clean input.
 6. If both hold, write the gate into `.hector.yml`.
