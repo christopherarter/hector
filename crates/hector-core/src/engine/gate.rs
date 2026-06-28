@@ -170,7 +170,7 @@ mod tests {
             file: Some(file),
             files: &[],
             root,
-            event: "manual",
+            event: "write",
         }
     }
 
@@ -179,7 +179,7 @@ mod tests {
             file: None,
             files,
             root,
-            event: "manual",
+            event: "write",
         }
     }
 

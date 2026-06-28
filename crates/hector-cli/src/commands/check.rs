@@ -86,6 +86,10 @@ fn run_file(
 
 /// Check every non-deleted changed file in a unified diff. Checks read each
 /// file's current on-disk content (checks don't consume diffs).
+///
+/// When `event == "pre-commit"` the engine's `check_set` is called once over
+/// the full set of changed paths (run-once semantics). For all other events
+/// the per-file loop runs each file through `check_with_explain` individually.
 fn run_diff(
     engine: &HectorEngine,
     diff: &Path,
@@ -98,16 +102,26 @@ fn run_diff(
         eprintln!("ERROR: no changed files in diff");
         return Ok(1);
     }
-    let targets: Vec<_> = changed
+    let non_deleted: Vec<_> = changed
         .iter()
         .filter(|f| f.op != hector_core::diff::ChangeOp::Deleted)
         .collect();
+
+    // Pre-commit: run each check once over the entire changed set.
+    if engine.event() == "pre-commit" {
+        let paths: Vec<PathBuf> = non_deleted.iter().map(|f| f.path.clone()).collect();
+        let verdict = engine.check_set(&paths)?;
+        emit(&verdict, format)?;
+        return Ok(exit_code(&verdict));
+    }
+
+    // Write (and any future per-file event): loop once per changed file.
     let mut blocks = Vec::new();
     let mut errors = Vec::new();
     let mut passed = Vec::new();
     let mut explains: Vec<CheckExplain> = Vec::new();
     let mut elapsed = 0u64;
-    for f in targets {
+    for f in non_deleted {
         // A changed file we can't read (deleted between diff-gen and check,
         // permissions, non-UTF-8 bytes) is a hard error: fabricating empty
         // content would run every check against "" and let a real violation

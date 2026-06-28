@@ -1,8 +1,8 @@
-//! `--event` is restricted to the four ABI values at the clap layer.
+//! `--event` is restricted to the two ABI values at the clap layer.
 //!
 //! Regression coverage for the finding that `--event` was an unvalidated
 //! `String`: a typo like `--event percommit` propagated verbatim into
-//! `$HECTOR_EVENT`. The ABI enumerates exactly: edit, write, pre-commit, manual.
+//! `$HECTOR_EVENT`. The ABI enumerates exactly: write, pre-commit.
 
 mod common;
 
@@ -40,16 +40,22 @@ fn event_bogus_is_rejected_and_lists_valid_values() {
         "an invalid --event must not exit 0"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
-    for v in ["edit", "write", "pre-commit", "manual"] {
+    for v in ["write", "pre-commit"] {
         assert!(
             stderr.contains(v),
             "rejection must enumerate the valid event `{v}`: {stderr}"
         );
     }
+    for v in ["edit", "manual"] {
+        assert!(
+            !stderr.contains(v),
+            "rejection must NOT list retired event `{v}`: {stderr}"
+        );
+    }
 }
 
 #[test]
-fn event_edit_is_accepted() {
+fn event_write_is_accepted() {
     let dir = tempdir().unwrap();
     let cfg = dir.path().join(".hector.yml");
     fs::write(&cfg, PASSING_CONFIG).unwrap();
@@ -58,7 +64,7 @@ fn event_edit_is_accepted() {
 
     let xdg = common::blessed_store(&cfg);
 
-    // `--event edit` parses cleanly and the passing gate yields exit 0.
+    // `--event write` parses cleanly and the passing gate yields exit 0.
     Command::cargo_bin("hector")
         .unwrap()
         .env("XDG_CONFIG_HOME", xdg.path())
@@ -69,7 +75,7 @@ fn event_edit_is_accepted() {
             "--file",
             file.to_str().unwrap(),
             "--event",
-            "edit",
+            "write",
         ])
         .assert()
         .code(0);

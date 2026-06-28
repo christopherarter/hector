@@ -39,12 +39,12 @@ pub enum Command {
         #[arg(long = "check", action = clap::ArgAction::Append)]
         checks: Vec<String>,
         /// What triggered this check, surfaced to checks as $HECTOR_EVENT.
-        /// Restricted to the four ABI values; an unknown value is rejected
+        /// Restricted to the two ABI values; an unknown value is rejected
         /// at the arg layer so typos never reach `$HECTOR_EVENT`.
         #[arg(
             long,
-            default_value = "manual",
-            value_parser = clap::builder::PossibleValuesParser::new(["edit", "write", "pre-commit", "manual"])
+            default_value = "write",
+            value_parser = clap::builder::PossibleValuesParser::new(["write", "pre-commit"])
         )]
         event: String,
         /// After the verdict, print a per-gate outcome report to stderr.

@@ -28,7 +28,7 @@ impl Default for CheckOptions {
     fn default() -> Self {
         Self {
             checks: HashSet::new(),
-            event: "manual".to_string(),
+            event: "write".to_string(),
             allow_external_paths: false,
         }
     }
@@ -312,6 +312,12 @@ impl HectorEngine {
     /// validated set rather than loading twice.
     pub fn set_check_filter(&mut self, checks: HashSet<String>) {
         self.options.checks = checks;
+    }
+
+    /// The event string stored in this engine's options. Used by the CLI to
+    /// pick the right dispatch path (`check_set` vs per-file loop) in `run_diff`.
+    pub fn event(&self) -> &str {
+        &self.options.event
     }
 
     fn load_with(config_path: &Path, options: CheckOptions) -> Result<Self> {

@@ -243,3 +243,48 @@ fn check_filter_runs_only_selected() {
         .assert()
         .code(0);
 }
+
+/// `--diff --event pre-commit` must call `check_set` once with all changed
+/// files, not loop per-file. Proof: the check blocks iff `$HECTOR_FILES`
+/// contains a newline (= ≥2 files in one invocation). With per-file dispatch
+/// each invocation sees a single file (no newline) → passes; with `check_set`
+/// dispatch both files arrive in one invocation → blocks → exit 2.
+#[test]
+fn diff_pre_commit_runs_check_once_over_set() {
+    let dir = tempfile::tempdir().unwrap();
+    // Pre-commit check: exits 2 when $HECTOR_FILES has ≥2 entries (newline-
+    // separated), i.e. when the check was invoked once over the full set.
+    // Uses POSIX awk (NR counts input lines/records) so it works under sh.
+    cfg(
+        dir.path(),
+        "checks:\n  pc:\n    files: \"**/*.rs\"\n    on: [pre-commit]\n    run: \"printf '%s' \\\"$HECTOR_FILES\\\" | awk 'END{exit (NR >= 2 ? 2 : 0)}'\"\n",
+    );
+    let xdg = common::blessed_store(&dir.path().join(".hector.yml"));
+    // Both files must exist on disk (check_set reads from disk).
+    let a = dir.path().join("a.rs");
+    let b = dir.path().join("b.rs");
+    std::fs::write(&a, "// a\n").unwrap();
+    std::fs::write(&b, "// b\n").unwrap();
+    // Unified diff touching both a.rs and b.rs.
+    let diff_content = concat!(
+        "--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+// a\n",
+        "--- a/b.rs\n+++ b/b.rs\n@@ -0,0 +1 @@\n+// b\n",
+    );
+    let diff_file = dir.path().join("two.patch");
+    std::fs::write(&diff_file, diff_content).unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .current_dir(dir.path())
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args([
+            "check",
+            "--diff",
+            diff_file.to_str().unwrap(),
+            "--event",
+            "pre-commit",
+            "--config",
+            ".hector.yml",
+        ])
+        .assert()
+        .code(2);
+}
