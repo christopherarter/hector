@@ -18,7 +18,7 @@ checks:
       - name: ruff
         run: "ruff check --quiet --stdin-filename \"$HECTOR_FILE\" -"
       - name: no-todo
-        run: "! grep -n 'TODO'"
+        run: "! grep -n 'TODO' $HECTOR_FILES"
 ```
 
 No engines, no severities, no DSL — the check owns the decision through its exit code. Nonzero (1–125) blocks; 0 passes.
@@ -117,6 +117,8 @@ Mapping: `pre-commit:` → `on: [pre-commit]`, `commands.<id>` → `checks.<id>`
 ## Documentation
 
 Full docs are in [`docs/`](docs/README.md) — start with [Getting started](docs/getting-started.md) or the [Architecture diagram](docs/architecture.md).
+
+> Note: the in-depth `docs/` guides are being migrated to the 0.4 checks model and may still show the older `gates:` syntax.
 
 ## Adapters
 

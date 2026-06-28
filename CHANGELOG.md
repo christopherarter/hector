@@ -51,6 +51,14 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
   harness with a missing artifact → `fail` → exit 1; modified or outdated
   artifact → `warn`; ok → `pass`; not installed/registered → row omitted.
 
+### Known gaps
+
+- **`docs/` guide tree.** The in-depth guides under `docs/` (getting-started,
+  architecture, writing-checks, reference, adapters) still document the 0.3
+  `gates:` / exit-2 model. Migration to the 0.4 checks model is a tracked
+  follow-up; until then, prefer `README.md` and `hector schema` as the
+  authoritative references.
+
 ## [0.3.0] — 2026-06-25 — gates redesign
 
 ### Added

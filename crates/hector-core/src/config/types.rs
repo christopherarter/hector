@@ -75,6 +75,10 @@ pub struct Check {
     pub steps: Option<Vec<Step>>,
     #[serde(default = "default_on")]
     pub on: Vec<Lifecycle>,
+    /// Optional human-readable label for this check. Parsed and reserved for
+    /// output labeling (spec §3) — not yet surfaced in human or JSON output.
+    /// Wiring `name` into block messages and `hector explain` rows is a
+    /// tracked follow-up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }

@@ -141,12 +141,15 @@ impl Collected {
                 message,
                 elapsed,
             } => {
-                // Spec §3: a check that exits 2 with no output still needs a
-                // human-readable message. The check layer (`classify`) has no
+                // Spec §5: a check that exits nonzero with no output still needs
+                // a human-readable message. The check layer (`classify`) has no
                 // check id, so it returns ""; we fill it in here where the id
-                // is known.
+                // and step name are both known.
                 let message = if message.is_empty() {
-                    format!("{check_id} blocked")
+                    match &step {
+                        Some(name) => format!("{check_id} \u{203a} {name} blocked"),
+                        None => format!("{check_id} blocked"),
+                    }
                 } else {
                     message
                 };
@@ -759,6 +762,7 @@ mod gate_dispatch_tests {
 
     #[test]
     fn block_with_no_output_uses_check_id_message() {
+        // Unnamed step (plain `run:`) → "<check-id> blocked"
         let dir = tempfile::tempdir().unwrap();
         write(
             dir.path(),
@@ -775,6 +779,27 @@ mod gate_dispatch_tests {
             .unwrap();
         assert_eq!(v.status, Status::Block);
         assert_eq!(v.blocks[0].message, "no-todo blocked");
+    }
+
+    #[test]
+    fn block_with_no_output_and_named_step_uses_step_name_in_message() {
+        // Named blocking step → "<check-id> › <step-name> blocked" (spec §5)
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            ".hector.yml",
+            "checks:\n  ts-quality:\n    files: \"**/*.ts\"\n    steps:\n      - name: no-any\n        run: \"exit 2\"\n",
+        );
+        let target = write(dir.path(), "a.ts", "x\n");
+        let engine = HectorEngine::load(&dir.path().join(".hector.yml")).unwrap();
+        let v = engine
+            .check(CheckInput::File {
+                path: target,
+                content: "x\n".into(),
+            })
+            .unwrap();
+        assert_eq!(v.status, Status::Block);
+        assert_eq!(v.blocks[0].message, "ts-quality \u{203a} no-any blocked");
     }
 
     #[test]

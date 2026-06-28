@@ -64,7 +64,7 @@ On block, the check's combined stdout+stderr becomes the message the agent sees,
       - name: typecheck
         run: "tsc --noEmit"
       - name: no-any
-        run: "! grep -n ': any'"
+        run: "! grep -n ': any' $HECTOR_FILES"
 ```
 
 **Multi-line scripts.** Use a YAML block scalar so newlines survive — a plain or folded (`>`) scalar collapses them and can turn the whole script into one comment that silently passes:
