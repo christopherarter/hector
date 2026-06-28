@@ -20,7 +20,7 @@ This phase repositions the same substrate behind that mental model and makes the
 | `gates:` map | `checks:` map | §2 |
 | gate = `{ files, run }` | check = `{ files, run \| steps, on?, name? }` | §2 |
 | exit `2` blocks; `1` is a pass | exit `1`–`125` blocks; broken-gate tier kept | §3 |
-| `$HECTOR_EVENT ∈ {edit, write, pre-commit, manual}` | drop `edit` (folded into `write`); add `$HECTOR_FILES` | §4 |
+| `$HECTOR_EVENT ∈ {edit, write, pre-commit, manual}` | now just `{write, pre-commit}` (drop `edit` and `manual`); add `$HECTOR_FILES` | §4 |
 | one `run` per matching file, always | `write` per-file; `pre-commit` runs **once** over the set | §5 |
 | verdict JSON schema 4, keys `gate` | schema **5**, keys `check`, optional `step` | §9 |
 
@@ -123,7 +123,7 @@ Hector runs each step and reads **only its exit code**. The block threshold move
 
 `write` covers both editing an existing file and creating a new one (0.3's `edit` and `write` collapse — they were the same for our purposes). `$HECTOR_FILES` is newline-delimited; a NUL-delimited variant for pathological filenames is a later refinement, not a 0.4 blocker. The path travels only as an env value, never spliced into command text.
 
-**`hector check` (manual / CI entrypoint).** `--event` selects the lifecycle to simulate (default `pre-commit` for the CI use case; `--file`/stdin simulates a `write`). Manual runs bypass the `on:` filter so any check can be invoked on demand; `$HECTOR_EVENT=manual`. Otherwise it uses the simulated lifecycle's ABI and dispatch shape.
+**`hector check` (CLI entrypoint).** There are exactly two events — `write` and `pre-commit` — and no separate "manual" event. `--event` selects which lifecycle to simulate, defaulting to **`write`**: a bare `hector check --file <f>` runs the `write` checks per-file (content on stdin); `hector check --diff <d> --event pre-commit` runs the `pre-commit` checks once over the set. The `on:` filter **always** applies — the event decides which checks fire; there is no "run everything" bypass. To exercise a `pre-commit`-only check, pass `--event pre-commit`.
 
 ## 7. Verdict JSON, telemetry, disable
 
@@ -164,7 +164,7 @@ Near line-for-line. Mapping: `pre-commit:`→`on: [pre-commit]`, `commands.<id>`
 - **`config/types.rs`** — `Gate { files, run }` → `Check { files, run: Option, steps: Option<Vec<Step>>, on: Vec<Lifecycle> (default `[write]`), name: Option }`; `Step { name: Option, run }`; `Config.gates` → `Config.checks`. Validate `run` xor `steps` (serde + a post-parse check, like the existing empty-`run` guard). `Lifecycle` enum = `Write | PreCommit`.
 - **`config/parser.rs`** — legacy rejection grows a curated marker: top-level `gates:` → "renamed to `checks:`". Keep the `schema_version`/`rules`/`trust` rejections. Keep the empty/comment-only `run` guard; apply it per step.
 - **`engine/gate.rs`** — classification flip (`1`–`125` → Block; `0` → Pass; `126`/`127`/`≥128`/timeout → InternalError); a steps loop with fail-fast and per-step timeout; message assembly carries the step name.
-- **`runner.rs`** — dispatch keys on lifecycle: `write` = per matching file with stdin + `$HECTOR_FILE`/`$HECTOR_FILES`; `pre-commit` = run-once over the matched set with `$HECTOR_FILES`, no `$HECTOR_FILE`, empty stdin. Honor the `on:` filter (skip checks whose `on` excludes the event); manual bypasses it.
+- **`runner.rs`** — dispatch keys on lifecycle: `write` = per matching file with stdin + `$HECTOR_FILE`/`$HECTOR_FILES`; `pre-commit` = run-once over the matched set with `$HECTOR_FILES`, no `$HECTOR_FILE`, empty stdin. Honor the `on:` filter (skip checks whose `on` excludes the event) — it always applies; the event (`write`/`pre-commit`) maps directly to a `Lifecycle`.
 - **`verdict.rs`** — schema 5, `check`/`step` keys, nullable `file`/`step`.
 - **`telemetry.rs`** — retarget keys/vocabulary; per-invocation record.
 - **adapters** — emit `$HECTOR_EVENT=write` (folding the old `edit`) and `$HECTOR_FILES`; the pre-commit adapter passes the staged set. (The full adapter `--event`/ABI side remains Plan 4 territory; 0.4 locks the contract they target.)
@@ -188,8 +188,8 @@ Reusable actions (`uses:`/`with:`), a `scope:` field, parallel dispatch, `stage_
 
 1. **Block threshold** — exit `1`–`125` blocks; `0` passes; `126`/`127`/signal/timeout = InternalError (broken-gate fail-open preserved). Reverses 0.3 §3's exit-2 opt-in.
 2. **Steps** — fail-fast; first failing step is the message. `run` is one-step sugar; `run` xor `steps`.
-3. **`on:` default** — `[write]`. `write` covers editing and new files (folds 0.3's `edit`).
+3. **`on:` default** — `[write]`. `write` covers editing and new files (folds 0.3's `edit`). `hector check` likewise defaults to `--event write`.
 4. **`pre-commit` shape** — run **once** over the changed set via `$HECTOR_FILES`; not per-file. Resolves the per-set question deferred in 0.3 §5.
-5. **ABI** — add `$HECTOR_FILES` (both lifecycles); `$HECTOR_FILE`/stdin are `write`-side; drop `edit` from `$HECTOR_EVENT`.
+5. **ABI** — add `$HECTOR_FILES` (both lifecycles); `$HECTOR_FILE`/stdin are `write`-side; `$HECTOR_EVENT` is `write` or `pre-commit` only (drop both `edit` and `manual`).
 6. **No new first-class config elements** — `uses:` explicitly declined; a check's shape is its lifecycle + command, not a knob.
 7. **Vocabulary** — `gates:`→`checks:`, `gate`→`check` everywhere (config, JSON, telemetry, disable, CLI flags), in service of the "local CI for agents" repositioning.
