@@ -20,8 +20,8 @@ fn schema_prints_the_authoring_guide() {
         "guide must mention $HECTOR_FILE:\n{s}"
     );
     assert!(
-        s.contains("exit 2"),
-        "guide must mention the exit-2 contract:\n{s}"
+        s.contains("nonzero"),
+        "guide must mention the nonzero-blocks contract:\n{s}"
     );
 }
 

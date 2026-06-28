@@ -1,4 +1,4 @@
-//! Drift guard: the shipped authoring skills must teach the 0.3 **gates**
+//! Drift guard: the shipped authoring skills must teach the 0.4 **checks**
 //! model, never the retired pre-0.3 engine/severity/rules model.
 
 use std::path::PathBuf;
@@ -47,16 +47,17 @@ fn skills_contain_no_retired_engine_model_vocabulary() {
 }
 
 #[test]
-fn shared_guide_teaches_the_two_field_gate() {
+fn shared_guide_teaches_the_checks_model() {
     let body = read("adapters/shared/hector-config/SKILL.md");
     assert!(
         body.contains("name: hector-config"),
         "shared guide must carry Agent-Skills frontmatter `name: hector-config`"
     );
-    for anchor in ["$HECTOR_FILE", "run:", "files:", "exit 2"] {
+    // Core vocabulary: file scope, shell command, nonzero-blocks idiom, ABI.
+    for anchor in ["$HECTOR_FILE", "run:", "files:", "nonzero"] {
         assert!(
             body.contains(anchor),
-            "shared guide must teach the gates model: missing `{anchor}`"
+            "shared guide must teach the checks model: missing `{anchor}`"
         );
     }
 }

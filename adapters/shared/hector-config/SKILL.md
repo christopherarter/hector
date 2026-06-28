@@ -4,90 +4,110 @@ description: Authors, modifies, or removes checks in a hector .hector.yml. Use w
 license: MIT
 metadata:
   author: dynamik-dev
-  version: 1.1.0
+  version: 1.2.0
 ---
 
 # Authoring hector checks
 
-A hector policy lives in `.hector.yml` at the project root. A **check** is exactly
-two fields — there are no engines, severities, or output modes:
+A hector policy lives in `.hector.yml` at the project root. A **check** is a file scope plus a shell command (or sequence of steps):
 
 ```yaml
 checks:
   no-debug:
     files: "**/*.ts"          # glob, or a list of globs
-    run: "! grep -n 'DEBUG' || exit 2"   # grep reads the proposed content on stdin
+    run: "! grep -n 'DEBUG'"  # proposed content arrives on stdin; nonzero = block
 ```
 
-- `files` — the glob(s) the check watches. A bare pattern with no `/` (e.g.
-  `*.py`) also matches at any depth.
-- `run` — a shell command handed to `sh -c`. The check **owns the verdict via its
-  exit code**: exit `2` blocks the edit; `0` (and any other non-`2` code up to
-  125) passes. `126`/`127`/timeout are treated as a broken check, not a block.
-- **Read the proposed content from stdin, not from `$HECTOR_FILE`.** Stdin
-  carries the post-edit content on every harness. `$HECTOR_FILE` is only the
-  absolute path: on harnesses that gate *before* the write lands (e.g. reasonix,
-  pi), the file on disk still holds the OLD content, so reading it misses the
-  very change you mean to check. Use `$HECTOR_FILE` to hand a tool a filename
-  (e.g. a linter's `--stdin-filename`), never as the content source.
-  `$HECTOR_ROOT` (project root) and `$HECTOR_EVENT`
-  (`write`/`pre-commit`) are also set. There is no path
-  templating — the path travels only as `$HECTOR_FILE`, never spliced into
-  `run`.
-- On block, the check's combined stdout+stderr becomes the message the agent
-  sees, so make the command print why it blocked.
+- `files` — the glob(s) the check watches. A bare pattern with no `/` (e.g. `*.py`) also matches at any depth.
+- `run` — a shell command handed to `sh -c`. **Any nonzero exit (1–125) blocks the edit**; exit 0 passes. `126`/`127`/timeout are treated as a broken check, not a block.
+- `steps` — alternative to `run`: a sequence of `{name, run}` steps, all fed the same stdin. The first nonzero step blocks.
+- `on` — lifecycle events: `[write]` (default) fires per file on every agent write; `[pre-commit]` fires once before a commit (see ABI below). Use `on: [write, pre-commit]` to fire at both.
+- `name` — optional human-readable label shown in block messages.
+
+## ABI — what every check receives
+
+- `$HECTOR_FILE` — absolute path of the single file under check (set for `write`; not set for `pre-commit`).
+- `$HECTOR_FILES` — newline-joined list of all files under check (single entry for `write`; all staged files for `pre-commit`).
+- `$HECTOR_ROOT` — project root (the check's cwd).
+- `$HECTOR_EVENT` — `write` or `pre-commit`.
+- **stdin** — proposed post-edit file content (`write`) or empty (`pre-commit`).
+
+**Read proposed content from stdin, not from `$HECTOR_FILE`.** On harnesses that gate before the write lands (e.g. reasonix, pi), the file on disk still holds the OLD content, so reading it misses the very change you mean to check. Use `$HECTOR_FILE` to hand a tool a filename (e.g. a linter's `--stdin-filename`), never as the content source.
+
+On block, the check's combined stdout+stderr becomes the message the agent sees, so make the command print why it blocked.
 
 ## Check patterns
 
-**Ban a pattern (grep).** Block when a forbidden string appears. `grep` exits `0`
-on a match, `1` when clean, `≥2` on error — map those to the check contract:
+**Ban a pattern (grep, reads stdin).** With nonzero-blocks, `! grep` is the natural idiom — grep exits 0 on a match (which `!` flips to 1, blocking) and exits 1 when clean (which `!` flips to 0, passing):
 
 ```yaml
   no-console-log:
     files: ["src/**/*.ts", "src/**/*.tsx"]
-    run: "grep -nE 'console\\.log\\(' -; case $? in 0) exit 2;; 1) exit 0;; *) exit $?;; esac"
+    run: "! grep -nE 'console\\.log\\('"
 ```
 
-**Wrap a linter (stdin).** Feed the proposed content to a linter so the check runs
-pre-write. Most linters exit non-zero on findings; remap that to `2` to block:
+**Wrap a linter (stdin).** Feed the proposed content to a linter. Most linters exit nonzero on findings, which blocks directly:
 
 ```yaml
   ruff-check:
     files: ["**/*.py"]
-    run: "ruff check --quiet --stdin-filename \"$HECTOR_FILE\" - || exit 2"
+    run: "ruff check --quiet --stdin-filename \"$HECTOR_FILE\" -"
 ```
 
-**Multi-line scripts.** Use a YAML block scalar so newlines survive — a plain or
-folded (`>`) scalar collapses them and can turn the whole script into one comment
-that silently passes:
+**Multi-step check.** Use `steps` when you want to run multiple commands in sequence — all must exit 0:
+
+```yaml
+  ts-quality:
+    files: "src/**/*.ts"
+    steps:
+      - name: typecheck
+        run: "tsc --noEmit"
+      - name: no-any
+        run: "! grep -n ': any'"
+```
+
+**Multi-line scripts.** Use a YAML block scalar so newlines survive — a plain or folded (`>`) scalar collapses them and can turn the whole script into one comment that silently passes:
 
 ```yaml
   guard:
     files: "*.rs"
     run: |
-      grep -q 'FORBIDDEN' && exit 2
+      grep -q 'FORBIDDEN' && exit 1
       exit 0
+```
+
+**Pre-commit check (staged files).** Runs once before a commit, receiving all staged matching files via `$HECTOR_FILES`:
+
+```yaml
+  no-secrets:
+    files: "**/*"
+    on: [pre-commit]
+    run: "detect-secrets scan $HECTOR_FILES"
+```
+
+## Disable a check for a file
+
+Add `# hector-disable: <check-id>` anywhere in the file to suppress that check for the whole file:
+
+```python
+# hector-disable: no-console-log
+console.log("debug only")
 ```
 
 ## Process
 
-1. Read `.hector.yml` to see existing checks (if none exists, scaffold one with
-   `hector init`).
-2. Draft the check: `files` scope + a `run` command that exits `2` to block.
-3. Build two fixtures: a **dirty** file the check should block, and a **clean** one
-   it should pass.
+1. Read `.hector.yml` to see existing checks (if none exists, scaffold one with `hector init`).
+2. Draft the check: `files` scope + a `run` command that exits nonzero to block.
+3. Build two fixtures: a **dirty** file the check should block, and a **clean** one it should pass.
 4. Test each by feeding the fixture's content on stdin and isolating the check:
    ```bash
-   hector check --file dirty.py --content - --check ruff-check < dirty.py ; echo "dirty exit: $?"   # expect 2
-   hector check --file clean.py --content - --check ruff-check < clean.py ; echo "clean exit: $?"   # expect 0
+   hector check --file dirty.py --check ruff-check < dirty.py ; echo "dirty exit: $?"   # expect nonzero
+   hector check --file clean.py --check ruff-check < clean.py ; echo "clean exit: $?"   # expect 0
    ```
-5. Verify the check exits `2` on dirty input and `0` on clean input.
+5. Verify the check exits nonzero on dirty input and 0 on clean input.
 6. If both hold, write the check into `.hector.yml`.
-7. Run `hector trust` to re-bless the config — edits invalidate the trust
-   fingerprint, so checks refuse to run until you do.
+7. Run `hector trust` to re-bless the config — edits invalidate the trust fingerprint, so checks refuse to run until you do.
 
 ## Test before write
 
-Always test the check against a fixture BEFORE writing to `.hector.yml`. A check
-that doesn't exit `2` on dirty input is worse than no check — it gives false
-confidence. A check that exits `2` on clean input blocks every edit in scope.
+Always test the check against a fixture BEFORE writing to `.hector.yml`. A check that doesn't exit nonzero on dirty input is worse than no check — it gives false confidence. A check that exits nonzero on clean input blocks every edit in scope.

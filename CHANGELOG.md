@@ -2,10 +2,36 @@
 
 Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
-## [Unreleased]
+## [0.4.0] — 2026-06-28 — checks pipeline redesign
+
+### Breaking
+
+- **Config schema.** The top-level `gates:` key is replaced by `checks:`. Each
+  check is `files:` (glob or list) + `run:` (shell command) or `steps:` (a
+  sequence of `{name, run}`), plus optional `on:` (lifecycle) and `name:`. Old
+  `gates:` configs fail at parse time.
+- **Nonzero blocks.** Any nonzero exit (1–125) from a check now blocks. The
+  old model required exit `2` to block; exits 0, 1, and 3–125 were passes. The
+  natural forbid idiom is now `! grep -nE 'pattern'` (no `exit 2` ceremony).
+  Checks that were written to exit `2` continue to block — the change is
+  additive for existing scripts.
+- **Lifecycles: `on: [write, pre-commit]`.** Default is `on: [write]`. The
+  `write` lifecycle fires per file on every agent edit, with proposed content
+  on stdin. The `pre-commit` lifecycle fires once per check before a commit,
+  with `$HECTOR_FILES` (newline-joined staged files) and empty stdin.
+- **`$HECTOR_FILES`.** New env var: newline-joined list of all files under
+  check (single entry for `write`; all staged files for `pre-commit`).
+  `$HECTOR_FILE` is still set for `write` but not for `pre-commit`.
+- **`$HECTOR_EVENT`** is now `write` or `pre-commit` only. The former
+  `edit` and `manual` values are gone.
+- **Verdict schema 5 / telemetry schema 5.** `Verdict` and `PerCheckRecord`
+  carry the updated lifecycle and check vocabulary. Adapters parsing the
+  verdict JSON must accept `schema_version: 5`.
 
 ### Added
 
+- **`hector schema`.** Prints the `hector-config` authoring skill to stdout —
+  the same guide that `hector init` installs for each coding agent.
 - **`hector init` harness onboarding.** `hector init` now installs hector's
   hook into detected coding agents with a detect-then-confirm UX. Bare `hector
   init` auto-detects installed harnesses (claude-code, reasonix, pi, opencode)

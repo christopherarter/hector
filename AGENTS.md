@@ -4,9 +4,9 @@ Guidance for AI coding agents working in this repo.
 
 ## What this is
 
-Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — a tool-agnostic, static policy-enforcement gate for AI coding agents. Status: **0.3 "gates" redesign, Plans 1 (core engine + CLI) and 2 (trust store) merged.** A gate is `files` (globs) + `run` (a shell command); hector matches a touched file to gates, runs each `run` once with the ABI on env + proposed content on stdin, and reads only the exit code (`2` = Block). No per-rule engines, no severity, no LLM. CLI ships `check`, `validate`, `init` (scaffolds `.hector.yml` AND onboards hector's hook into detected coding agents — claude-code, reasonix, pi, opencode), `explain`, `show-resolved-config`, `doctor` (reports per-harness adapter status in the `checks[]` array), `trust` (blesses the out-of-repo store; `check` fails closed — exit 1 — on untrusted config/gates). Authoritative design: `specs/2026-06-15-hector-gates-redesign-design.md` (supersedes the old engine model in `specs/2026-05-11-hector-plan-and-0.1-design.md`); per-phase plans in `plans/` (`plans/2026-06-15-hector-gates-redesign-core.md` = Plan 1).
+Rust rewrite of [dynamik-dev/bully](https://github.com/dynamik-dev/bully) — local CI for AI coding agents. Status: **0.4 "checks pipeline" redesign merged.** A check is `files` (globs) + `run` (or `steps`) + `on` (lifecycle); hector matches a touched file to checks, runs each command with the ABI on env + proposed content on stdin, and reads only the exit code — **any nonzero exit (1–125) blocks**. No per-rule engines, no severity, no LLM. CLI ships `check`, `validate`, `init` (scaffolds `.hector.yml` AND onboards hector's hook into detected coding agents — claude-code, reasonix, pi, opencode), `explain`, `show-resolved-config`, `doctor` (reports per-harness adapter status in the `checks[]` array), `trust` (blesses the out-of-repo store; `check` fails closed — exit 1 — on untrusted config/checks). Authoritative design: `specs/2026-06-28-hector-checks-pipeline-design.md`; per-phase plans in `plans/`.
 
-**Not yet built (later plans):** `hector verify` + the full `doctor` expansion (Plan 3); the adapter `--event`/ABI side (Plan 4).
+**Not yet built (later plans):** `hector verify` + the full `doctor` expansion.
 
 ## Rules
 
@@ -26,7 +26,7 @@ cargo build --release                       # produces ./target/release/hector
 cargo test                                  # all workspace tests
 cargo test -p hector-core                   # core only
 cargo test -p hector-cli                    # CLI only
-cargo test --test cli_e2e_gates             # single integration test file
+cargo test --test cli_e2e_gates             # single integration test file (checks pipeline)
 cargo test <name>                           # filter by test-fn name
 cargo clippy --all-targets -- -D warnings   # lint
 cargo fmt
@@ -40,46 +40,48 @@ CLI tests use `assert_cmd` against the compiled binary. (`insta` snapshots may e
 Cargo workspace, two crates:
 
 - **`hector-core`** — library. Modules:
-  - `config` — parse the gates YAML (`Config { extends, execution, gates }`, `Gate { files, run }`), glob scope matching (`scope.rs`), `extends:` resolution (`extends.rs`)
+  - `config` — parse the checks YAML (`Config { extends, execution, checks }`, `Check { files, run, steps, on, name }`, `Step { name, run }`), glob scope matching (`scope.rs`), `extends:` resolution (`extends.rs`)
   - `diff` — unified-diff parser (used by CLI `--diff` to enumerate changed files)
-  - `engine` — the single gate-execution model: `gate::run_gate` spawns `sh -c <run>`, feeds stdin, enforces the timeout, and classifies the exit code into a `GateOutcome` (`Pass` / `Block { message }` / `Internal(InternalReason)`). No `RuleEngine` trait, no per-engine impls.
-  - `runner` — orchestrates: load → `extends`-resolve → build per-gate scope matchers → for each gate run `run_gate` per matching file → fold into a `Verdict` → telemetry-log
+  - `engine` — the single check-execution model: `gate::run_gate` spawns `sh -c <run>`, feeds stdin, enforces the timeout, and classifies the exit code into a `GateOutcome` (`Pass` / `Block { message }` / `Internal(InternalReason)`). No `RuleEngine` trait, no per-engine impls.
+  - `runner` — orchestrates: load → `extends`-resolve → build per-check scope matchers → dispatch per lifecycle (`write`: one invocation per matching file; `pre-commit`: one invocation for the whole matching set) → fold into a `Verdict` → telemetry-log
   - `trust` — out-of-repo allow-list at `~/.config/hector/trust.json` (XDG: `$XDG_CONFIG_HOME/hector/trust.json`). Hash covers the config bytes + every file under `.hector/gates/` (sorted by relative path); keyed by the config's canonical absolute path. Atomic write on `hector trust`. Enforcement is at the CLI `check` layer only — `HectorEngine::load` stays pure.
   - `verdict` — `Status` (Pass / Block / InternalError) + the locked JSON shape (`Verdict { blocks, errors, passed, .. }`, `Block`, `GateError`)
-  - `disable` — `hector-disable: <gate-id>` line directives; file-wide (a directive anywhere suppresses that gate for that file). Directive ends at whitespace/`*`/`/`.
-  - `telemetry` — `.hector/log.jsonl`, append-only check log of `PerGateRecord`s
+  - `disable` — `hector-disable: <check-id>` line directives; file-wide (a directive anywhere suppresses that check for that file). Directive ends at whitespace/`*`/`/`.
+  - `telemetry` — `.hector/log.jsonl`, append-only check log of `PerCheckRecord`s
 - **`hector-cli`** — thin binary, name `hector`. `cli.rs` defines clap subcommands; `commands/{check,validate,init,explain,show_resolved_config,doctor,trust}.rs` are one-function adapters into core.
 
-`HectorEngine::load` (`crates/hector-core/src/runner.rs`) resolves `extends` and builds the per-gate scope matchers. Two things it relies on:
+`HectorEngine::load` (`crates/hector-core/src/runner.rs`) resolves `extends` and builds the per-check scope matchers. Two things it relies on:
 
-1. **Extends.** `config::extends::resolve` does a cycle-detected DFS; inherited gates fill gaps but **local gates win on collision**.
-2. **Legacy rejection.** `config::parser` rejects any pre-0.3 config (top-level `schema_version:`, `rules:`, or `trust:`) with a curated error pointing at the gates format — there is no migration path (no install base).
+1. **Extends.** `config::extends::resolve` does a cycle-detected DFS; inherited checks fill gaps but **local checks win on collision**.
+2. **Legacy rejection.** `config::parser` rejects any pre-0.3 config (top-level `schema_version:`, `rules:`, or `trust:`) with a curated error pointing at the checks format — there is no migration path (no install base).
 
 (Trust is enforced at the CLI `check` layer — `check::run` calls `trust::ensure_trusted` before invoking the engine and exits 1 on missing/mismatch. `HectorEngine::load` stays pure; read-only commands do not enforce trust.)
 
-**The gate ABI** (locked stability surface — every adapter must satisfy it, every gate `run` may rely on it): `$HECTOR_FILE` (absolute path under check), `$HECTOR_ROOT` (project root = the gate's cwd), `$HECTOR_EVENT` (`edit`/`write`/`pre-commit`/`manual`), the proposed post-edit content on **stdin**. No string templating — the path travels only as an env value, never spliced into `run`.
+**The check ABI** (locked stability surface — every adapter must satisfy it, every check `run` may rely on it): `$HECTOR_FILE` (absolute path of the single file under check; not set for `pre-commit`), `$HECTOR_FILES` (newline-joined list of all files under check; single entry for `write`, all staged files for `pre-commit`), `$HECTOR_ROOT` (project root = the check's cwd), `$HECTOR_EVENT` (`write`/`pre-commit`), the proposed post-edit content on **stdin** (empty for `pre-commit`). No string templating — the path travels only as an env value, never spliced into `run`.
 
-**Gate verdict contract.** The gate owns the verdict via its exit code: `2` → Block; `0`/`1`/`3`–`125` → Pass (blocking is opt-in per gate — a tool that exits 1 on findings is a pass unless the script remaps it to `2`); `126`/`127`/`≥128` (signal) / wall-clock timeout → InternalError (a broken gate is never a silent pass). On Block, the gate's combined trimmed stdout+stderr is the message; if both are empty, the runner fills `"<gate-id> blocked"`.
+**Check verdict contract.** The check owns the verdict via its exit code: **any nonzero exit (1–125) blocks**; `0` passes. `126`/`127`/`≥128` (signal) / wall-clock timeout → InternalError (a broken check is never a silent pass). On Block, the check's combined trimmed stdout+stderr is the message; if both are empty, the runner fills `"<check-id> blocked"`.
+
+**Lifecycles.** `on: [write]` (default) fires per matching file on every agent write, with proposed content on stdin. `on: [pre-commit]` fires once per check before a commit — one invocation for the entire matching file set, `$HECTOR_FILES` populated, stdin empty. `on: [write, pre-commit]` fires at both; no duplication needed (hector keys by check, not event).
 
 **Exit-code contract** (`commands/check.rs`) — consumed by CI and editor adapters, do not break:
 
 - `0` — Pass (no warning tier exists)
-- `1` — config/load error (parse failure, missing file, unknown `--gate`, or untrusted config/gates)
-- `2` — Block (≥1 gate exited 2)
-- `3` — InternalError (≥1 gate crashed: 127 / timeout / signal)
+- `1` — config/load error (parse failure, missing file, unknown `--check`, or untrusted config/checks)
+- `2` — Block (≥1 check exited nonzero 1–125)
+- `3` — InternalError (≥1 check crashed: 127 / timeout / signal)
 
 Adapters fail-open on exit 3 by default; opt-in fail-closed via `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
 
-**Verdict JSON** (`verdict.rs`): `SCHEMA_VERSION = 4`. Treat `Verdict`, `Block`, `GateError`, `Status`, and `SCHEMA_VERSION` as a public stability surface — bump `SCHEMA_VERSION` to change shape. (Telemetry records are versioned independently — `telemetry::SCHEMA_VERSION = 3`.)
+**Verdict JSON** (`verdict.rs`): `SCHEMA_VERSION = 5`. Treat `Verdict`, `Block`, `GateError`, `Status`, and `SCHEMA_VERSION` as a public stability surface — bump `SCHEMA_VERSION` to change shape. (Telemetry records are versioned independently — `telemetry::SCHEMA_VERSION = 5`.)
 
-**Execution model.** One `run` invocation per matching file, **sequential** (rayon parallel dispatch is a possible follow-up). Per-gate wall-clock is `HECTOR_TIMEOUT` env (secs) → `execution.timeout_secs` (default 30), clamped ≥1. No sandboxing in 0.3 — the timeout is the only execution rail.
+**Execution model.** `write` dispatch is sequential: one `run` invocation per matching file. `pre-commit` dispatch runs once per check (rayon parallel across checks is a possible follow-up). Per-check wall-clock is `HECTOR_TIMEOUT` env (secs) → `execution.timeout_secs` (default 30), clamped ≥1. No sandboxing — the timeout is the only execution rail.
 
-**Scope matching** (`config/scope.rs`) deliberately diverges from raw globset: bare patterns without `/` also register as `**/<pattern>`, so `*.py` matches at any depth — mirrors bully's semantics. Don't "fix" it. Applies to each gate's `files` list.
+**Scope matching** (`config/scope.rs`) deliberately diverges from raw globset: bare patterns without `/` also register as `**/<pattern>`, so `*.py` matches at any depth — mirrors bully's semantics. Don't "fix" it. Applies to each check's `files` list.
 
 ## Conventions
 
-- A gate is exactly two fields: `files` (glob or list) + `run` (a shell string, handed to `sh -c` verbatim). There are no engines, no `severity`, no output-parsing modes — a gate blocks by exiting `2` and owns its own message. Don't reintroduce per-rule kinds.
+- A check is `files` (glob or list) + `run` (a shell string, handed to `sh -c` verbatim) or `steps` (a sequence of `{name, run}`), plus an optional `on` lifecycle and `name` label. There are no engines, no `severity`, no output-parsing modes — a check blocks by exiting nonzero (1–125) and owns its own message. Don't reintroduce per-rule kinds.
 - Test fixtures live in `tests/fixtures/` at the repo root; crate tests use relative paths.
 - `Cargo.lock` is gitignored (workspace policy) — do not commit.
 - Binary is `hector`, not `hector-cli`.
-- Trust enforcement lives in the CLI `check` command (`commands/check.rs`), not in `HectorEngine::load`. Read-only commands (`validate`, `explain`, `show-resolved-config`, `doctor`) do not enforce trust. `doctor` is intentionally minimal until Plan 3.
+- Trust enforcement lives in the CLI `check` command (`commands/check.rs`), not in `HectorEngine::load`. Read-only commands (`validate`, `explain`, `show-resolved-config`, `doctor`) do not enforce trust. `doctor` is intentionally minimal until a later plan.
