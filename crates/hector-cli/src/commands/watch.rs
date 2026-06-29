@@ -27,10 +27,9 @@ const MUTED: Color = Color::Rgb(132, 132, 140);
 
 fn status_color(status: Status) -> Color {
     match status {
-        Status::Pass => GREEN,
         Status::Block => ORANGE,
         Status::InternalError => AMBER,
-        _ => MUTED,
+        _ => GREEN, // Pass, and any future #[non_exhaustive] variant, default green
     }
 }
 
@@ -400,7 +399,6 @@ mod tests {
         }
     }
     // Used by Task 3.2 and 3.3 tests added in subsequent commits.
-    #[allow(dead_code)]
     fn roll(name: &str, runs: usize, blocks: usize, internal: usize, p50: Option<u64>) -> Roll {
         Roll {
             name: name.into(),
@@ -553,6 +551,19 @@ mod tests {
         assert!(text.contains("4 blocks"));
         assert!(text.contains("1 internal"));
         assert!(text.contains("97% pass"));
+    }
+
+    #[test]
+    fn explorer_summary_shows_dash_pass_on_empty_log() {
+        let s = LogSummary {
+            runs: 0,
+            blocks: 0,
+            internal: 0,
+            pass: 0,
+            rollups: vec![],
+        };
+        let text = all_text(&explorer_lines(&s, 0));
+        assert!(text.contains("— pass"));
     }
 
     #[test]
