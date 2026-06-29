@@ -184,4 +184,49 @@ mod tests {
             Loop::Continue
         );
     }
+
+    #[test]
+    fn movement_keys_noop_in_stream_mode() {
+        let mut s = ViewState::default(); // Stream
+        let sum = summary_with(&["a"]);
+        assert_eq!(handle_key(KeyCode::Down, &mut s, &sum), Loop::Continue);
+        assert_eq!(s.selected, 0);
+        assert_eq!(handle_key(KeyCode::Up, &mut s, &sum), Loop::Continue);
+        assert_eq!(s.selected, 0);
+        assert_eq!(handle_key(KeyCode::Enter, &mut s, &sum), Loop::Continue);
+        assert!(s.filter.is_none());
+    }
+
+    #[test]
+    fn tab_resets_selected_to_zero() {
+        let mut s = ViewState {
+            view: View::Explorer,
+            selected: 2,
+            filter: None,
+        };
+        handle_key(KeyCode::Tab, &mut s, &summary_with(&[]));
+        assert_eq!(s.selected, 0, "toggle must reset selected");
+    }
+
+    #[test]
+    fn enter_in_explorer_with_no_rollups_is_noop() {
+        let mut s = ViewState {
+            view: View::Explorer,
+            selected: 0,
+            filter: None,
+        };
+        let sum = summary_with(&[]); // no rollups
+        assert_eq!(handle_key(KeyCode::Enter, &mut s, &sum), Loop::Continue);
+        assert!(s.filter.is_none());
+        assert!(matches!(s.view, View::Explorer));
+    }
+
+    #[test]
+    fn right_and_left_also_toggle_view() {
+        let mut s = ViewState::default(); // Stream
+        handle_key(KeyCode::Right, &mut s, &summary_with(&[]));
+        assert!(matches!(s.view, View::Explorer));
+        handle_key(KeyCode::Left, &mut s, &summary_with(&[]));
+        assert!(matches!(s.view, View::Stream));
+    }
 }
