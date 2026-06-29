@@ -6,9 +6,9 @@
 use anyhow::Result;
 use hector_core::telemetry::LogEntry;
 use hector_core::verdict::Status;
-use hector_core::watch::{fmt_elapsed, short_time, status_glyph, LogSummary};
+use hector_core::watch::{fmt_elapsed, lifecycle_badge, short_time, status_glyph, CheckRollup, LogSummary};
 use ratatui::crossterm::event::KeyCode;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use std::io::IsTerminal;
 use std::path::Path;
@@ -109,6 +109,78 @@ pub fn stream_lines(entries: &[LogEntry], filter: Option<&str>) -> Vec<Line<'sta
                 )));
             }
         }
+    }
+    lines
+}
+
+fn pass_pct_text(summary: &LogSummary) -> String {
+    summary
+        .pass_pct()
+        .map(|p| format!("{p}% pass"))
+        .unwrap_or_else(|| "— pass".into())
+}
+
+fn rollup_line(r: &CheckRollup, selected: bool) -> Line<'static> {
+    let dot_color = if r.blocks > 0 { ORANGE } else { GREEN };
+    // rate() returns blocks/runs ∈ [0.0, 1.0] — product is non-negative.
+    #[allow(clippy::cast_sign_loss)]
+    let rate = (r.rate() * 100.0).round() as u32;
+    let p50 = r.p50_ms.map(fmt_elapsed).unwrap_or_else(|| "—".into());
+    let warn = if r.internal > 0 {
+        format!("  ⚠ {}", r.internal)
+    } else {
+        String::new()
+    };
+    let marker = if selected { "› " } else { "  " };
+    let name_style = if selected {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    Line::from(vec![
+        Span::raw(marker),
+        Span::styled("● ", Style::default().fg(dot_color)),
+        Span::styled(format!("{:<20}", r.name), name_style),
+        Span::styled(format!("{} ", lifecycle_badge(&r.on)), Style::default().fg(MUTED)),
+        Span::styled(warn, Style::default().fg(AMBER)),
+        Span::raw(format!("  {:>3}", r.blocks)),
+        Span::styled(format!("  {:>4}%", rate), Style::default().fg(MUTED)),
+        Span::styled(format!("  {:>6}", p50), Style::default().fg(MUTED)),
+    ])
+}
+
+/// Explorer view: summary bar + ranked per-check table with a divider before
+/// the zero-block checks (spec §5.2).
+// Phase 4 event loop and ui() consume this; not dead.
+#[allow(dead_code)]
+pub fn explorer_lines(summary: &LogSummary, selected: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        format!(
+            "log {} runs · {} blocks · {} internal · {}",
+            summary.runs,
+            summary.blocks,
+            summary.internal,
+            pass_pct_text(summary),
+        ),
+        Style::default().fg(MUTED),
+    )));
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        "CHECKS · RANKED BY BLOCKS                              blocks  rate     p50",
+        Style::default().fg(MUTED),
+    )));
+
+    let mut divider_emitted = false;
+    for (i, r) in summary.rollups.iter().enumerate() {
+        if r.blocks == 0 && !divider_emitted {
+            lines.push(Line::from(Span::styled(
+                "✓ NO BLOCKS IN LOG",
+                Style::default().fg(GREEN),
+            )));
+            divider_emitted = true;
+        }
+        lines.push(rollup_line(r, i == selected));
     }
     lines
 }
@@ -377,6 +449,79 @@ mod tests {
         let text = all_text(&stream_lines(&e, Some("types")));
         assert!(text.contains("b.ts"));
         assert!(!text.contains("a.ts"));
+    }
+
+    // ── Task 3.2: explorer_lines ──────────────────────────────────────────────
+
+    #[test]
+    fn explorer_summary_line_has_totals_and_pass_pct() {
+        let s = LogSummary {
+            runs: 159,
+            blocks: 4,
+            internal: 1,
+            pass: 154,
+            rollups: vec![],
+        };
+        let text = all_text(&explorer_lines(&s, 0));
+        assert!(text.contains("159 runs"));
+        assert!(text.contains("4 blocks"));
+        assert!(text.contains("1 internal"));
+        assert!(text.contains("97% pass"));
+    }
+
+    #[test]
+    fn explorer_lists_blocking_then_divider_then_clean() {
+        let s = LogSummary {
+            runs: 10,
+            blocks: 3,
+            internal: 0,
+            pass: 7,
+            rollups: vec![roll("nft", 15, 3, 0, Some(11)), roll("no-secrets", 50, 0, 0, Some(3))],
+        };
+        let lines = explorer_lines(&s, 0);
+        let text = all_text(&lines);
+        assert!(text.contains("nft"));
+        assert!(text.contains("20%"));
+        assert!(text.contains("11ms"));
+        assert!(text.contains("NO BLOCKS IN LOG"));
+        assert!(text.contains("no-secrets"));
+        let nft_idx = lines.iter().position(|l| line_text(l).contains("nft")).unwrap();
+        let div_idx = lines
+            .iter()
+            .position(|l| line_text(l).contains("NO BLOCKS IN LOG"))
+            .unwrap();
+        let sec_idx = lines
+            .iter()
+            .position(|l| line_text(l).contains("no-secrets"))
+            .unwrap();
+        assert!(nft_idx < div_idx && div_idx < sec_idx);
+    }
+
+    #[test]
+    fn explorer_shows_internal_warning_and_dash_p50() {
+        let s = LogSummary {
+            runs: 1,
+            blocks: 0,
+            internal: 1,
+            pass: 0,
+            rollups: vec![roll("types", 1, 0, 1, None)],
+        };
+        let text = all_text(&explorer_lines(&s, 0));
+        assert!(text.contains("⚠ 1"));
+        assert!(text.contains("—"));
+    }
+
+    #[test]
+    fn explorer_omits_divider_when_all_checks_block() {
+        let s = LogSummary {
+            runs: 1,
+            blocks: 1,
+            internal: 0,
+            pass: 0,
+            rollups: vec![roll("only", 1, 1, 0, Some(5))],
+        };
+        let text = all_text(&explorer_lines(&s, 0));
+        assert!(!text.contains("NO BLOCKS IN LOG"));
     }
 
     // ── Existing Phase 2 tests (handle_key) ──────────────────────────────────
