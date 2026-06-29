@@ -92,6 +92,26 @@ pub fn append(path: &Path, entry: &LogEntry) -> Result<()> {
     Ok(())
 }
 
+/// Parse raw JSONL text into entries and dropped lines.
+///
+/// Returns `(valid_entries, dropped)` where each dropped item is
+/// `(line_number_1based, error_string)`. Callers decide what to do with
+/// the dropped information (log to stderr, silently discard, etc.).
+fn parse_entries(raw: &str) -> (Vec<LogEntry>, Vec<(usize, String)>) {
+    let mut entries = Vec::new();
+    let mut dropped = Vec::new();
+    for (i, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<LogEntry>(line) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => dropped.push((i + 1, e.to_string())),
+        }
+    }
+    (entries, dropped)
+}
+
 /// Read every record in `path`. Malformed lines are warned to stderr and
 /// dropped — a single corrupt line should not fail the whole batch.
 pub fn read_all(path: &Path) -> Result<Vec<LogEntry>> {
@@ -99,23 +119,32 @@ pub fn read_all(path: &Path) -> Result<Vec<LogEntry>> {
         return Ok(Vec::new());
     }
     let raw = std::fs::read_to_string(path)?;
-    let mut out = Vec::new();
-    for (i, line) in raw.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<LogEntry>(line) {
-            Ok(entry) => out.push(entry),
-            Err(e) => {
-                eprintln!(
-                    "hector: warning — telemetry log {}:{} dropped (parse error: {e})",
-                    path.display(),
-                    i + 1
-                );
-            }
-        }
+    let (entries, dropped) = parse_entries(&raw);
+    for (line_num, err) in &dropped {
+        eprintln!(
+            "hector: warning — telemetry log {}:{} dropped (parse error: {err})",
+            path.display(),
+            line_num
+        );
     }
-    Ok(out)
+    Ok(entries)
+}
+
+/// Like [`read_all`] but never writes to stderr on malformed lines.
+///
+/// Used by the `hector watch` event loop, which ticks every ~250 ms while
+/// an alternate-screen TUI is active. Any `eprintln!` during that window
+/// bleeds through raw mode and corrupts the rendered frame. Dropped lines
+/// are silently ignored; only the valid entries are returned.
+///
+/// Missing file → `Ok(Vec::new())`, same as [`read_all`].
+pub fn read_all_quiet(path: &Path) -> Result<Vec<LogEntry>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = std::fs::read_to_string(path)?;
+    let (entries, _dropped) = parse_entries(&raw);
+    Ok(entries)
 }
 
 #[cfg(test)]
@@ -186,5 +215,63 @@ mod tests {
     #[test]
     fn schema_version_is_5() {
         assert_eq!(SCHEMA_VERSION, 5);
+    }
+
+    /// Helper: one valid `LogEntry::Check` as a JSONL line.
+    fn valid_jsonl_line() -> String {
+        let entry = LogEntry::Check {
+            ts: "2026-06-29T00:00:00Z".into(),
+            file: Some("foo.rs".into()),
+            set_size: None,
+            event: "write".into(),
+            status: Status::Pass,
+            elapsed_ms: 1,
+            checks: vec![],
+        };
+        serde_json::to_string(&entry).unwrap()
+    }
+
+    /// `read_all` returns the valid entry when a file also contains a malformed
+    /// line. The malformed line is dropped (and warned to stderr, but we don't
+    /// capture that here — we only care the valid entry survives).
+    #[test]
+    fn read_all_survives_one_malformed_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("log.jsonl");
+        let content = format!("{}\nnot-json\n", valid_jsonl_line());
+        std::fs::write(&log, content).unwrap();
+
+        let entries = read_all(&log).unwrap();
+        assert_eq!(entries.len(), 1, "read_all must return the one valid entry");
+        let LogEntry::Check { file, .. } = &entries[0];
+        assert_eq!(file.as_deref(), Some("foo.rs"));
+    }
+
+    /// `read_all_quiet` returns the valid entry, drops the malformed line
+    /// silently, and does not panic.
+    #[test]
+    fn read_all_quiet_returns_valid_entry_and_drops_malformed_silently() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("log.jsonl");
+        let content = format!("{}\nbad-json-line\n", valid_jsonl_line());
+        std::fs::write(&log, content).unwrap();
+
+        let entries = read_all_quiet(&log).unwrap();
+        assert_eq!(
+            entries.len(),
+            1,
+            "read_all_quiet must return exactly the one valid entry"
+        );
+        let LogEntry::Check { file, .. } = &entries[0];
+        assert_eq!(file.as_deref(), Some("foo.rs"));
+    }
+
+    /// `read_all_quiet` returns `Ok([])` for a missing file (no panic, no Err).
+    #[test]
+    fn read_all_quiet_missing_file_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("nonexistent.jsonl");
+        let result = read_all_quiet(&log).unwrap();
+        assert!(result.is_empty());
     }
 }

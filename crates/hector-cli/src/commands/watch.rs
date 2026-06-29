@@ -309,7 +309,7 @@ fn event_loop<B: Backend>(
     let log = dir.join(".hector/log.jsonl");
     let mut state = ViewState::default();
     loop {
-        let entries = hector_core::telemetry::read_all(&log).unwrap_or_default();
+        let entries = hector_core::telemetry::read_all_quiet(&log).unwrap_or_default();
         let summary = summarize(&entries, armed);
         let clock = short_time(&chrono::Utc::now().to_rfc3339());
         terminal.draw(|f| ui(f, &entries, &summary, armed.len(), &state, &clock))?;
