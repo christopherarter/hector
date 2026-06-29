@@ -23,6 +23,10 @@ pub struct GateEnv<'a> {
     pub root: &'a Path,
     /// Trigger: `write` | `pre-commit` (`$HECTOR_EVENT`).
     pub event: &'a str,
+    /// Absolute path to a hector-materialized temp file holding the proposed
+    /// content (`$HECTOR_TMPFILE`). `Some` only on `write` when the check
+    /// references the token; `None` otherwise (var unset).
+    pub tmpfile: Option<&'a Path>,
 }
 
 #[derive(Debug)]
@@ -82,6 +86,9 @@ pub fn run_gate(
         .stderr(Stdio::piped());
     if let Some(f) = env.file {
         cmd.env("HECTOR_FILE", f);
+    }
+    if let Some(tf) = env.tmpfile {
+        cmd.env("HECTOR_TMPFILE", tf);
     }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -171,6 +178,7 @@ mod tests {
             files: &[],
             root,
             event: "write",
+            tmpfile: None,
         }
     }
 
@@ -180,6 +188,7 @@ mod tests {
             files,
             root,
             event: "write",
+            tmpfile: None,
         }
     }
 
@@ -339,5 +348,40 @@ mod tests {
             matches!(out, GateOutcome::Block { .. }),
             "both files must be visible in $HECTOR_FILES; got: {out:?}"
         );
+    }
+
+    #[test]
+    fn tmpfile_env_is_set_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("x.txt");
+        let tmp = dir.path().join("hector-tmp-1.txt");
+        let env = GateEnv {
+            file: Some(&f),
+            files: &[],
+            root: dir.path(),
+            event: "write",
+            tmpfile: Some(&tmp),
+        };
+        // Gate passes iff $HECTOR_TMPFILE equals the path we passed.
+        let run = format!("test \"$HECTOR_TMPFILE\" = \"{}\"", tmp.display());
+        assert!(matches!(run_gate(&run, &env, None, t()), GateOutcome::Pass));
+    }
+
+    #[test]
+    fn tmpfile_env_is_unset_when_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("x.txt");
+        let env = GateEnv {
+            file: Some(&f),
+            files: &[],
+            root: dir.path(),
+            event: "write",
+            tmpfile: None,
+        };
+        // With the var unset, `test -n` on it is false → exit 1 → Block. Pass means it WAS set (bug).
+        assert!(matches!(
+            run_gate("test -n \"$HECTOR_TMPFILE\"", &env, None, t()),
+            GateOutcome::Block { .. }
+        ));
     }
 }

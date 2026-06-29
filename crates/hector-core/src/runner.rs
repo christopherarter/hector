@@ -498,6 +498,7 @@ impl HectorEngine {
             files: std::slice::from_ref(&abs_buf),
             root: &self.config_dir,
             event: &self.options.event,
+            tmpfile: None,
         };
         self.run_steps(check, &env, Some(content.as_bytes()))
     }
@@ -554,6 +555,7 @@ impl HectorEngine {
                 files: &matched,
                 root: &self.config_dir,
                 event: &self.options.event,
+                tmpfile: None,
             };
             let status = self.run_steps(check, &env, None);
             collected.absorb(check_id, None, status, false);
