@@ -21,6 +21,9 @@ chrono.workspace = true
 # latest GitHub release, and re-runs the same installer the user installed with.
 # `blocking` provides a synchronous entrypoint so the CLI stays non-async.
 axoupdater = { version = "0.10", features = ["blocking"] }
+# Live TUI (`hector watch`): renders the telemetry stream + per-check explorer.
+# ratatui re-exports crossterm, so we depend on it alone for backend + events.
+ratatui = "0.29"
 
 [dev-dependencies]
 assert_cmd.workspace = true

@@ -140,6 +140,13 @@ pub enum Command {
     /// (Homebrew/cargo/source builds) and so can't self-update, in which case
     /// it prints the channel-specific command that will.
     Update,
+    /// Live TUI over the telemetry log: a stream of check runs and a per-check
+    /// explorer. Read-only; requires an interactive terminal.
+    Watch {
+        /// Directory containing `.hector.yml` / `.hector/log.jsonl`. Defaults to cwd.
+        #[arg(long, default_value = ".")]
+        dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
