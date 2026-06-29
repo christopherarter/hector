@@ -4,19 +4,28 @@
 //! `explorer_lines`/`ui` here) is pure and tested; the only uncovered code is
 //! the terminal setup (`run_tui`) and event loop (`event_loop`), kept minimal.
 use anyhow::Result;
+use hector_core::runner::HectorEngine;
 use hector_core::telemetry::LogEntry;
 use hector_core::verdict::Status;
 use hector_core::watch::{
-    fmt_elapsed, lifecycle_badge, short_time, status_glyph, CheckRollup, LogSummary,
+    fmt_elapsed, lifecycle_badge, short_time, status_glyph, summarize, ArmedCheck, CheckRollup,
+    LogSummary,
 };
-use ratatui::crossterm::event::KeyCode;
+use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
+use ratatui::Terminal;
 use std::io::IsTerminal;
 use std::path::Path;
+use std::time::Duration;
 
 // ── Color vocabulary ──────────────────────────────────────────────────────────
 
@@ -63,8 +72,6 @@ fn detail_text(check: &str, status: Status, reason: Option<&str>, event: &str) -
 
 /// Newest-first stream lines. `filter` keeps only entries whose `checks`
 /// contains that check name.
-// Phase 4 event loop and ui() consume this; not dead.
-#[allow(dead_code)]
 pub fn stream_lines(entries: &[LogEntry], filter: Option<&str>) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for entry in entries.iter().rev() {
@@ -158,8 +165,6 @@ fn rollup_line(r: &CheckRollup, selected: bool) -> Line<'static> {
 
 /// Explorer view: summary bar + ranked per-check table with a divider before
 /// the zero-block checks (spec §5.2).
-// Phase 4 event loop and ui() consume this; not dead.
-#[allow(dead_code)]
 pub fn explorer_lines(summary: &LogSummary, selected: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     lines.push(Line::from(Span::styled(
@@ -233,8 +238,6 @@ fn footer_line(state: &ViewState, summary: &LogSummary, armed: usize) -> Line<'s
 }
 
 /// Draw the full TUI for the current state.
-// Phase 4 event loop calls this; not dead.
-#[allow(dead_code)]
 pub fn ui(
     frame: &mut Frame,
     entries: &[LogEntry],
@@ -270,6 +273,58 @@ pub fn ui(
     );
 }
 
+/// Resolve the armed-check projection from `<dir>/.hector.yml`. Best-effort:
+/// returns empty on any load error (watch still tails the log).
+fn load_armed(dir: &Path) -> Vec<ArmedCheck> {
+    let config = dir.join(".hector.yml");
+    match HectorEngine::load(&config) {
+        Ok(engine) => engine
+            .checks()
+            .iter()
+            .map(|(name, check)| ArmedCheck {
+                name: name.clone(),
+                on: check.on.clone(),
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn run_tui(dir: &Path, armed: &[ArmedCheck]) -> Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    let result = event_loop(&mut terminal, dir, armed);
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    result
+}
+
+fn event_loop<B: Backend>(
+    terminal: &mut Terminal<B>,
+    dir: &Path,
+    armed: &[ArmedCheck],
+) -> Result<()> {
+    let log = dir.join(".hector/log.jsonl");
+    let mut state = ViewState::default();
+    loop {
+        let entries = hector_core::telemetry::read_all(&log).unwrap_or_default();
+        let summary = summarize(&entries, armed);
+        let clock = short_time(&chrono::Utc::now().to_rfc3339());
+        terminal.draw(|f| ui(f, &entries, &summary, armed.len(), &state, &clock))?;
+        if event::poll(Duration::from_millis(250))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press
+                    && handle_key(key.code, &mut state, &summary) == Loop::Quit
+                {
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
 /// Entry point. Requires an interactive terminal; otherwise exits 1 with a hint.
 pub fn run(dir: &Path) -> Result<i32> {
     if !std::io::stdout().is_terminal() {
@@ -280,13 +335,12 @@ pub fn run(dir: &Path) -> Result<i32> {
         );
         return Ok(1);
     }
-    // Phase 4 replaces this stub with the live loop.
+    let armed = load_armed(dir);
+    run_tui(dir, &armed)?;
     Ok(0)
 }
 
 /// Active pane.
-// Phase 3 rendering and Phase 4 event loop consume this; not dead.
-#[allow(dead_code)]
 pub enum View {
     Stream,
     Explorer,
@@ -294,16 +348,12 @@ pub enum View {
 
 /// What the loop should do after a key.
 #[derive(Debug, PartialEq, Eq)]
-// Phase 4 event loop consumes this; not dead.
-#[allow(dead_code)]
 pub enum Loop {
     Continue,
     Quit,
 }
 
 /// UI state threaded through the loop. Pure data.
-// Phase 3 rendering and Phase 4 event loop consume this; not dead.
-#[allow(dead_code)]
 pub struct ViewState {
     pub view: View,
     pub selected: usize,
@@ -320,8 +370,6 @@ impl Default for ViewState {
     }
 }
 
-// Called by handle_key; Phase 4 wires that into the event loop.
-#[allow(dead_code)]
 fn toggle(view: &View) -> View {
     match view {
         View::Stream => View::Explorer,
@@ -330,8 +378,6 @@ fn toggle(view: &View) -> View {
 }
 
 /// Map a key to a state mutation (spec §5.3). Pure; no I/O.
-// Phase 4 event loop calls this; not dead.
-#[allow(dead_code)]
 pub fn handle_key(code: KeyCode, state: &mut ViewState, summary: &LogSummary) -> Loop {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => return Loop::Quit,
@@ -428,6 +474,34 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    // ── Task 4.1: load_armed ─────────────────────────────────────────────────
+
+    #[test]
+    fn load_armed_reads_check_names_and_lifecycles() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".hector.yml"),
+            "checks:\n  lint:\n    files: \"*.ts\"\n    run: \"true\"\n    on: [write, pre-commit]\n",
+        )
+        .unwrap();
+        let armed = load_armed(dir.path());
+        assert_eq!(armed.len(), 1);
+        assert_eq!(armed[0].name, "lint");
+        assert_eq!(
+            armed[0].on,
+            vec![
+                hector_core::config::Lifecycle::Write,
+                hector_core::config::Lifecycle::PreCommit
+            ]
+        );
+    }
+
+    #[test]
+    fn load_armed_is_empty_when_config_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_armed(dir.path()).is_empty());
     }
 
     // ── Task 3.1: stream_lines ────────────────────────────────────────────────
