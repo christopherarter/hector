@@ -6,6 +6,9 @@ Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
 ### Added
 
+- **`hector watch`** — a read-only live TUI over `.hector/log.jsonl` with a
+  Stream (newest-first run feed) and an Explorer (per-check health ranked by
+  blocks). Built on existing telemetry; no schema change.
 - **`hector update`.** Self-update to the latest GitHub release. Reads the
   cargo-dist install receipt and, when a newer release exists, downloads and
   re-runs the same installer the binary was installed with, then self-replaces.

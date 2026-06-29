@@ -149,6 +149,32 @@ Only self-updates binaries installed via the shell/PowerShell installer. A binar
 
 **Exit codes:** `0` on a successful update or when already current; `1` on any failure, including a non-installer build that can't self-update.
 
+## `hector watch`
+
+A read-only live TUI over `.hector/log.jsonl`. Run it in a pane beside your
+coding agent to watch checks fire in real time.
+
+```
+hector watch [--dir DIR]
+```
+
+- `--dir DIR` — directory containing `.hector.yml` / `.hector/log.jsonl` (default: cwd).
+
+Two views, toggled with `Tab` / `→` / `←`:
+
+- **Stream** — newest-first feed of check runs: time, ✓/✗/⚠, file (or
+  `pre-commit · N files`), elapsed, and the `write`/`commit` event. Blocked rows
+  show the failing check and `write rejected`; internal-error rows show the
+  reason. The failure *message* is not shown — it isn't stored in the log
+  (the agent receives it live via the hook).
+- **Explorer** — whole-log aggregate: runs / blocks / internal / pass%, and a
+  per-check table ranked by blocks with block-rate and p50 latency. `↑`/`↓`
+  select a check; `↵` jumps to the Stream filtered to it.
+
+`q` / `Esc` quits. Requires an interactive terminal; in a non-TTY it exits `1`
+with a hint. Read-only: it runs no checks, writes no telemetry, and does not
+enforce trust.
+
 ## Read-only commands
 
-`validate`, `doctor`, `explain`, `show-resolved-config`, and `schema` never run a check or write telemetry. They exit `0` on success and `1` on a config error — never `2`. Trust is enforced only by `check`; these commands run against an unblessed config so you can debug it.
+`validate`, `doctor`, `explain`, `show-resolved-config`, `schema`, and `watch` never run a check or write telemetry. They exit `0` on success and `1` on a config error — never `2`. Trust is enforced only by `check`; these commands run against an unblessed config so you can debug it.
