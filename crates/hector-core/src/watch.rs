@@ -169,6 +169,48 @@ pub fn summarize(entries: &[LogEntry], armed: &[ArmedCheck]) -> LogSummary {
     summary
 }
 
+/// Human elapsed: `12ms` / `1.2s` / `1m30s`.
+#[allow(clippy::cast_precision_loss)]
+pub fn fmt_elapsed(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms}ms")
+    } else if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    } else {
+        let secs = ms / 1000;
+        format!("{}m{:02}s", secs / 60, secs % 60)
+    }
+}
+
+/// `HH:MM:SS` from the log's RFC3339 `ts`, in the timestamp's own offset
+/// (UTC, as written). Falls back to the first 8 chars if unparseable.
+pub fn short_time(ts: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(ts)
+        .map(|dt| dt.format("%H:%M:%S").to_string())
+        .unwrap_or_else(|_| ts.chars().take(8).collect())
+}
+
+/// `[w]` / `[c]` / `[w+c]` lifecycle badge (spec §7).
+pub fn lifecycle_badge(on: &[Lifecycle]) -> String {
+    let w = on.contains(&Lifecycle::Write);
+    let c = on.contains(&Lifecycle::PreCommit);
+    match (w, c) {
+        (true, true) => "[w+c]".into(),
+        (true, false) => "[w]".into(),
+        (false, true) => "[c]".into(),
+        (false, false) => "[]".into(),
+    }
+}
+
+/// `✓` pass / `✗` block / `⚠` internal error.
+pub fn status_glyph(status: Status) -> char {
+    match status {
+        Status::Pass => '✓',
+        Status::Block => '✗',
+        Status::InternalError => '⚠',
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,5 +386,43 @@ mod tests {
         let names: Vec<&str> = s.rollups.iter().map(|r| r.name.as_str()).collect();
         // both blockers (tie on 1 block) ordered by rate desc: few (.5) before many (.1); zero last
         assert_eq!(names, vec!["few", "many", "zero"]);
+    }
+
+    #[test]
+    fn fmt_elapsed_boundaries() {
+        assert_eq!(fmt_elapsed(12), "12ms");
+        assert_eq!(fmt_elapsed(999), "999ms");
+        assert_eq!(fmt_elapsed(1000), "1.0s");
+        assert_eq!(fmt_elapsed(1200), "1.2s");
+        assert_eq!(fmt_elapsed(30_000), "30.0s");
+        assert_eq!(fmt_elapsed(90_500), "1m30s");
+    }
+
+    #[test]
+    fn short_time_renders_hms_from_rfc3339() {
+        assert_eq!(short_time("2026-06-28T14:23:09.5+00:00"), "14:23:09");
+    }
+
+    #[test]
+    fn short_time_falls_back_on_garbage() {
+        assert_eq!(short_time("nope"), "nope");
+    }
+
+    #[test]
+    fn lifecycle_badge_variants() {
+        assert_eq!(lifecycle_badge(&[Lifecycle::Write]), "[w]");
+        assert_eq!(lifecycle_badge(&[Lifecycle::PreCommit]), "[c]");
+        assert_eq!(
+            lifecycle_badge(&[Lifecycle::Write, Lifecycle::PreCommit]),
+            "[w+c]"
+        );
+        assert_eq!(lifecycle_badge(&[]), "[]");
+    }
+
+    #[test]
+    fn status_glyph_per_status() {
+        assert_eq!(status_glyph(Status::Pass), '✓');
+        assert_eq!(status_glyph(Status::Block), '✗');
+        assert_eq!(status_glyph(Status::InternalError), '⚠');
     }
 }
