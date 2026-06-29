@@ -2,6 +2,16 @@
 
 Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
+## [Unreleased]
+
+### Added
+
+- **`hector update`.** Self-update to the latest GitHub release. Reads the
+  cargo-dist install receipt and, when a newer release exists, downloads and
+  re-runs the same installer the binary was installed with, then self-replaces.
+  A no-op when already current; exits `1` with channel-specific guidance for
+  non-installer builds (Homebrew / `cargo install` / source).
+
 ## [0.4.0] — 2026-06-28 — checks pipeline redesign
 
 ### Breaking

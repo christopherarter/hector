@@ -19,13 +19,13 @@ The exact hook names and coverage differ, but the contract is the same across ag
 
 1. **On each edit or proposed edit** — collapse the host's hook payload into Hector's ABI and run `hector check` against the file. On exit `2`, gating hooks reject the edit so the agent retries.
 
-Every adapter normalizes its host into the same ABI, so one gate command runs unchanged everywhere:
+Every adapter normalizes its host into the same ABI, so one check command runs unchanged everywhere:
 
 | Channel | Value |
 |---------|-------|
 | `$HECTOR_FILE` | Absolute path to the file under check. |
-| `$HECTOR_ROOT` | Project root — also the gate's working directory. |
-| `$HECTOR_EVENT` | `edit`, `write`, `pre-commit`, or `manual`. |
+| `$HECTOR_ROOT` | Project root — also the check's working directory. |
+| `$HECTOR_EVENT` | `write` or `pre-commit`. |
 | stdin | The proposed post-edit content. |
 
 The adapter only shells out to the `hector` binary. It doesn't reimplement any policy logic.
@@ -41,7 +41,7 @@ Adapters translate [`hector check`'s exit codes](../operating/running-checks.md)
 | `1` (config error) | **Fail-open** — log and allow. An unrelated problem, like a broken config, shouldn't block the agent's work. |
 | `3` (internal error) | **Fail-open by default** — log and allow. Set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` to make internal errors block where the host lifecycle can still block. |
 
-The fail-open default on internal errors is deliberate: a rule that *couldn't run* is not a rule that *found a problem*. To make internal errors blocking instead — for a strict CI-style gate — set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`. See [Running checks](../operating/running-checks.md).
+The fail-open default on internal errors is deliberate: a rule that *couldn't run* is not a rule that *found a problem*. To make internal errors blocking instead — for strict CI-style enforcement — set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`. See [Running checks](../operating/running-checks.md).
 
 ## Requirements
 
@@ -57,12 +57,12 @@ If hooks aren't firing for any agent, run [`hector doctor`](../operating/diagnos
 
 Adapters that support skills ship three for managing policy without leaving the session:
 
-- **`hector-config`** is the authoring guide: the `{files, run}` gate schema, the
+- **`hector-config`** is the authoring guide: the `{files, run}` check schema, the
   exit-code contract, and the common patterns, with a fixture-test loop. `hector
   init` installs it as a real skill into every detected agent, and `hector schema`
   prints it on demand.
 - **`/hector-init`** scaffolds a `.hector.yml` from your project's stack.
-- **`/hector-review`** reads your telemetry log and reports which gates are noisy,
+- **`/hector-review`** reads your telemetry log and reports which checks are noisy,
   which never fire, and which look dead.
 
 `hector init` installs `hector-config` for every agent it wires (all four support

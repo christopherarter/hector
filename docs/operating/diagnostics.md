@@ -1,12 +1,12 @@
 # Diagnostics
 
-When checks misbehave — hooks not firing, an "untrusted config" error, a gate that won't run — start with `hector doctor`. It's a read-only, minimal static-check command that walks a fixed list of load-time invariants and reports which one is broken and how to fix it:
+When checks misbehave — hooks not firing, an "untrusted config" error, a check that won't run — start with `hector doctor`. It's a read-only, minimal static-check command that walks a fixed list of load-time invariants and reports which one is broken and how to fix it:
 
 ```bash
 hector doctor
 ```
 
-Each row is a check with a status and, when something's wrong, a remediation hint. The command exits `0` when every check is `pass` or `warn`, and `1` when any check `fail`s — so it drops cleanly into CI as a setup gate.
+Each row is a check with a status and, when something's wrong, a remediation hint. The command exits `0` when every check is `pass` or `warn`, and `1` when any check `fail`s — so it drops cleanly into CI as a setup step.
 
 For a machine-readable report, add `--format json`. The rest of this page is the contract for that output.
 
@@ -21,7 +21,7 @@ For a machine-readable report, add `--format json`. The rest of this page is the
 | `binary` | The running `hector` resolves to a path; reports the version. Always `pass`. |
 | `config` | `<dir>/.hector.yml` exists. `fail` if missing. |
 | `parses` | The config (and every transitive `extends:` ancestor) parses. `fail` on malformed YAML or a rejected legacy config. |
-| `gate_scripts` | For each gate whose `run` is a single-token path beginning with `.hector/`, that the path exists and is executable. Inline commands (anything with a space) are skipped. `fail` lists the offending gate(s). |
+| `check_scripts` | For each check whose `run` is a single-token path beginning with `.hector/`, that the path exists and is executable. Inline commands (anything with a space) are skipped. `fail` lists the offending check(s). |
 | `claude-code` | Harness adapter check: `~/.claude/settings.json` (or project `.claude/settings.json`) exists and the registered `PostToolUse` hook artifact is present and unmodified. `fail` if registered but artifact is missing; `warn` if not installed or artifact is modified/outdated. Omitted if the harness is neither present nor registered. |
 | `reasonix` | Harness adapter check: `~/.reasonix/settings.json` exists and the registered `PreToolUse` hook artifact is present and unmodified. Same `fail`/`warn` rules as above. |
 | `pi` | Harness adapter check: the `hector.ts` plugin artifact in `.pi/extensions/` (or `~/.pi/agent/extensions/`) is present and unmodified. Same `fail`/`warn` rules as above. |

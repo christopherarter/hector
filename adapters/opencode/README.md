@@ -1,6 +1,6 @@
 # Hector — OpenCode adapter
 
-OpenCode plugin integration for Hector. A static per-file gate that uses OpenCode's pre-edit hook to run your rules before each edit lands.
+OpenCode plugin integration for Hector. A static per-file check that uses OpenCode's pre-edit hook to run checks before each edit lands.
 
 | OpenCode hook | Action |
 |---------------|--------|
@@ -35,7 +35,7 @@ Your `.hector.yml` and trust store are untouched.
 
 ## Requirements
 
-- The `hector` binary on PATH (`cargo install hector` or release binary).
+- The `hector` binary on PATH (`cargo install --git https://github.com/christopherarter/hector hector-cli` or release binary).
 - OpenCode (which ships Bun). No extra runtime install required.
 
 ## Manual fallback
@@ -74,7 +74,7 @@ OpenCode installs the package via Bun on first load.
 
 ## Initialise the project
 
-Run `hector init` to scaffold `.hector.yml`, review the rules, then:
+Run `hector init` to scaffold `.hector.yml`, review the checks, then:
 
 ```bash
 hector trust
@@ -88,7 +88,7 @@ The plugin is a small TypeScript module that consumes the `@opencode-ai/plugin` 
 
 - **`tool.execute.before`** — fires before OpenCode's built-in `edit` / `write` tools write to disk. The plugin computes the proposed content, shadow-writes it to the target path, invokes `hector check --file <path>` via Bun's `$` shell API, then restores the original file. On exit code `2` (block), it throws an `Error` whose message is the JSON verdict, so OpenCode cancels the tool call before the edit lands.
 
-The `hector` binary is the only authoritative source of rule logic. The plugin is purely a translation layer; rule changes never touch the plugin.
+The `hector` binary is the only authoritative source of check logic. The plugin is purely a translation layer; check changes never touch the plugin.
 
 ## Exit-code contract
 
@@ -98,13 +98,13 @@ The plugin honours the `hector` CLI exit-code contract from `commands/check.rs`:
 |------|------------------|
 | `0` (pass or warn) | Allow. |
 | `2` (block) | Throw — OpenCode cancels the tool call. |
-| `3` (engine internal error) | Fail-open by default; set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` to fail closed while the hook can still block. |
+| `3` (internal error) | Fail-open by default; set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` to fail closed while the hook can still block. |
 | `1` / other (config error) | Log to stderr, allow. Config errors should not block the agent on unrelated work. |
 
 ## Known gaps at 0.1d
 
 - **No `apply_patch` interception.** OpenCode's multi-file patch tool would need per-file extraction; large refactors via `apply_patch` are not gated. Use `edit` / `write` or run `hector check` manually in CI to cover them.
-- **Partially ported skills.** `hector init` installs the `hector-config` authoring skill into `.opencode/skills/` today — gate authoring and the fixture-test loop are available in OpenCode. `/hector-init` and `/hector-review` remain Claude Code plugin-only skills and are not yet ported to other harnesses.
+- **Partially ported skills.** `hector init` installs the `hector-config` authoring skill into `.opencode/skills/` today — check authoring and the fixture-test loop are available in OpenCode. `/hector-init` and `/hector-review` remain Claude Code plugin-only skills and are not yet ported to other harnesses.
 
 ## Diagnostic
 

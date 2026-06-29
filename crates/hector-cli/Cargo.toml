@@ -17,6 +17,10 @@ serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 chrono.workspace = true
+# Self-update (`hector update`): reads the dist install receipt, checks the
+# latest GitHub release, and re-runs the same installer the user installed with.
+# `blocking` provides a synchronous entrypoint so the CLI stays non-async.
+axoupdater = { version = "0.10", features = ["blocking"] }
 
 [dev-dependencies]
 assert_cmd.workspace = true
@@ -25,6 +29,9 @@ tempfile.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 insta.workspace = true
+# Only to construct `axoupdater::UpdateResult` in update.rs unit tests
+# (its `install_prefix` is a camino `Utf8PathBuf`).
+camino = "1"
 
 [lints]
 workspace = true

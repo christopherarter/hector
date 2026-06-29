@@ -5,4 +5,5 @@ pub mod init;
 pub mod schema;
 pub mod show_resolved_config;
 pub mod trust;
+pub mod update;
 pub mod validate;

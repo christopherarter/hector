@@ -6,12 +6,12 @@ The binary is `hector`. Run `hector <command> --help` for the same information a
 
 ## `hector check`
 
-Run the gates against a file or diff.
+Run the checks against a file or diff.
 
 ```
 hector check [--file <path>] [--diff <path>] [--content <string|->]
-             [--format human|json] [--config <path>] [--gate <id>]...
-             [--event edit|write|pre-commit|manual] [--explain]
+             [--format human|json] [--config <path>] [--check <id>]...
+             [--event write|pre-commit] [--explain]
              [--allow-external-paths]
 ```
 
@@ -22,9 +22,9 @@ hector check [--file <path>] [--diff <path>] [--content <string|->]
 | `--content <string\|->` | — | Proposed post-edit content to evaluate instead of reading `--file` from disk; `-` reads it from stdin. Requires `--file`; conflicts with `--diff`. |
 | `--format` | `human` | `human` or `json`. See [Verdict JSON](verdict-json.md). |
 | `--config <path>` | `.hector.yml` | Config file to load. |
-| `--gate <id>` | — | Run only this gate. Repeatable; multiple flags are OR'd. |
-| `--event` | `manual` | What triggered the check, surfaced to gates as `$HECTOR_EVENT`. One of `edit`, `write`, `pre-commit`, `manual`. |
-| `--explain` | off | Print a per-gate outcome report to stderr after the verdict. |
+| `--check <id>` | — | Run only this check. Repeatable; multiple flags are OR'd. |
+| `--event` | `write` | What triggered the check, surfaced to checks as `$HECTOR_EVENT`. One of `write`, `pre-commit`. |
+| `--explain` | off | Print a per-check outcome report to stderr after the verdict. |
 | `--allow-external-paths` | off | Allow checking files whose canonical path falls outside the config's directory. |
 
 **Exit codes:** `0` pass · `1` config or load error · `2` block · `3` internal error. See [Running checks](../operating/running-checks.md).
@@ -45,7 +45,7 @@ See [The trust store](../security/trust.md).
 
 ## `hector validate`
 
-Parse and validate the config without running any gate.
+Parse and validate the config without running any check.
 
 ```
 hector validate [--config <path>]
@@ -97,7 +97,7 @@ hector doctor [--dir <path>] [--format human|json]
 
 ## `hector explain`
 
-Show which gates are in scope for a file and the command each would run. Read-only.
+Show which checks are in scope for a file and the command each would run. Read-only.
 
 ```
 hector explain <file> [--format human|json] [--config <path>]
@@ -111,7 +111,7 @@ hector explain <file> [--format human|json] [--config <path>]
 
 ## `hector show-resolved-config`
 
-Print the post-`extends:` merged gate set, each gate annotated by the file that defined it. Read-only.
+Print the post-`extends:` merged check set, each check annotated by the file that defined it. Read-only.
 
 ```
 hector show-resolved-config [--config <path>] [--format tsv|yaml|json]
@@ -126,8 +126,8 @@ See [`show-resolved-config` output](show-resolved-config.md).
 
 ## `hector schema`
 
-Print the canonical gate-authoring guide — the `.hector.yml` `{files, run}`
-schema, the exit-code contract, and the common gate patterns. Read-only; loads
+Print the canonical check-authoring guide — the `.hector.yml` `{files, run}`
+schema, the exit-code contract, and the common check patterns. Read-only; loads
 no config. This is the same guide `hector init` installs into each agent as the
 `hector-config` skill.
 
@@ -137,6 +137,18 @@ hector schema
 
 **Exit codes:** always `0`.
 
+## `hector update`
+
+Update the `hector` binary in place to the latest GitHub release. Reads the install receipt the [installer](../../README.md#install) wrote, checks the latest release, and — when there's a newer one — downloads and re-runs the same installer, then self-replaces the running binary. A no-op when you're already current.
+
+```
+hector update
+```
+
+Only self-updates binaries installed via the shell/PowerShell installer. A binary from `cargo install` or a source build has no receipt; `update` then prints the command that *will* update it — the installer one-liner, or `cargo install --git … hector-cli --force` — and exits `1`.
+
+**Exit codes:** `0` on a successful update or when already current; `1` on any failure, including a non-installer build that can't self-update.
+
 ## Read-only commands
 
-`validate`, `doctor`, `explain`, `show-resolved-config`, and `schema` never run a gate or write telemetry. They exit `0` on success and `1` on a config error — never `2`. Trust is enforced only by `check`; these commands run against an unblessed config so you can debug it.
+`validate`, `doctor`, `explain`, `show-resolved-config`, and `schema` never run a check or write telemetry. They exit `0` on success and `1` on a config error — never `2`. Trust is enforced only by `check`; these commands run against an unblessed config so you can debug it.

@@ -1,33 +1,33 @@
 # Hector documentation
 
-Hector is a policy-enforcement gate for AI coding agents. You write **gates** in a `.hector.yml`; when an agent edits a file, Hector runs the gates that match it and blocks the edits that break your policy.
+Hector is a policy-enforcement layer for AI coding agents. You write **checks** in a `.hector.yml`; when an agent edits a file, Hector runs the checks that match it and blocks the edits that break your policy.
 
-A gate is two fields — the files it watches and a shell command to run:
+A check is two fields — the files it watches and a shell command to run:
 
 ```yaml
 # .hector.yml
-gates:
+checks:
   no-console:
     files: "**/*.ts"
-    run: "! grep -n 'console.log' || exit 2"  # proposed content arrives on stdin
+    run: "! grep -n 'console.log'"  # proposed content arrives on stdin
 ```
 
-Hector runs `run`, reads its exit code, and blocks the edit when the code is `2`. That is the whole model — no engines, no severities, no rule DSL. The gate owns the decision.
+Hector runs `run`, reads its exit code, and blocks the edit when the code is nonzero (1–125). That is the whole model — no engines, no severities, no rule DSL. The check owns the decision.
 
-New here? Start with [Getting started](getting-started.md) — you'll have a gate blocking a real edit in a few minutes.
+New here? Start with [Getting started](getting-started.md) — you'll have a check blocking a real edit in a few minutes.
 
 Want the big picture first? See the [Visual elevator pitch](visual-elevator-pitch.md), then the [Architecture diagram](architecture.md).
 
-## Writing gates
+## Writing checks
 
-- [Anatomy of a gate](writing-gates/README.md) — `files`, `run`, and the exit-code contract
-- [Gate recipes](writing-gates/recipes.md) — grep checks, linters over stdin, and whole-tree tools
+- [Anatomy of a check](writing-checks/README.md) — `files`, `run`, and the exit-code contract
+- [Check recipes](writing-checks/recipes.md) — grep checks, linters over stdin, and whole-tree tools
 
 ## Configuring
 
-- [Targeting files](configuring/targeting-files.md) — the `files:` globs each gate matches
-- [Disabling a gate in-line](configuring/disabling.md) — `hector-disable:` directives
-- [Sharing config with `extends:`](configuring/inheritance.md) — inherit gates across repos
+- [Targeting files](configuring/targeting-files.md) — the `files:` globs each check matches
+- [Disabling a check in-line](configuring/disabling.md) — `hector-disable:` directives
+- [Sharing config with `extends:`](configuring/inheritance.md) — inherit checks across repos
 
 ## Connecting your agent
 

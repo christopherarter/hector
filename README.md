@@ -27,7 +27,7 @@ No engines, no severities, no DSL — the check owns the decision through its ex
 
 0.4 "checks pipeline" redesign merged. The core engine, CLI, trust store, and adapter onboarding are merged; `hector verify` and the expanded `doctor` are planned for a later phase.
 
-- **CLI:** `check`, `validate`, `init`, `explain`, `show-resolved-config`, `doctor`, `trust`, `schema`.
+- **CLI:** `check`, `validate`, `init`, `explain`, `show-resolved-config`, `doctor`, `trust`, `schema`, `update`.
 - **Adapters:** Claude Code, OpenCode, Reasonix, pi.
 
 ## Install
@@ -50,7 +50,7 @@ Or build from source (needs a Rust toolchain):
 cargo install --git https://github.com/christopherarter/hector hector-cli
 ```
 
-Then run `hector --version`.
+Then run `hector --version`. Update to the latest release any time with `hector update` (for installer-based installs; source builds update with `cargo install … --force`).
 
 ## Connect your agent
 
@@ -117,8 +117,6 @@ Mapping: `pre-commit:` → `on: [pre-commit]`, `commands.<id>` → `checks.<id>`
 ## Documentation
 
 Full docs are in [`docs/`](docs/README.md) — start with [Getting started](docs/getting-started.md) or the [Architecture diagram](docs/architecture.md).
-
-> Note: the in-depth `docs/` guides are being migrated to the 0.4 checks model and may still show the older `gates:` syntax.
 
 ## Adapters
 

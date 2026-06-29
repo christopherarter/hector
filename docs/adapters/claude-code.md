@@ -1,8 +1,8 @@
 # Claude Code adapter
 
-The Claude Code adapter runs your Hector gates every time Claude edits a file. When an edit breaks a gate, Claude Code rejects it on the spot, hands Claude the verdict, and Claude rewrites the change to comply. You stop having to remember to run `hector check` yourself; the gate is always on.
+The Claude Code adapter runs your Hector checks every time Claude edits a file. When an edit breaks a check, Claude Code rejects it on the spot, hands Claude the verdict, and Claude rewrites the change to comply. You stop having to remember to run `hector check` yourself; the check is always on.
 
-The adapter ships in this repo at `adapters/claude-code/`. It predates the 0.3 gates redesign, so its alignment to the gate ABI (`$HECTOR_FILE`, the proposed post-edit content on stdin, exit `2` blocks) is still in progress under Plan 4; the `.hector.yml` gate format shown below is current regardless.
+The adapter ships in this repo at `adapters/claude-code/`. It predates the 0.3 gates redesign, so its alignment to the check ABI (`$HECTOR_FILE`, the proposed post-edit content on stdin, any nonzero exit blocks) is still in progress under Plan 4; the `.hector.yml` check format shown below is current regardless.
 
 ## Install
 
@@ -24,7 +24,7 @@ To remove the hook, its artifacts, and the sidecar (leaving `.hector.yml` and th
 hector init --uninstall --harness claude-code
 ```
 
-This settings-hook install gives you the **gate** and installs the `hector-config` authoring skill into `.claude/skills/hector-config/`. `/hector-init` and `/hector-review` ship with the plugin package — see [Author and review gates from inside Claude](#author-and-review-gates-from-inside-claude) below.
+This settings-hook install gives you the **check** and installs the `hector-config` authoring skill into `.claude/skills/hector-config/`. `/hector-init` and `/hector-review` ship with the plugin package — see [Author and review checks from inside Claude](#author-and-review-checks-from-inside-claude) below.
 
 If you wrote `.hector.yml` by hand instead of letting `hector init` scaffold it, trust it before checks will run:
 
@@ -40,25 +40,25 @@ Here is the whole point of the adapter, end to end. Suppose your `.hector.yml` b
 
 ```yaml
 # .hector.yml
-gates:
+checks:
   no-debug:
     files: "**/*.ts"
-    run: "! grep -n 'DEBUG' || exit 2"  # proposed content arrives on stdin
+    run: "! grep -n 'DEBUG'"  # proposed content arrives on stdin
 ```
 
-Ask Claude to add a `DEBUG` marker to a `.ts` file. The instant Claude writes the edit, the adapter runs `hector check` against that file, the `no-debug` gate exits `2`, and Claude Code rejects the edit. Claude reads the returned block message — the gate's own output — sees that it broke `no-debug`, and rewrites the change without the marker. The retry happens in the transcript while you watch; you never touched the keyboard.
+Ask Claude to add a `DEBUG` marker to a `.ts` file. The instant Claude writes the edit, the adapter runs `hector check` against that file, the `no-debug` check exits nonzero, and Claude Code rejects the edit. Claude reads the returned block message — the check's own output — sees that it broke `no-debug`, and rewrites the change without the marker. The retry happens in the transcript while you watch; you never touched the keyboard.
 
-A clean edit, one that breaks no gate, lands normally and you see nothing at all. That silence is the adapter working.
+A clean edit, one that breaks no check, lands normally and you see nothing at all. That silence is the adapter working.
 
 ## What runs, and when
 
 Every adapter follows the [same lifecycle](README.md#what-adapters-do); here is how Claude Code wires it:
 
-**After every edit.** When Claude finishes an `Edit` or `Write`, the adapter runs `hector check --file <path>`. A block rejects the edit and Claude retries. This is the gate you saw above.
+**After every edit.** When Claude finishes an `Edit` or `Write`, the adapter runs `hector check --file <path>`. A block rejects the edit and Claude retries. This is the check you saw above.
 
-## Author and review gates from inside Claude
+## Author and review checks from inside Claude
 
-`hector init --harness claude-code` installs the **`hector-config`** authoring skill into `.claude/skills/hector-config/` — the gate schema, the exit-code contract, and common patterns with a fixture-test loop. Run `hector schema` any time to print the same guide at the terminal. `/hector-init` and `/hector-review` ship with the Claude Code **plugin** instead (see [Managing policy from inside the agent](README.md#managing-policy-from-inside-the-agent)).
+`hector init --harness claude-code` installs the **`hector-config`** authoring skill into `.claude/skills/hector-config/` — the check schema, the exit-code contract, and common patterns with a fixture-test loop. Run `hector schema` any time to print the same guide at the terminal. `/hector-init` and `/hector-review` ship with the Claude Code **plugin** instead (see [Managing policy from inside the agent](README.md#managing-policy-from-inside-the-agent)).
 
 The plugin layout lives in this repo at `adapters/claude-code/`. For local development, link it into Claude Code's plugin directory and restart:
 
@@ -66,7 +66,7 @@ The plugin layout lives in this repo at `adapters/claude-code/`. For local devel
 ln -sf "$(pwd)/adapters/claude-code" ~/.claude/plugins/data/hector
 ```
 
-Once Hector is published to the plugin marketplace you can skip the symlink and run `/plugin install hector` instead. The plugin registers the same `PostToolUse` gate, so install it *or* run `hector init --harness claude-code` — not both.
+Once Hector is published to the plugin marketplace you can skip the symlink and run `/plugin install hector` instead. The plugin registers the same `PostToolUse` check, so install it *or* run `hector init --harness claude-code` — not both.
 
 ## When edits aren't being gated
 
@@ -82,7 +82,7 @@ For a one-shot health check, run [`hector doctor`](../operating/diagnostics.md).
 
 ## How it works
 
-The adapter is one bash script that Claude Code calls on `PostToolUse` (matching `Edit` \| `Write`). It only ever shells out to the `hector` binary and holds no policy logic of its own, so changing a gate never means touching the adapter. It translates `hector check`'s exit codes into allow/reject per [the exit-code contract](README.md#the-exit-code-contract). The adapter gates edits and nothing else — it does not proxy Claude's `Read`, `Grep`, or `Glob` tools.
+The adapter is one bash script that Claude Code calls on `PostToolUse` (matching `Edit` \| `Write`). It only ever shells out to the `hector` binary and holds no policy logic of its own, so changing a check never means touching the adapter. It translates `hector check`'s exit codes into allow/reject per [the exit-code contract](README.md#the-exit-code-contract). The adapter hooks edits and nothing else — it does not proxy Claude's `Read`, `Grep`, or `Glob` tools.
 
 ## See also
 

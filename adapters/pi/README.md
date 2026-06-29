@@ -1,16 +1,16 @@
 # Hector — pi adapter
 
 [pi](https://pi.dev) extension integration for Hector. Mirrors the OpenCode and
-Claude Code adapters: it gates `write` / `edit` tool calls against your
+Claude Code adapters: it runs checks on `write` / `edit` tool calls against your
 project's `.hector.yml` policy **before they execute**. It is a static,
-per-file pre-write gate — each tool call is checked on its own.
+per-file pre-write check — each tool call is evaluated on its own.
 
 The extension is a pure translation layer between pi's lifecycle and the
 `hector` binary — it contains no policy logic of its own.
 
 | pi event | Action |
 |----------|--------|
-| `tool_call` (`write` / `edit`) | Compute the proposed content, run `hector check --file <path> --content - --format json`, and `return { block: true, reason }` on a block (exit 2) — where `reason` is the blocking gate's message, parsed from the JSON verdict's `blocks[].message`. The check runs against piped stdin — nothing is written to disk. |
+| `tool_call` (`write` / `edit`) | Compute the proposed content, run `hector check --file <path> --content - --format json`, and `return { block: true, reason }` on a block (exit 2) — where `reason` is the blocking check's message, parsed from the JSON verdict's `blocks[].message`. The check runs against piped stdin — nothing is written to disk. |
 
 ## Install
 
@@ -42,7 +42,7 @@ Your `.hector.yml` and trust store are untouched.
 
 ## Requirements
 
-- The `hector` binary on `PATH` (`cargo install hector` or a release binary), ≥ 0.1.
+- The `hector` binary on `PATH` (`cargo install --git https://github.com/christopherarter/hector hector-cli` or a release binary), ≥ 0.1.
 - Node ≥ 22.6 (pi's runtime; also required for the bundled `node:test` suite).
 
 ## Manual fallback
@@ -88,7 +88,7 @@ hector trust   # bless the config in the out-of-repo trust store
 Trust is **required**: `check` fails closed (exit 1) on a config that is missing
 from, or no longer matches, the trust store at `$XDG_CONFIG_HOME/hector/trust.json`
 (else `~/.config/hector/trust.json`). The adapter treats exit 1 as a config error
-and **allows** the edit (fail-open), so an untrusted config leaves the gate
+and **allows** the edit (fail-open), so an untrusted config leaves the check
 silently inert — re-run `hector trust` after every edit to `.hector.yml`.
 
 ## Exit-code contract
@@ -105,15 +105,15 @@ The extension honours the `hector` CLI exit-code contract
 
 ## Known gaps (v1)
 
-- **`bash`-tool shell-out** (`cat > foo`, redirections) bypasses the gate — universal across all adapters; arbitrary commands are too brittle to parse.
-- **`edit` fuzzy-match fallback** can't be faithfully simulated, so those edits skip the gate (fail-open on simulate-failure). Exact + unique `oldText` edits gate normally.
-- **Gates that read the file from disk** (via `$HECTOR_FILE`) see the *pre-edit* content; only the proposed post-edit content piped on **stdin** reflects the pending change. `hector-disable` directives carried in that proposed content are honoured.
+- **`bash`-tool shell-out** (`cat > foo`, redirections) bypasses the check — universal across all adapters; arbitrary commands are too brittle to parse.
+- **`edit` fuzzy-match fallback** can't be faithfully simulated, so those edits skip the check (fail-open on simulate-failure). Exact + unique `oldText` edits check normally.
+- **Checks that read the file from disk** (via `$HECTOR_FILE`) see the *pre-edit* content; only the proposed post-edit content piped on **stdin** reflects the pending change. `hector-disable` directives carried in that proposed content are honoured.
 - **pi subagents** are not specially handled (deferred).
-- **No cross-edit checks.** The gate evaluates each `write` / `edit` in isolation; it does not aggregate edits across a turn.
+- **No cross-edit checks.** The check evaluates each `write` / `edit` in isolation; it does not aggregate edits across a turn.
 
 ## Diagnostic
 
-If the gate isn't firing:
+If the check isn't firing:
 
 1. `hector --version` runs on `PATH`.
 2. `.hector.yml` is present in the project root.

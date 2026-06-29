@@ -64,6 +64,7 @@ fn main() -> Result<()> {
             commands::show_resolved_config::run(&config, format)?
         }
         Command::Schema => commands::schema::run()?,
+        Command::Update => commands::update::run()?,
     };
     std::process::exit(code);
 }

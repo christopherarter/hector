@@ -1,20 +1,20 @@
 # Targeting files
 
-Every gate has a `files:` glob — the pattern that decides which files the gate runs against.
+Every check has a `files:` glob — the pattern that decides which files the check runs against.
 
 ```yaml
 # .hector.yml
-gates:
+checks:
   no-console:
     files: "**/*.ts"                       # one glob
-    run: "! grep -n 'console.log' || exit 2"  # proposed content arrives on stdin
+    run: "! grep -n 'console.log'"  # proposed content arrives on stdin
 
   ts-style:
     files: ["src/**/*.ts", "app/**/*.ts"]  # or a list
     run: ".hector/gates/style.sh"
 ```
 
-`files` is a single glob or a list of globs. A gate runs against a file when *any* of its globs matches. A file matched by no gate is checked against nothing and passes.
+`files` is a single glob or a list of globs. A check runs against a file when *any* of its globs matches. A file matched by no check is checked against nothing and passes.
 
 ## Bare patterns match at any depth
 
@@ -32,7 +32,7 @@ A bare extension glob is right-anchored so it catches the file at any depth. Thi
 
 ## Checking what matches
 
-To confirm which gates are in scope for a given file, run `hector explain`:
+To confirm which checks are in scope for a given file, run `hector explain`:
 
 ```bash
 hector explain src/app.ts
@@ -43,5 +43,5 @@ See [Inspecting your config](../operating/inspecting-config.md).
 ## See also
 
 - [Config schema](../reference/config-schema.md) — the full `files` / `run` shape
-- [Disabling a gate in-line](disabling.md) — turning one gate off in a single file
-- [Sharing config with `extends:`](inheritance.md) — inherit gates across repos
+- [Disabling a check in-line](disabling.md) — turning one check off in a single file
+- [Sharing config with `extends:`](inheritance.md) — inherit checks across repos

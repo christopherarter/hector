@@ -49,7 +49,7 @@ fresh machine before you can build):
 
    Copy `hooks/settings.example.json` into the target settings file, merging with any existing `hooks` keys.
 
-3. In each project you want hector to gate, run `hector init && hector trust` to scaffold and fingerprint a `.hector.yml`.
+3. In each project you want hector to check, run `hector init && hector trust` to scaffold and fingerprint a `.hector.yml`.
 
 The hook is a silent no-op in any project that lacks `.hector.yml`, so installing globally is safe.
 
@@ -69,19 +69,19 @@ The hook is a silent no-op in any project that lacks `.hector.yml`, so installin
 
 Per-edit content reaches hector via stdin (`--content -`), keeping argv free of large payloads. The `--file` path is the real on-disk path so scope globs, baseline matching, and AST language detection all key off the project's actual layout — not a tempfile.
 
-### `engine: script` rules and pre-write gating
+### Checks and pre-write gating
 
-`engine: script` rules receive the proposed content on the command's **stdin**. Write the tool's stdin form in `.hector.yml` and the rule gates the proposed edit before it lands on disk — e.g.:
+Checks receive the proposed content on **stdin**. Write the check's `run` command in `.hector.yml` and the check evaluates the proposed edit before it lands on disk — e.g.:
 
 ```yaml
-script: "biome check --stdin-file-path={file}"
-script: "ruff check --stdin-filename {file} -"
-script: "eslint --stdin --stdin-filename {file}"
+run: "biome check --stdin-file-path=$HECTOR_FILE"
+run: "ruff check --stdin-filename $HECTOR_FILE -"
+run: "eslint --stdin --stdin-filename $HECTOR_FILE"
 ```
 
-`{file}` is a path/extension hint (for config lookup and language detection); the content comes from stdin. A path-only command (`biome check {file}`) still reads the on-disk file and is silently wrong under PreToolUse.
+`$HECTOR_FILE` is a path/extension hint (for config lookup and language detection); the content comes from stdin. A path-only command (`biome check $HECTOR_FILE`) still reads the on-disk file and is silently wrong under PreToolUse.
 
-**Per-tool boundary (not per-harness):** stdin-capable single-file tools (biome, eslint, ruff, prettier, shellcheck, …) can gate pre-write. Whole-program tools — tsc, cargo, test runners, anything that needs the full project tree — cannot gate a single proposed file meaningfully; run those post-write or in CI. This boundary is a property of the tool, not of this adapter or Reasonix.
+**Per-tool boundary (not per-harness):** stdin-capable single-file tools (biome, eslint, ruff, prettier, shellcheck, …) can check pre-write. Whole-program tools — tsc, cargo, test runners, anything that needs the full project tree — cannot check a single proposed file meaningfully; run those post-write or in CI. This boundary is a property of the tool, not of this adapter or Reasonix.
 
 ### Limitation: `bash` tool shell-out
 
@@ -97,4 +97,4 @@ A `bash` tool call that writes a file via `cat > foo.ts` (or any shell redirecti
 | stdin field for path | `tool_input.file_path` | `toolArgs.path` |
 | Edit tool names | `Edit`, `Write` | `edit_file`, `write_file`, `multi_edit` |
 
-Both adapters run per-file `hector check` gates only; hector is a static `script` + `ast` gate.
+Both adapters run per-file `hector check`; hector is a static check runner.

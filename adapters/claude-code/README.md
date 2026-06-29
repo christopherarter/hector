@@ -43,11 +43,11 @@ are untouched.
 
 Use these steps if the `hector` binary is not available:
 
-1. Install the `hector` binary (`cargo install hector`, or use a release binary).
+1. Install the `hector` binary (`cargo install --git https://github.com/christopherarter/hector hector-cli`, or use a release binary).
 2. Add this plugin via your Claude Code plugin manager.
 3. Run `hector init` in a project to scaffold `.hector.yml`.
 4. Review the config and run `hector trust` to fingerprint it.
-5. Edit any file — the PostToolUse hook will gate edits against the rules.
+5. Edit any file — the PostToolUse hook will check edits against the policy.
 
 ## Requirements
 

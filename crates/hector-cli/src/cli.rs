@@ -131,6 +131,15 @@ pub enum Command {
     /// Print the canonical check-authoring guide (the `.hector.yml` schema and
     /// patterns). Read-only.
     Schema,
+    /// Update hector to the latest release.
+    ///
+    /// Checks GitHub for a newer version and, if there is one, downloads and
+    /// installs it in place, then reports `from → to`. Exit codes: `0` on a
+    /// successful update or when already current; `1` on failure — including
+    /// when this build wasn't installed by the hector installer
+    /// (Homebrew/cargo/source builds) and so can't self-update, in which case
+    /// it prints the channel-specific command that will.
+    Update,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
