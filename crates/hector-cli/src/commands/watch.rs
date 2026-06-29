@@ -6,10 +6,15 @@
 use anyhow::Result;
 use hector_core::telemetry::LogEntry;
 use hector_core::verdict::Status;
-use hector_core::watch::{fmt_elapsed, lifecycle_badge, short_time, status_glyph, CheckRollup, LogSummary};
+use hector_core::watch::{
+    fmt_elapsed, lifecycle_badge, short_time, status_glyph, CheckRollup, LogSummary,
+};
 use ratatui::crossterm::event::KeyCode;
+use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Frame;
 use std::io::IsTerminal;
 use std::path::Path;
 
@@ -141,7 +146,10 @@ fn rollup_line(r: &CheckRollup, selected: bool) -> Line<'static> {
         Span::raw(marker),
         Span::styled("● ", Style::default().fg(dot_color)),
         Span::styled(format!("{:<20}", r.name), name_style),
-        Span::styled(format!("{} ", lifecycle_badge(&r.on)), Style::default().fg(MUTED)),
+        Span::styled(
+            format!("{} ", lifecycle_badge(&r.on)),
+            Style::default().fg(MUTED),
+        ),
         Span::styled(warn, Style::default().fg(AMBER)),
         Span::raw(format!("  {:>3}", r.blocks)),
         Span::styled(format!("  {:>4}%", rate), Style::default().fg(MUTED)),
@@ -183,6 +191,84 @@ pub fn explorer_lines(summary: &LogSummary, selected: usize) -> Vec<Line<'static
         lines.push(rollup_line(r, i == selected));
     }
     lines
+}
+
+fn header_line(state: &ViewState, summary: &LogSummary, clock: &str) -> Line<'static> {
+    let (stream_style, explorer_style) = match state.view {
+        View::Stream => (
+            Style::default().fg(ORANGE).add_modifier(Modifier::BOLD),
+            Style::default().fg(MUTED),
+        ),
+        View::Explorer => (
+            Style::default().fg(MUTED),
+            Style::default().fg(ORANGE).add_modifier(Modifier::BOLD),
+        ),
+    };
+    let status_word = if summary.blocks > 0 { "BLOCK" } else { "PASS" };
+    Line::from(vec![
+        Span::styled("≈ stream", stream_style),
+        Span::raw("   "),
+        Span::styled("▤ explorer", explorer_style),
+        Span::raw("        "),
+        Span::styled(
+            format!("{status_word} · {clock}"),
+            Style::default().fg(MUTED),
+        ),
+    ])
+}
+
+fn footer_line(state: &ViewState, summary: &LogSummary, armed: usize) -> Line<'static> {
+    match state.view {
+        View::Stream => Line::from(Span::styled(
+            format!(
+                "{armed} checks armed · {} runs · {} blocks        → explorer   q quit",
+                summary.runs, summary.blocks
+            ),
+            Style::default().fg(MUTED),
+        )),
+        View::Explorer => Line::from(Span::styled(
+            "↑↓ select   ↵ open check log        → stream   q quit".to_string(),
+            Style::default().fg(MUTED),
+        )),
+    }
+}
+
+/// Draw the full TUI for the current state.
+// Phase 4 event loop calls this; not dead.
+#[allow(dead_code)]
+pub fn ui(
+    frame: &mut Frame,
+    entries: &[LogEntry],
+    summary: &LogSummary,
+    armed: usize,
+    state: &ViewState,
+    clock: &str,
+) {
+    let chunks = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(frame.area());
+
+    frame.render_widget(
+        Paragraph::new(header_line(state, summary, clock)),
+        chunks[0],
+    );
+
+    let body = match state.view {
+        View::Stream => stream_lines(entries, state.filter.as_deref()),
+        View::Explorer => explorer_lines(summary, state.selected),
+    };
+    frame.render_widget(
+        Paragraph::new(body).block(Block::default().borders(Borders::TOP)),
+        chunks[1],
+    );
+
+    frame.render_widget(
+        Paragraph::new(footer_line(state, summary, armed)),
+        chunks[2],
+    );
 }
 
 /// Entry point. Requires an interactive terminal; otherwise exits 1 with a hint.
@@ -476,7 +562,10 @@ mod tests {
             blocks: 3,
             internal: 0,
             pass: 7,
-            rollups: vec![roll("nft", 15, 3, 0, Some(11)), roll("no-secrets", 50, 0, 0, Some(3))],
+            rollups: vec![
+                roll("nft", 15, 3, 0, Some(11)),
+                roll("no-secrets", 50, 0, 0, Some(3)),
+            ],
         };
         let lines = explorer_lines(&s, 0);
         let text = all_text(&lines);
@@ -485,7 +574,10 @@ mod tests {
         assert!(text.contains("11ms"));
         assert!(text.contains("NO BLOCKS IN LOG"));
         assert!(text.contains("no-secrets"));
-        let nft_idx = lines.iter().position(|l| line_text(l).contains("nft")).unwrap();
+        let nft_idx = lines
+            .iter()
+            .position(|l| line_text(l).contains("nft"))
+            .unwrap();
         let div_idx = lines
             .iter()
             .position(|l| line_text(l).contains("NO BLOCKS IN LOG"))
@@ -522,6 +614,74 @@ mod tests {
         };
         let text = all_text(&explorer_lines(&s, 0));
         assert!(!text.contains("NO BLOCKS IN LOG"));
+    }
+
+    // ── Task 3.3: ui() ───────────────────────────────────────────────────────
+
+    #[test]
+    fn ui_stream_view_renders_feed_and_footer() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let entries = vec![entry(
+            Some("src/auth.ts"),
+            None,
+            "write",
+            Status::Pass,
+            vec![prec("lint", Status::Pass, None)],
+        )];
+        let summary = LogSummary {
+            runs: 1,
+            blocks: 0,
+            internal: 0,
+            pass: 1,
+            rollups: vec![roll("lint", 1, 0, 0, Some(5))],
+        };
+        let state = ViewState::default();
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        term.draw(|f| ui(f, &entries, &summary, 7, &state, "14:24:00"))
+            .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("stream"));
+        assert!(text.contains("explorer"));
+        assert!(text.contains("src/auth.ts"));
+        assert!(text.contains("7 checks armed"));
+        assert!(text.contains("quit"));
+    }
+
+    #[test]
+    fn ui_explorer_view_renders_table() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let summary = LogSummary {
+            runs: 10,
+            blocks: 1,
+            internal: 0,
+            pass: 9,
+            rollups: vec![roll("nft", 5, 1, 0, Some(11))],
+        };
+        let state = ViewState {
+            view: View::Explorer,
+            selected: 0,
+            filter: None,
+        };
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        term.draw(|f| ui(f, &[], &summary, 7, &state, "14:24:09"))
+            .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("RANKED BY BLOCKS"));
+        assert!(text.contains("nft"));
     }
 
     // ── Existing Phase 2 tests (handle_key) ──────────────────────────────────
