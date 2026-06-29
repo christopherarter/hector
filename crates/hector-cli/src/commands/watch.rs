@@ -245,6 +245,7 @@ pub fn ui(
     armed: usize,
     state: &ViewState,
     clock: &str,
+    config_loaded: bool,
 ) {
     let chunks = Layout::vertical([
         Constraint::Length(2),
@@ -258,10 +259,33 @@ pub fn ui(
         chunks[0],
     );
 
-    let body = match state.view {
-        View::Stream => stream_lines(entries, state.filter.as_deref()),
-        View::Explorer => explorer_lines(summary, state.selected),
+    let mut body = if !config_loaded && matches!(state.view, View::Stream) && entries.is_empty() {
+        // Degraded + cold: show only the banner (no empty box beneath it).
+        vec![]
+    } else if config_loaded && matches!(state.view, View::Stream) && entries.is_empty() {
+        // Cold-start hint: no entries yet but config is fine.
+        vec![Line::from(Span::styled(
+            "waiting for edits\u{2026}",
+            Style::default().fg(MUTED),
+        ))]
+    } else {
+        match state.view {
+            View::Stream => stream_lines(entries, state.filter.as_deref()),
+            View::Explorer => explorer_lines(summary, state.selected),
+        }
     };
+
+    // Degraded-config banner at the top of the body area.
+    if !config_loaded {
+        body.insert(
+            0,
+            Line::from(Span::styled(
+                "\u{26a0} config unavailable \u{2014} tailing log only",
+                Style::default().fg(AMBER),
+            )),
+        );
+    }
+
     frame.render_widget(
         Paragraph::new(body).block(Block::default().borders(Borders::TOP)),
         chunks[1],
@@ -274,28 +298,32 @@ pub fn ui(
 }
 
 /// Resolve the armed-check projection from `<dir>/.hector.yml`. Best-effort:
-/// returns empty on any load error (watch still tails the log).
-fn load_armed(dir: &Path) -> Vec<ArmedCheck> {
+/// returns `(checks, true)` on success, `([], false)` on any load error so the
+/// caller can show a degraded-config banner while still tailing the log.
+fn load_armed(dir: &Path) -> (Vec<ArmedCheck>, bool) {
     let config = dir.join(".hector.yml");
     match HectorEngine::load(&config) {
-        Ok(engine) => engine
-            .checks()
-            .iter()
-            .map(|(name, check)| ArmedCheck {
-                name: name.clone(),
-                on: check.on.clone(),
-            })
-            .collect(),
-        Err(_) => Vec::new(),
+        Ok(engine) => (
+            engine
+                .checks()
+                .iter()
+                .map(|(name, check)| ArmedCheck {
+                    name: name.clone(),
+                    on: check.on.clone(),
+                })
+                .collect(),
+            true,
+        ),
+        Err(_) => (Vec::new(), false),
     }
 }
 
-fn run_tui(dir: &Path, armed: &[ArmedCheck]) -> Result<()> {
+fn run_tui(dir: &Path, armed: &[ArmedCheck], config_loaded: bool) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
-    let result = event_loop(&mut terminal, dir, armed);
+    let result = event_loop(&mut terminal, dir, armed, config_loaded);
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     result
@@ -305,6 +333,7 @@ fn event_loop<B: Backend>(
     terminal: &mut Terminal<B>,
     dir: &Path,
     armed: &[ArmedCheck],
+    config_loaded: bool,
 ) -> Result<()> {
     let log = dir.join(".hector/log.jsonl");
     let mut state = ViewState::default();
@@ -312,7 +341,17 @@ fn event_loop<B: Backend>(
         let entries = hector_core::telemetry::read_all_quiet(&log).unwrap_or_default();
         let summary = summarize(&entries, armed);
         let clock = short_time(&chrono::Utc::now().to_rfc3339());
-        terminal.draw(|f| ui(f, &entries, &summary, armed.len(), &state, &clock))?;
+        terminal.draw(|f| {
+            ui(
+                f,
+                &entries,
+                &summary,
+                armed.len(),
+                &state,
+                &clock,
+                config_loaded,
+            );
+        })?;
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press
@@ -335,8 +374,8 @@ pub fn run(dir: &Path) -> Result<i32> {
         );
         return Ok(1);
     }
-    let armed = load_armed(dir);
-    run_tui(dir, &armed)?;
+    let (armed, config_loaded) = load_armed(dir);
+    run_tui(dir, &armed, config_loaded)?;
     Ok(0)
 }
 
@@ -486,7 +525,8 @@ mod tests {
             "checks:\n  lint:\n    files: \"*.ts\"\n    run: \"true\"\n    on: [write, pre-commit]\n",
         )
         .unwrap();
-        let armed = load_armed(dir.path());
+        let (armed, ok) = load_armed(dir.path());
+        assert!(ok);
         assert_eq!(armed.len(), 1);
         assert_eq!(armed[0].name, "lint");
         assert_eq!(
@@ -501,7 +541,9 @@ mod tests {
     #[test]
     fn load_armed_is_empty_when_config_missing() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(load_armed(dir.path()).is_empty());
+        let (armed, ok) = load_armed(dir.path());
+        assert!(armed.is_empty());
+        assert!(!ok);
     }
 
     // ── Task 3.1: stream_lines ────────────────────────────────────────────────
@@ -723,7 +765,7 @@ mod tests {
         };
         let state = ViewState::default();
         let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
-        term.draw(|f| ui(f, &entries, &summary, 7, &state, "14:24:00"))
+        term.draw(|f| ui(f, &entries, &summary, 7, &state, "14:24:00", true))
             .unwrap();
         let text: String = term
             .backend()
@@ -756,7 +798,7 @@ mod tests {
             filter: None,
         };
         let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
-        term.draw(|f| ui(f, &[], &summary, 7, &state, "14:24:09"))
+        term.draw(|f| ui(f, &[], &summary, 7, &state, "14:24:09", true))
             .unwrap();
         let text: String = term
             .backend()
@@ -767,6 +809,58 @@ mod tests {
             .collect();
         assert!(text.contains("RANKED BY BLOCKS"));
         assert!(text.contains("nft"));
+    }
+
+    // ── New ui state tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn ui_config_unavailable_shows_degraded_banner() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let summary = LogSummary {
+            runs: 0,
+            blocks: 0,
+            internal: 0,
+            pass: 0,
+            rollups: vec![],
+        };
+        let state = ViewState::default();
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        term.draw(|f| ui(f, &[], &summary, 0, &state, "14:00:00", false))
+            .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("config unavailable"));
+    }
+
+    #[test]
+    fn ui_cold_start_shows_waiting_hint() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let summary = LogSummary {
+            runs: 0,
+            blocks: 0,
+            internal: 0,
+            pass: 0,
+            rollups: vec![],
+        };
+        let state = ViewState::default(); // Stream view, no filter
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        term.draw(|f| ui(f, &[], &summary, 0, &state, "14:00:00", true))
+            .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("waiting for edits"));
     }
 
     // ── Existing Phase 2 tests (handle_key) ──────────────────────────────────

@@ -425,4 +425,18 @@ mod tests {
         assert_eq!(status_glyph(Status::Block), '✗');
         assert_eq!(status_glyph(Status::InternalError), '⚠');
     }
+
+    #[test]
+    fn rate_returns_zero_on_zero_runs() {
+        let r = CheckRollup {
+            name: "x".into(),
+            on: vec![],
+            runs: 0,
+            blocks: 0,
+            internal: 0,
+            p50_ms: None,
+        };
+        // rate() returns exactly 0.0 for zero runs (literal branch); epsilon check avoids float_cmp lint.
+        assert!(r.rate() < f64::EPSILON);
+    }
 }
