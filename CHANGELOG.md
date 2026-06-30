@@ -2,6 +2,38 @@
 
 Notable changes to Hector, newest first. In-flight work lives in `plans/`.
 
+## [0.5.0] — 2026-06-30 — temp files, `--force`, stack-agnostic init
+
+### Added
+
+- **`$HECTOR_TMPFILE`.** On a `write` event, when a check's `run`/`steps`
+  reference the token, hector materializes the proposed content (the bytes
+  also delivered on stdin) to a temp file beside `$HECTOR_FILE` with the same
+  extension, exports its absolute path, and removes it after the check. This is
+  for file-oriented tools (Biome, ESLint file-mode, `tsc`, ruff) that want a
+  real path on disk with the right extension rather than stdin. Creation is
+  lazy (only when the check references the token) and write-only — on
+  `pre-commit` the files are already on disk at `$HECTOR_FILES`, so the var is
+  unset. Materialization is bounded to the project root unless
+  `--allow-external-paths`. Additive to the check ABI — no schema change; a
+  check that never mentions the token is unaffected.
+- **`hector check --force`.** Run the named `--check <id>`(s) against `--file`
+  even when the path falls outside their `files` glob — for ad-hoc testing of a
+  check against an arbitrary fixture. Scope-only: the check-id filter, inline
+  `hector-disable` directives, and the `on:` lifecycle all still apply.
+  Requires `--check`; exits `1` if passed without it.
+
+### Changed
+
+- **`hector init` is stack-agnostic.** It no longer detects the toolchain or
+  scaffolds tool-specific checks — the Biome / ESLint / ruff wrappers and the
+  Rust/Node grep templates are gone, and so is the stack-detection that fed
+  them. `init` now emits one universal baseline — `no-fixme` and
+  `no-merge-markers` (both read proposed content from stdin) — plus commented,
+  copy-paste examples showing the stdin and `$HECTOR_TMPFILE` patterns. Harness
+  onboarding (installing hector's hook into claude-code / pi / opencode /
+  reasonix) is unchanged.
+
 ## [0.4.0] — 2026-06-29 — checks pipeline redesign
 
 ### Breaking
