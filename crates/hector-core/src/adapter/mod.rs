@@ -2,6 +2,7 @@
 mod json_settings;
 mod materialize;
 mod ops;
+mod plan;
 mod registry;
 
 pub use json_settings::{remove_from_hook_array, sync_hook_array, PatchResult};
@@ -13,6 +14,8 @@ pub use ops::{
     install, install_skill, status, uninstall, uninstall_skill, HarnessStatus, InstallOutcome,
     InstallResult,
 };
+pub use ops::{plan_install, plan_uninstall};
+pub use plan::PlanStep;
 pub use registry::{all_harnesses, JsonHookSpec, PluginSpec, SkillSpec, SKILL_NAME};
 
 use std::path::PathBuf;

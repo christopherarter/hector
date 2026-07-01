@@ -1,6 +1,7 @@
 use crate::adapter::materialize::{
     atomic_write, backup_once, read_sidecar, sha256_hex, write_sidecar, AdapterSidecar,
 };
+use crate::adapter::plan::PlanStep;
 use crate::adapter::registry::{JsonHookSpec, PluginSpec, SkillSpec};
 use crate::adapter::SKILL_NAME;
 use crate::adapter::{
@@ -258,6 +259,59 @@ pub fn uninstall_skill(
     })
 }
 
+// --- plan (preview; writes nothing) ------------------------------------------
+
+/// Full onboarding footprint for `h`: hook/plugin file(s), the settings patch
+/// (JsonHook only), and the authoring skill. Computes paths only — no I/O.
+pub fn plan_install(h: &Harness, env: &AdapterEnv, scope: Scope) -> Vec<PlanStep> {
+    let mut steps = match &h.kind {
+        HarnessKind::JsonHook(spec) => {
+            let dir = adapters_dir(env).join(h.name);
+            let mut v: Vec<PlanStep> = spec
+                .files
+                .iter()
+                .map(|(f, _)| PlanStep::Hook { path: dir.join(f) })
+                .collect();
+            v.push(PlanStep::Patch {
+                path: settings_path(spec, env, scope),
+                key: spec.array_key,
+            });
+            v
+        }
+        HarnessKind::Plugin(spec) => vec![PlanStep::Plugin {
+            path: plugin_dir(spec, env, scope).join(spec.filename),
+        }],
+    };
+    let skill_dir = skill_base(&h.skill, env, scope).join(SKILL_NAME);
+    steps.push(PlanStep::Skill {
+        path: skill_dir.join("SKILL.md"),
+    });
+    steps
+}
+
+/// Removal footprint for `h`: the adapter dir (JsonHook) or plugin file
+/// (Plugin), the settings patch (JsonHook), and the skill directory.
+pub fn plan_uninstall(h: &Harness, env: &AdapterEnv, scope: Scope) -> Vec<PlanStep> {
+    let mut steps = match &h.kind {
+        HarnessKind::JsonHook(spec) => vec![
+            PlanStep::Hook {
+                path: adapters_dir(env).join(h.name),
+            },
+            PlanStep::Patch {
+                path: settings_path(spec, env, scope),
+                key: spec.array_key,
+            },
+        ],
+        HarnessKind::Plugin(spec) => vec![PlanStep::Plugin {
+            path: plugin_dir(spec, env, scope).join(spec.filename),
+        }],
+    };
+    steps.push(PlanStep::Skill {
+        path: skill_base(&h.skill, env, scope).join(SKILL_NAME),
+    });
+    steps
+}
+
 #[cfg(unix)]
 fn set_executable(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -428,7 +482,9 @@ fn settings_has_marker(path: &Path, key: &str, marker: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{all_harnesses, AdapterEnv, Scope};
+    use crate::adapter::{
+        all_harnesses, plan_install, plan_uninstall, AdapterEnv, PlanStep, Scope,
+    };
 
     fn harness(name: &str) -> crate::adapter::Harness {
         all_harnesses()
@@ -705,5 +761,63 @@ mod tests {
             .home
             .join(".pi/agent/skills/hector-config/SKILL.md")
             .exists());
+    }
+
+    #[test]
+    fn plan_install_jsonhook_lists_files_patch_and_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        let steps = plan_install(&harness("claude-code"), &e, Scope::Local);
+        // two hook files + one patch + one skill
+        let hooks = steps
+            .iter()
+            .filter(|s| matches!(s, PlanStep::Hook { .. }))
+            .count();
+        assert_eq!(hooks, 2, "claude-code ships hook.sh + synthesize_diff.sh");
+        assert!(steps
+            .iter()
+            .any(|s| matches!(s, PlanStep::Patch { key, .. } if *key == "PostToolUse")));
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Skill { .. })));
+    }
+
+    #[test]
+    fn plan_install_plugin_lists_plugin_and_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        let steps = plan_install(&harness("pi"), &e, Scope::Local);
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Plugin { .. })));
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Skill { .. })));
+        assert!(!steps.iter().any(|s| matches!(s, PlanStep::Patch { .. })));
+    }
+
+    #[test]
+    fn plan_install_writes_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        let _ = plan_install(&harness("reasonix"), &e, Scope::Global);
+        assert!(!e
+            .config_home
+            .join("hector/adapters/reasonix/hook.sh")
+            .exists());
+        assert!(!tmp.path().join(".reasonix/settings.json").exists());
+    }
+
+    #[test]
+    fn plan_uninstall_jsonhook_lists_dir_patch_and_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        let steps = plan_uninstall(&harness("reasonix"), &e, Scope::Global);
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Hook { .. })));
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Patch { .. })));
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Skill { .. })));
+    }
+
+    #[test]
+    fn plan_uninstall_plugin_lists_file_and_skill() {
+        let tmp = tempfile::tempdir().unwrap();
+        let e = env(tmp.path());
+        let steps = plan_uninstall(&harness("opencode"), &e, Scope::Local);
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Plugin { .. })));
+        assert!(steps.iter().any(|s| matches!(s, PlanStep::Skill { .. })));
     }
 }
