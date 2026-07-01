@@ -1,8 +1,8 @@
-# Hector `check` end-to-end audit — 2026-05-24
+# IronLint `check` end-to-end audit — 2026-05-24
 
 **Date:** 2026-05-24
 **Auditors:** Claude (Opus 4.7, 1M context) + Codex (separate session). Cross-checked adversarially before consolidation.
-**Scope:** `hector check` from CLI to verdict. Specifically: `commands::check::run` → `runner::HectorEngine::{load,check_inner,check_session,build_deferred_envelope,evaluate_one_rule}` → `diff::parser`, `config::extends`, `trust`, `baseline`, `disable`, `telemetry`, and the adapter hook/plugin paths that synthesize diffs (`adapters/claude-code/hooks/{hook,synthesize_diff}.sh`, `adapters/opencode/src/index.ts`).
+**Scope:** `ironlint check` from CLI to verdict. Specifically: `commands::check::run` → `runner::IronLintEngine::{load,check_inner,check_session,build_deferred_envelope,evaluate_one_rule}` → `diff::parser`, `config::extends`, `trust`, `baseline`, `disable`, `telemetry`, and the adapter hook/plugin paths that synthesize diffs (`adapters/claude-code/hooks/{hook,synthesize_diff}.sh`, `adapters/opencode/src/index.ts`).
 
 ## How to use this document
 
@@ -46,7 +46,7 @@ Severity:
 
 ### A1 — Baseline silently makes `output: passthrough` rules a permanent per-file disable {#a1}
 
-**Files:** `crates/hector-core/src/baseline.rs:205-219`, `crates/hector-core/src/engine/script.rs:148-177`, `crates/hector-core/src/config/types.rs:112-118`.
+**Files:** `crates/ironlint-core/src/baseline.rs:205-219`, `crates/ironlint-core/src/engine/script.rs:148-177`, `crates/ironlint-core/src/config/types.rs:112-118`.
 
 **Evidence.** `OutputMode::Passthrough` is the default since R4 (2026-05-23) — it's now the dominant emission path for script rules. Passthrough emits one `Violation` with `line: None` and the verbatim tool output in `message`. `Baseline::checksum_matches` then short-circuits on `line: None`:
 
@@ -56,7 +56,7 @@ let Some(n) = line else {
 };
 ```
 
-So once an operator runs `hector baseline record` to snapshot current violations, every future violation of that `(rule_id, file)` combo is silenced *forever*, regardless of message content or what changed. A file with `DEBUG_OLD` is baselined; the user edits to `DEBUG_NEW`; hector says "pass." The existing test `line_none_violation_baselines_without_checksum` enshrines this behavior, but it was written before passthrough became the default — the implicit contract has shifted out from under the test.
+So once an operator runs `ironlint baseline record` to snapshot current violations, every future violation of that `(rule_id, file)` combo is silenced *forever*, regardless of message content or what changed. A file with `DEBUG_OLD` is baselined; the user edits to `DEBUG_NEW`; ironlint says "pass." The existing test `line_none_violation_baselines_without_checksum` enshrines this behavior, but it was written before passthrough became the default — the implicit contract has shifted out from under the test.
 
 **Why this is P0.** The two new defaults — `passthrough` script output and "baseline is the standard pre-edit hygiene step" — combine to make baseline a per-file disable for the most common rule type. Operators reach for baseline expecting "snapshot current state, surface anything new"; they get a config-edit-shaped silencer instead.
 
@@ -78,7 +78,7 @@ This keeps the same matching semantics for line-bearing violations (key + line-c
 - [x] `Baseline::contains_with_content` requires both fingerprint match *and* (body_checksum match OR body_checksum absent — grace period).
 - [x] `Baseline::refresh` recomputes body checksums.
 - [x] Update existing test `line_none_violation_baselines_without_checksum` to **invert** its assertion — different content of the same rule on the same file must now resurface.
-- [x] Add fixture for v3 on-disk format under `crates/hector-core/tests/fixtures/`.
+- [x] Add fixture for v3 on-disk format under `crates/ironlint-core/tests/fixtures/`.
 - [x] Document the new matching contract in `README.md` baseline section and `CHANGELOG.md`.
 
 **Wire-format impact:** baseline JSON gains a field. Strictly additive on read (v2 still loads under grace period); strictly newer on write. Adapters and `record_verdict` are unaffected.
@@ -87,7 +87,7 @@ This keeps the same matching semantics for line-bearing violations (key + line-c
 
 ### A2 — Diff parser drops `\t<timestamp>` from `+++ b/` headers → entire diff mode no-ops for non-git patches {#a2}
 
-**Files:** `crates/hector-core/src/diff/parser.rs:17-22`, `crates/hector-cli/src/commands/check.rs:284-316`.
+**Files:** `crates/ironlint-core/src/diff/parser.rs:17-22`, `crates/ironlint-cli/src/commands/check.rs:284-316`.
 
 **Evidence.** Parser:
 
@@ -102,7 +102,7 @@ POSIX `diff -u` emits `+++ b/<path>\t<timestamp>`. The tab+timestamp survives th
 
 ```bash
 $ printf -- '--- a/src/lib.rs\t2026-05-24 14:30:00 +0000\n+++ b/src/lib.rs\t2026-05-24 14:30:00 +0000\n@@ -1,1 +1,2 @@\n fn main() {}\n+// TODO: ship it\n' > t.patch
-$ hector check --diff t.patch --config .hector.yml --format json
+$ ironlint check --diff t.patch --config .ironlint.yml --format json
 {"status":"pass","passed_checks":[],"violations":[]}    # ← zero rules ran
 ```
 
@@ -129,7 +129,7 @@ Same diff without the `\t<timestamp>` blocks correctly. `git diff` happens to om
 
 ### B1 — Diff-mode file reads resolve against process CWD, not `config_dir` {#b1}
 
-**Files:** `crates/hector-core/src/runner.rs:812-825`, `crates/hector-cli/src/commands/check.rs:98-127`, `crates/hector-core/src/engine/context.rs:19-31`.
+**Files:** `crates/ironlint-core/src/runner.rs:812-825`, `crates/ironlint-cli/src/commands/check.rs:98-127`, `crates/ironlint-core/src/engine/context.rs:19-31`.
 
 **Evidence.** `check_inner` for `CheckInput::Diff`:
 
@@ -141,11 +141,11 @@ let content = std::fs::read_to_string(&file).unwrap_or_default();
 
 The asymmetry: **script rules** spawn `sh -c <cmd>` with `cwd: &self.config_dir` (`engine/capability.rs::spawn_with_timeout`), so they DO see the file. **AST rules**, **disable directives**, and **semantic rules with `context: file`/`repo`** all use the in-process `content` buffer and silently degrade — AST emits an `__internal` violation, disable directives are never parsed from the file, semantic context can't load.
 
-Verified empirically: running `hector check --diff /abs/path/to/t.patch --config /abs/path/to/.hector.yml` from `/tmp` produces `rule_id: "no-panic__internal", engine: "internal", message: "ast engine requires file content (CheckInput::File)"`. The existing CLI test `cli_check_diff_processes_every_changed_file` masks the bug with `.current_dir(root)`.
+Verified empirically: running `ironlint check --diff /abs/path/to/t.patch --config /abs/path/to/.ironlint.yml` from `/tmp` produces `rule_id: "no-panic__internal", engine: "internal", message: "ast engine requires file content (CheckInput::File)"`. The existing CLI test `cli_check_diff_processes_every_changed_file` masks the bug with `.current_dir(root)`.
 
 **Why this is P1, not P0.** The bug is visible — the operator sees `__internal` violations and "engine errors." But it conflates "your config is wrong" with "the agent's environment is wrong," and any CI invocation that doesn't `cd $REPO_ROOT` first will quietly skip AST rules entirely.
 
-**Fix (the right way):** introduce a `resolve_input_path(&self, p: &Path) -> PathBuf` helper on `HectorEngine` that:
+**Fix (the right way):** introduce a `resolve_input_path(&self, p: &Path) -> PathBuf` helper on `IronLintEngine` that:
 
 1. If `p.is_absolute()`, returns `p` as-is.
 2. Else, joins onto `self.config_dir`.
@@ -153,13 +153,13 @@ Verified empirically: running `hector check --diff /abs/path/to/t.patch --config
 Call it in `check_inner` *before* `read_to_string(&file)`, and pass the resolved absolute path into `ctx.file` so `engine::context::expand_context` consistently sees the same path. Surface a one-line stderr warning when the read fails — silently falling through `unwrap_or_default()` is what let this hide.
 
 **Checklist:**
-- [x] Add `HectorEngine::resolve_input_path`.
+- [x] Add `IronLintEngine::resolve_input_path`.
 - [x] Use it in both arms of the `CheckInput` match in `check_inner`.
 - [x] Replace `unwrap_or_default()` with a `match`: on `Err`, eprintln a one-line warning and pass `String::new()`.
 - [x] Threading: ensure `ctx.file` carries the resolved absolute path so `engine/context.rs::expand_context` reads the right file.
-- [x] New test `crates/hector-cli/tests/cli_check_diff_cwd.rs::ast_rule_fires_from_unrelated_cwd`: build a project at `/tmp/A`, invoke `hector check --diff` from `/tmp/B` with absolute paths, assert the AST rule produces a real `no-panic` violation (not `no-panic__internal`).
+- [x] New test `crates/ironlint-cli/tests/cli_check_diff_cwd.rs::ast_rule_fires_from_unrelated_cwd`: build a project at `/tmp/A`, invoke `ironlint check --diff` from `/tmp/B` with absolute paths, assert the AST rule produces a real `no-panic` violation (not `no-panic__internal`).
 - [x] Equivalent test for `engine: semantic, context: file`.
-- [x] Equivalent test for a `hector-disable:` directive on the post-edit line.
+- [x] Equivalent test for a `ironlint-disable:` directive on the post-edit line.
 
 **Wire-format impact:** none.
 
@@ -167,7 +167,7 @@ Call it in `check_inner` *before* `read_to_string(&file)`, and pass the resolved
 
 ### B2 — `check_session` skips relativization → absolute paths from adapters never match pathed scopes {#b2}
 
-**Files:** `crates/hector-core/src/runner.rs:1272-1280`, `crates/hector-cli/src/commands/session.rs:80-84`, `adapters/claude-code/hooks/hook.sh:74-99`, `adapters/opencode/src/index.ts:69-78`.
+**Files:** `crates/ironlint-core/src/runner.rs:1272-1280`, `crates/ironlint-cli/src/commands/session.rs:80-84`, `adapters/claude-code/hooks/hook.sh:74-99`, `adapters/opencode/src/index.ts:69-78`.
 
 **Evidence.** `check_inner` relativizes:
 
@@ -185,7 +185,7 @@ Adapter event payloads carry absolute paths. `session record` stores them verbat
 
 **Why this is P1.** Session rules with pathed scopes (the conventional way to scope a rule) silently never fire in production. Bare-pattern scopes happen to work because of the `**/<bare>` fallback, masking the bug for the dev/test loop.
 
-**Fix (the right way):** factor the relativize-and-match logic out of `check_inner` into a shared helper on `HectorEngine`:
+**Fix (the right way):** factor the relativize-and-match logic out of `check_inner` into a shared helper on `IronLintEngine`:
 
 ```rust
 fn rule_matches_path(&self, rule: &Rule, file: &Path) -> bool {
@@ -197,7 +197,7 @@ fn rule_matches_path(&self, rule: &Rule, file: &Path) -> bool {
 Use it from both `evaluate_one_rule` and `check_session`. Bonus: caching the `ScopeMatcher` (D4) becomes a localized refactor of this helper.
 
 **Checklist:**
-- [x] Extract `HectorEngine::rule_matches_path(&self, rule: &Rule, file: &Path) -> bool`.
+- [x] Extract `IronLintEngine::rule_matches_path(&self, rule: &Rule, file: &Path) -> bool`.
 - [x] Call from `check_session`'s filter.
 - [x] Call from `check_inner` (replacing the inline matcher construction).
 - [x] Call from `scope_outcomes` and `render_semantic_prompts`.
@@ -210,7 +210,7 @@ Use it from both `evaluate_one_rule` and `check_session`. Bonus: caching the `Sc
 
 ### B3 — `claude-code-subagent` + `engine: session` has no working stop-time path {#b3}
 
-**Files:** `crates/hector-core/src/runner.rs:1296-1298`, `crates/hector-core/src/llm/mod.rs:46-59`, `adapters/claude-code/hooks/hook.sh:45-69`.
+**Files:** `crates/ironlint-core/src/runner.rs:1296-1298`, `crates/ironlint-core/src/llm/mod.rs:46-59`, `adapters/claude-code/hooks/hook.sh:45-69`.
 
 **Evidence.** Per-file checks correctly defer session rules (`should_defer` covers both `Semantic` and `Session` in `runner.rs:28-30`). But `check_session` still hard-requires an `LlmClient`:
 
@@ -220,7 +220,7 @@ let llm = self.llm.as_deref().ok_or_else(|| {
 })?;
 ```
 
-`build_from_config` returns `Ok(None)` for `claude-code-subagent` (mod.rs:56). The Claude `stop` hook calls `hector check --session`, hits the error, exits non-zero, and the hook prints `hector: internal error during session check (exit 1)`. Every stop hook fires this. There is no escape hatch.
+`build_from_config` returns `Ok(None)` for `claude-code-subagent` (mod.rs:56). The Claude `stop` hook calls `ironlint check --session`, hits the error, exits non-zero, and the hook prints `ironlint: internal error during session check (exit 1)`. Every stop hook fires this. There is no escape hatch.
 
 **Why this is P1.** Subagent mode is the marquee 0.1c surface, and session rules are the spec's flagship cross-edit primitive. The combination is documented but doesn't work.
 
@@ -234,7 +234,7 @@ This keeps the wire-format invariant: there's one deferred envelope shape; sessi
 
 **Checklist:**
 - [x] Extract the per-edit framing from `SessionEngine::evaluate` into a free function `session::framed_aggregate(state: &SessionState) -> String`.
-- [x] Add `HectorEngine::check_session_with_options(&self, state, options)` returning a `CheckReport` with `deferred: Option<DeferredVerdict>` populated when no LLM is wired and a session rule is in scope.
+- [x] Add `IronLintEngine::check_session_with_options(&self, state, options)` returning a `CheckReport` with `deferred: Option<DeferredVerdict>` populated when no LLM is wired and a session rule is in scope.
 - [x] CLI `--session` path consults `options.emit_semantic_payload` (or auto-detect on `LlmClient: None` for subagent provider) and emits the deferred envelope to stdout.
 - [x] Update `hook.sh stop` to wrap the envelope in `hookSpecificOutput.additionalContext` exactly like the post-tool-use branch.
 - [x] Add `adapters/claude-code/tests/hook_session_subagent.sh`: configure subagent provider + one session rule, record two edits, run `stop`, assert exit 0 and JSON envelope on stdout containing `evaluator_input` referencing both edits.
@@ -247,7 +247,7 @@ This keeps the wire-format invariant: there's one deferred envelope shape; sessi
 
 ### B4 — Deferred-mode CLI branch drops every deterministic warning {#b4}
 
-**Files:** `crates/hector-cli/src/commands/check.rs:79-93`, `crates/hector-core/src/verdict_deferred.rs:26-71`.
+**Files:** `crates/ironlint-cli/src/commands/check.rs:79-93`, `crates/ironlint-core/src/verdict_deferred.rs:26-71`.
 
 **Evidence.**
 
@@ -262,7 +262,7 @@ if let Some(d) = &report.deferred {
 }
 ```
 
-When the deferred envelope is present and the deterministic verdict status is `Warn`, the CLI emits only the envelope. `DeferredVerdict` has no `violations` field. The Warn-severity script/AST violations are gone from stdout. They're still in `.hector/log.jsonl`, so the data isn't lost — but the operator and the hook never see them.
+When the deferred envelope is present and the deterministic verdict status is `Warn`, the CLI emits only the envelope. `DeferredVerdict` has no `violations` field. The Warn-severity script/AST violations are gone from stdout. They're still in `.ironlint/log.jsonl`, so the data isn't lost — but the operator and the hook never see them.
 
 **Why this is P1.** The user wrote `severity: warning` deliberately because they want visibility without a block. The CLI removes the visibility. Combined with R6 (deferred-on-block surfacing), the behavior is "you see deterministic violations when they block, and only then" — exactly opposite of "warn is the lighter touch."
 
@@ -286,7 +286,7 @@ Bump `DEFERRED_SCHEMA_VERSION` to 3. Use `#[serde(default, skip_serializing_if =
 - [x] In `check_inner`, after the parallel pool collects outcomes and *before* baseline filtering, partition Warn-severity violations into the deferred-bound list when `should_defer`'d rules exist.
 - [x] Bump `DEFERRED_SCHEMA_VERSION` to 3 with a doc comment.
 - [x] Add `deferred_envelope_carries_deterministic_warnings` test in `runner_deferred_mode.rs`.
-- [x] Update `adapters/claude-code/agents/hector-evaluator.md` and the interpreter skill to surface `payload.warnings` verbatim.
+- [x] Update `adapters/claude-code/agents/ironlint-evaluator.md` and the interpreter skill to surface `payload.warnings` verbatim.
 - [x] Snapshot test: `tests/deferred_verdict_shape.rs` updated for v3.
 
 **Wire-format impact:** deferred envelope schema bump (additive). Together with B5 and C6, plan a single coordinated bump.
@@ -295,7 +295,7 @@ Bump `DEFERRED_SCHEMA_VERSION` to 3. Use `#[serde(default, skip_serializing_if =
 
 ### B5 — Deferred envelope skips `expand_context` → prompt drift between routes {#b5}
 
-**Files:** `crates/hector-core/src/runner.rs:1061-1093`, `crates/hector-core/src/engine/semantic.rs:13`, `crates/hector-core/src/engine/context.rs:9-35`.
+**Files:** `crates/ironlint-core/src/runner.rs:1061-1093`, `crates/ironlint-core/src/engine/semantic.rs:13`, `crates/ironlint-core/src/engine/context.rs:9-35`.
 
 **Evidence.**
 
@@ -346,7 +346,7 @@ Then `build_evaluator_input` learns to take a `Vec<(rule, primary, Option<contex
 
 ### B6 — Linux `unshare(CLONE_NEWNET)` mutates the parent process → per-rule `network: true` opt-in is broken {#b6}
 
-**Files:** `crates/hector-core/src/engine/capability.rs:61-110`.
+**Files:** `crates/ironlint-core/src/engine/capability.rs:61-110`.
 
 **Evidence.** The capability sandbox documents its own footgun:
 
@@ -369,7 +369,7 @@ This is roughly 100 lines of `unsafe` (a `Vec<u8>` for the child stack + the `cl
 
 **Alternative architectures considered and rejected:**
 
-- *Long-lived helper child that owns all subprocess spawning*: introduces an IPC surface and a lifecycle problem (when does the helper die? what about hector being killed?).
+- *Long-lived helper child that owns all subprocess spawning*: introduces an IPC surface and a lifecycle problem (when does the helper die? what about ironlint being killed?).
 - *Document the limitation and reject mixed-network configs at load*: hides the bug rather than fixing it; the spec keeps lying.
 
 **Checklist:**
@@ -386,7 +386,7 @@ This is roughly 100 lines of `unsafe` (a `Vec<u8>` for the child stack + the `cl
 
 ### B7 — Engine-internal errors collapse onto the policy-block exit code → adapters can't distinguish {#b7}
 
-**Files:** `crates/hector-cli/src/commands/check.rs:220-225`, `crates/hector-core/src/runner.rs:685-719`, `crates/hector-core/src/verdict.rs:97-116`.
+**Files:** `crates/ironlint-cli/src/commands/check.rs:220-225`, `crates/ironlint-core/src/runner.rs:685-719`, `crates/ironlint-core/src/verdict.rs:97-116`.
 
 **Evidence.** Engine runtime errors are converted to `Engine::Internal` violations with `severity: Error`, regardless of the rule's configured severity. The CLI maps `Status::Block` to exit 2. The wire format distinguishes (`engine: "internal"`, `rule_id` ends in `__internal`) but adapters branch on exit code:
 
@@ -418,7 +418,7 @@ Adapters then choose fail-open or fail-closed per their threat model. The Claude
 - [x] In `Verdict::from_violations`, surface a distinct `Status::InternalError` variant when any violation has `engine: Internal`. Today the violation collapses into `Block` via the Error severity check.
 - [x] `commands/check.rs::exit_code` returns 3 for the new status.
 - [x] Update the exit-code contract in `CLAUDE.md` and `README.md`.
-- [x] Update `adapters/claude-code/hooks/hook.sh`: add a case for exit 3, default to allow + stderr message, gated by an opt-in env var (`HECTOR_FAIL_CLOSED_ON_INTERNAL=1`) for strict CI.
+- [x] Update `adapters/claude-code/hooks/hook.sh`: add a case for exit 3, default to allow + stderr message, gated by an opt-in env var (`IRONLINT_FAIL_CLOSED_ON_INTERNAL=1`) for strict CI.
 - [x] Update `adapters/opencode/src/index.ts` similarly.
 - [x] Add `verdict_status_internal_error_when_engine_fails` runner test.
 - [x] Add `cli_check_exit_3_for_missing_api_key` CLI test.
@@ -432,7 +432,7 @@ Adapters then choose fail-open or fail-closed per their threat model. The Claude
 
 ### C1 — Trust fingerprint depends on `serde_yaml` emitter heuristics {#c1}
 
-**Files:** `crates/hector-core/src/trust.rs:6-67`.
+**Files:** `crates/ironlint-core/src/trust.rs:6-67`.
 
 **Evidence.** Fingerprint is computed as `sha256(serde_yaml::to_string(sort_keys(parsed)))`. The output of `serde_yaml::to_string` is not normative — scalar style (plain vs. quoted), sequence flow (block vs. inline), and indent width are emitter heuristics that have changed across `serde_yaml` 0.8 / 0.9 / 0.10. A `cargo update` that bumps the emitter invalidates every checked-in fingerprint with no actual config change, surfacing as "config changed since last trust" across the user base.
 
@@ -451,7 +451,7 @@ This makes the fingerprint robust against `serde_yaml` upgrades. The conversion 
 - [x] Implement `canonicalize_for_fingerprint` via the JSON route.
 - [x] Add `tests/trust.rs::fingerprint_stable_across_emitter_styles`: same semantic content in both block and flow YAML produces identical fingerprints.
 - [x] Add `tests/trust.rs::fingerprint_rejects_unsupported_yaml_features`: anchor reference, binary scalar, complex key — each errors at fingerprint time with a clear message.
-- [x] On the migration: every existing `.hector.yml` will need a one-time `hector trust` re-run. Document the migration in `CHANGELOG.md` and surface a friendlier error when a v0.1.x fingerprint doesn't match a v0.2.x recompute ("if you just upgraded hector, run `hector trust` to re-sign").
+- [x] On the migration: every existing `.ironlint.yml` will need a one-time `ironlint trust` re-run. Document the migration in `CHANGELOG.md` and surface a friendlier error when a v0.1.x fingerprint doesn't match a v0.2.x recompute ("if you just upgraded ironlint, run `ironlint trust` to re-sign").
 - [x] Decision pin: this change is wire-incompatible for the trust block. Schedule it alongside the verdict-schema freeze.
 
 **Wire-format impact:** trust fingerprint value changes for every config in the field. Treat as a coordinated migration.
@@ -460,7 +460,7 @@ This makes the fingerprint robust against `serde_yaml` upgrades. The conversion 
 
 ### C2 — `build_single_file_diff` doesn't verify the recovered `--- a/<path>` matches the target {#c2}
 
-**Files:** `crates/hector-cli/src/commands/check.rs:284-316`.
+**Files:** `crates/ironlint-cli/src/commands/check.rs:284-316`.
 
 **Evidence.** The slice walks back one line to capture the `--- a/...` header preceding `+++ b/<target>`, but never verifies that the captured header is for the same file. A multi-file diff missing the `---` line for one file would include the previous file's `--- a/<other>` header in the slice, and `parse_unified` would then think the slice contains two files (returning the first to the runner).
 
@@ -477,7 +477,7 @@ This makes the fingerprint robust against `serde_yaml` upgrades. The conversion 
 
 ### C3 — Pure file-deletion diffs yield exit 1 instead of a clean pass/no-op {#c3}
 
-**Files:** `crates/hector-core/src/diff/parser.rs:11-76`, `crates/hector-cli/src/commands/check.rs:100-104`.
+**Files:** `crates/ironlint-core/src/diff/parser.rs:11-76`, `crates/ironlint-cli/src/commands/check.rs:100-104`.
 
 **Evidence.** `parse_unified` starts a file on `+++ b/`. A deletion has `+++ /dev/null` and never registers. The CLI errors with `"no changed files in diff"` and exit 1.
 
@@ -499,14 +499,14 @@ This makes the fingerprint robust against `serde_yaml` upgrades. The conversion 
 
 ### C4 — `relativize` falls back to canonical absolute path → external files silently get rules run against them {#c4}
 
-**Files:** `crates/hector-core/src/runner.rs:239-246`.
+**Files:** `crates/ironlint-core/src/runner.rs:239-246`.
 
 **Evidence.** When the input file's canonical path is outside `config_dir`, `relativize` returns the canonical absolute path. The bare-pattern fallback in `ScopeMatcher` makes `**/*.py` match `/etc/passwd.py`. A wrapper script that constructs `--file` arguments from untrusted input can run policy against arbitrary host files.
 
-**Fix (the right way):** make this an explicit policy decision rather than emergent behavior. Add `HectorEngine::resolve_input_path` (introduced in B1) that errors when the resolved path is outside `config_dir`, gated by a `--allow-external-paths` CLI flag for the rare operator who legitimately wants this. Default: reject.
+**Fix (the right way):** make this an explicit policy decision rather than emergent behavior. Add `IronLintEngine::resolve_input_path` (introduced in B1) that errors when the resolved path is outside `config_dir`, gated by a `--allow-external-paths` CLI flag for the rare operator who legitimately wants this. Default: reject.
 
 **Checklist:**
-- [x] `HectorEngine::resolve_input_path` returns `Err` when the canonical path is outside `config_dir`.
+- [x] `IronLintEngine::resolve_input_path` returns `Err` when the canonical path is outside `config_dir`.
 - [x] Surface the error as `Engine::Internal` (post-B7 → `Status::InternalError`) with a clear message.
 - [x] Add CLI flag `--allow-external-paths` that overrides the gate.
 - [x] Test: `external_path_rejected_by_default`, `external_path_allowed_with_flag`.
@@ -517,7 +517,7 @@ This makes the fingerprint robust against `serde_yaml` upgrades. The conversion 
 
 ### C5 — Sentinel-tag neutralization is ASCII-literal → bypassable by zero-width / Unicode lookalikes {#c5}
 
-**Files:** `crates/hector-core/src/llm/prompt.rs:200-251`.
+**Files:** `crates/ironlint-core/src/llm/prompt.rs:200-251`.
 
 **Evidence.** `replace_ci_ascii` only matches literal ASCII. `<TRUSTED_РOLICY>` (Cyrillic Р, U+0420) and `<TRUSTED_POLICY\u{200B}>` (zero-width space inside) survive `neutralize` but read as the tag to most LLMs.
 
@@ -543,7 +543,7 @@ An attacker can't predict the token, so they can't forge boundary tags. The exis
 
 ### C6 — Schema-version bump policy ambiguous {#c6}
 
-**Files:** `crates/hector-core/src/verdict.rs:11-17`, `crates/hector-core/src/verdict_deferred.rs:17-24`.
+**Files:** `crates/ironlint-core/src/verdict.rs:11-17`, `crates/ironlint-core/src/verdict_deferred.rs:17-24`.
 
 **Evidence.** `SCHEMA_VERSION` jumped 2 → 3 for the R6 additive `deferred_rules` field. The field uses `#[serde(default, skip_serializing_if = "Vec::is_empty")]` so verdicts without it are byte-compatible with v2 readers — but the version number bumped anyway. A strict consumer doing `assert v.schema_version == 2` rejects every new verdict despite the additive shape.
 
@@ -572,7 +572,7 @@ Then revert `SCHEMA_VERSION` to 2 (R6 was additive). Add a parallel `MIN_REQUIRE
 
 ### D1 — `ChangedFile.added_lines` is dead code, no "new violations only" filter for diff mode {#d1}
 
-**Files:** `crates/hector-core/src/diff/parser.rs:7,42-65`, no consumer.
+**Files:** `crates/ironlint-core/src/diff/parser.rs:7,42-65`, no consumer.
 
 **Evidence.** `added_lines` is computed but read nowhere. The runner evaluates AST/script rules against the full post-edit file; an agent fixing bug A in a file with pre-existing bug B sees the gate block on bug B.
 
@@ -599,7 +599,7 @@ Option B is the operator-friendly choice but is a substantial implementation lif
 
 ### D2 — Diff parser drops content lines literally starting with `+++` {#d2}
 
-**Files:** `crates/hector-core/src/diff/parser.rs:60-65`.
+**Files:** `crates/ironlint-core/src/diff/parser.rs:60-65`.
 
 **Evidence.** Lines that strip-prefix `+` but `starts_with("+++")` are dropped from `added_lines` *and* do not advance `new_line_no`. A markdown HR (`+++` separator) or TOML front matter (`+++` delimiter) in a diff causes subsequent added lines to record under wrong line numbers.
 
@@ -618,7 +618,7 @@ Latent today because `added_lines` is unused (D1). Becomes a real bug the moment
 
 ### D3 — `SessionState::save` doesn't fsync before rename {#d3}
 
-**Files:** `crates/hector-core/src/session_state.rs:55-75`.
+**Files:** `crates/ironlint-core/src/session_state.rs:55-75`.
 
 **Evidence.** Unlike `Baseline::save` (P2-5), `SessionState::save` writes to temp + rename without `sync_all`. A crash between rename and durable flush leaves stale data.
 
@@ -642,14 +642,14 @@ std::fs::rename(&temp, path)?;
 
 ### D4 — `ScopeMatcher` rebuilt per rule per file in dispatch loops {#d4}
 
-**Files:** `crates/hector-core/src/runner.rs:547-549, 900-902, 1117-1119, 1272-1273`.
+**Files:** `crates/ironlint-core/src/runner.rs:547-549, 900-902, 1117-1119, 1272-1273`.
 
 **Evidence.** Each call to `evaluate_one_rule`, `check_session`, `scope_outcomes`, and `render_semantic_prompts` constructs a fresh `ScopeMatcher` via `ScopeMatcher::new(&rule.scope).expect("validated at load")`. For a 50-rule config over 5,000 files (baseline record), that's 250,000 `GlobSet` builds.
 
-**Fix (the right way):** memoize at load time. `HectorEngine` stores `scope_matchers: BTreeMap<String, ScopeMatcher>`. The B2 helper `rule_matches_path` reads from this map.
+**Fix (the right way):** memoize at load time. `IronLintEngine` stores `scope_matchers: BTreeMap<String, ScopeMatcher>`. The B2 helper `rule_matches_path` reads from this map.
 
 **Checklist:**
-- [x] Add `scope_matchers` to `HectorEngine`, populated in `load_with` after the validation pass.
+- [x] Add `scope_matchers` to `IronLintEngine`, populated in `load_with` after the validation pass.
 - [x] Replace per-call construction with map lookups.
 - [x] Verify `cargo bench` (if any) or hand-rolled timing on a real repo demonstrates the win.
 
@@ -659,13 +659,13 @@ std::fs::rename(&temp, path)?;
 
 ### D5 — CLI loads the engine twice on every `check` invocation {#d5}
 
-**Files:** `crates/hector-cli/src/commands/check.rs:29-51`.
+**Files:** `crates/ironlint-cli/src/commands/check.rs:29-51`.
 
 **Evidence.** First load (probe) for `--rule` validation; second load with options. Repeats trust verify + extends DFS + YAML parse.
 
-**Fix (the right way):** expose a `HectorEngine::config_rule_ids` accessor that doesn't require a fully constructed engine — or thread `--rule` validation into `with_options` so the load runs once and the validation happens post-load.
+**Fix (the right way):** expose a `IronLintEngine::config_rule_ids` accessor that doesn't require a fully constructed engine — or thread `--rule` validation into `with_options` so the load runs once and the validation happens post-load.
 
-The cleanest path: keep one load. After `HectorEngine::load`, call `engine.config_rule_ids()` (already exists) for validation; if unknown, exit 1 *before* the dispatch.
+The cleanest path: keep one load. After `IronLintEngine::load`, call `engine.config_rule_ids()` (already exists) for validation; if unknown, exit 1 *before* the dispatch.
 
 **Checklist:**
 - [x] Single load. Validate rules after load against `engine.config_rule_ids()`.
@@ -678,7 +678,7 @@ The cleanest path: keep one load. After `HectorEngine::load`, call `engine.confi
 
 ### D6 — Multi-parent `extends:` precedence undocumented {#d6}
 
-**Files:** `crates/hector-core/src/config/extends.rs:54-58`.
+**Files:** `crates/ironlint-core/src/config/extends.rs:54-58`.
 
 **Evidence.** If a child extends `[A.yml, B.yml]` and both define `llm:`, A wins (first listed). For `rules:`, both fill in any not already claimed, and "filled in" happens A-first. No test covers conflicting `llm:` blocks from two parents.
 
@@ -730,6 +730,6 @@ Three changes touch contracts the field already consumes. Plan them together:
 1. **`Status::InternalError` variant** (B7) → existing `Status` consumers see a new variant.
 2. **Deferred envelope v3** (B4 + B5 + C5) → `DeferredPayload` gains `warnings`, evaluator-input shape changes, sentinel becomes random per-call.
 3. **Verdict schema-version policy** (C6) → decision drives whether B7 forces a verdict schema bump or stays additive.
-4. **Trust fingerprint migration** (C1) → every checked-in `.hector.yml` re-signs.
+4. **Trust fingerprint migration** (C1) → every checked-in `.ironlint.yml` re-signs.
 
 Ship these in one coordinated 0.2 release with a single CHANGELOG migration section, not piecemeal.

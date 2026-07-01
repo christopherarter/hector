@@ -1,11 +1,11 @@
 # Verdict JSON
 
-`hector check --format json` prints a `Verdict` — the machine-readable result a CI job or adapter consumes. This page is the contract for that shape and the exit codes that go with it.
+`ironlint check --format json` prints a `Verdict` — the machine-readable result a CI job or adapter consumes. This page is the contract for that shape and the exit codes that go with it.
 
 ```json
 {
   "schema_version": 5,
-  "hector_version": "0.4.0",
+  "ironlint_version": "0.4.0",
   "status": "block",
   "blocks": [
     {
@@ -26,14 +26,14 @@
 | Field | Type | Notes |
 |-------|------|-------|
 | `schema_version` | integer | Currently `5`. See [Versioning](#versioning). |
-| `hector_version` | string | Version of the binary that produced the verdict. |
+| `ironlint_version` | string | Version of the binary that produced the verdict. |
 | `status` | enum | `pass`, `block`, or `internal_error`. |
 | `blocks` | array | One [Block](#block) per check that blocked. Empty on a clean pass. |
 | `errors` | array | One [GateError](#gateerror) per check that crashed. Empty when every check ran to a verdict. |
 | `passed` | array of strings | Check ids that ran and passed. |
 | `elapsed_ms` | integer | Wall-clock for the whole check run. |
 
-There is no `violations` array, no `severity`, no `line`/`column`, and no warn status. A check owns its verdict through its exit code; Hector records the outcome, not a parsed finding.
+There is no `violations` array, no `severity`, no `line`/`column`, and no warn status. A check owns its verdict through its exit code; IronLint records the outcome, not a parsed finding.
 
 ## `status`
 
@@ -89,7 +89,7 @@ The exit code mirrors the status — it is what scripts branch on without parsin
 | `2` | `block` | At least one check blocked (exited nonzero). |
 | `3` | `internal_error` | At least one check crashed. |
 
-Adapters fail-open on `3` by default; opt into fail-closed with `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`. See [Running checks](../operating/running-checks.md).
+Adapters fail-open on `3` by default; opt into fail-closed with `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1`. See [Running checks](../operating/running-checks.md).
 
 ## Versioning
 

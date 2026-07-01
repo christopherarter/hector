@@ -1,9 +1,9 @@
-# `hector show-resolved-config`
+# `ironlint show-resolved-config`
 
 Read-only inspection command. Prints the post-`extends:` merged check set so you can confirm what your config looks like after inheritance.
 
 ```bash
-hector show-resolved-config [--config .hector.yml] [--format tsv|yaml|json]
+ironlint show-resolved-config [--config .ironlint.yml] [--format tsv|yaml|json]
 ```
 
 Exit codes: `0` on success; `1` on a config error (missing file, parse failure). Never `2` — this command does not run checks.
@@ -12,7 +12,7 @@ It does **not** verify trust. You typically reach for it precisely when debuggin
 
 ## Origin attribution
 
-Every check in the output is annotated with the path of the file it was *defined in* — your local `.hector.yml`, an `extends:`-referenced parent, or a deeper ancestor. When a check id collides between the local file and an inherited one, the local definition wins (matching `extends::resolve` semantics) and the origin reflects that.
+Every check in the output is annotated with the path of the file it was *defined in* — your local `.ironlint.yml`, an `extends:`-referenced parent, or a deeper ancestor. When a check id collides between the local file and an inherited one, the local definition wins (matching `extends::resolve` semantics) and the origin reflects that.
 
 ## Output: TSV (default)
 
@@ -28,8 +28,8 @@ One check per line, four columns separated by a single tab, sorted by check id, 
 Greppable and cuttable:
 
 ```bash
-hector show-resolved-config | cut -f1,2      # check ids + origin
-hector show-resolved-config | grep biome     # the biome check's row
+ironlint show-resolved-config | cut -f1,2      # check ids + origin
+ironlint show-resolved-config | grep biome     # the biome check's row
 ```
 
 ## Output: YAML (`--format yaml`)
@@ -43,7 +43,7 @@ A sequence of `{ check, origin, files, run }`, one entry per check, sorted by ch
   - "*.txt"
   run: "true"
 - check: local-only
-  origin: /work/repo/.hector.yml
+  origin: /work/repo/.ironlint.yml
   files:
   - "*.md"
   run: "true"
@@ -63,7 +63,7 @@ Pretty-printed array of the same `{ check, origin, files, run }` objects, sorted
   },
   {
     "check": "local-only",
-    "origin": "/work/repo/.hector.yml",
+    "origin": "/work/repo/.ironlint.yml",
     "files": ["*.md"],
     "run": "true"
   }

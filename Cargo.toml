@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/hector-core", "crates/hector-cli"]
+members = ["crates/ironlint-core", "crates/ironlint-cli"]
 
 [workspace.package]
 version = "0.6.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/christopherarter/hector"
+repository = "https://github.com/christopherarter/ironlint"
 
 # Config for 'dist'
 [workspace.metadata.dist]

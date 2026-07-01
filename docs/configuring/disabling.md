@@ -1,9 +1,9 @@
 # Disabling a check in-line
 
-To turn one check off for a single file, put a `hector-disable:` directive anywhere in that file — usually in a comment — naming the check id:
+To turn one check off for a single file, put a `ironlint-disable:` directive anywhere in that file — usually in a comment — naming the check id:
 
 ```rust
-// hector-disable: no-unwrap-in-src
+// ironlint-disable: no-unwrap-in-src
 let port = env::var("PORT").unwrap();
 ```
 
@@ -14,12 +14,12 @@ The directive suppresses the named check **for that whole file**. It is always f
 A directive names a check id. The id runs up to whitespace, a comma, a `*`, or a `/` that begins a comment terminator (`//` or `/*`), so the directive sits cleanly inside comments in any language:
 
 ```python
-# hector-disable: no-print
+# ironlint-disable: no-print
 print(debug_state)
 ```
 
 ```javascript
-/* hector-disable: no-console */
+/* ironlint-disable: no-console */
 console.log(state);
 ```
 
@@ -28,7 +28,7 @@ A `/` only ends the id when it begins `//` or `/*`, so namespaced ids like `pyth
 To turn off several checks at once, separate the ids with spaces or commas:
 
 ```python
-x = eval(s)  # hector-disable: no-eval, py/no-dynamic
+x = eval(s)  # ironlint-disable: no-eval, py/no-dynamic
 ```
 
 ## See also

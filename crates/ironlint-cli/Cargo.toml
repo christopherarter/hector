@@ -1,0 +1,40 @@
+[package]
+name = "ironlint-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ironlint"
+path = "src/main.rs"
+
+[dependencies]
+ironlint-core = { path = "../ironlint-core" }
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+chrono.workspace = true
+# Self-update (`ironlint update`): reads the dist install receipt, checks the
+# latest GitHub release, and re-runs the same installer the user installed with.
+# `blocking` provides a synchronous entrypoint so the CLI stays non-async.
+axoupdater = { version = "0.10", features = ["blocking"] }
+# Live TUI (`ironlint watch`): renders the telemetry stream + per-check explorer.
+# ratatui re-exports crossterm, so we depend on it alone for backend + events.
+ratatui = "0.29"
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+insta.workspace = true
+# Only to construct `axoupdater::UpdateResult` in update.rs unit tests
+# (its `install_prefix` is a camino `Utf8PathBuf`).
+camino = "1"
+
+[lints]
+workspace = true

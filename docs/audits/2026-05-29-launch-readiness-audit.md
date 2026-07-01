@@ -1,6 +1,6 @@
 # Launch-readiness & maintainability audit — 2026-05-29
 
-Scope: is Hector ready to share on Hacker News, and what threatens long-term
+Scope: is IronLint ready to share on Hacker News, and what threatens long-term
 maintenance? Method: 8-dimension fan-out (security, resilience, maintainability,
 API stability, docs/DX, adapters, CI/release, test quality), every material
 finding adversarially re-verified against the source, then synthesized. Ground
@@ -18,8 +18,8 @@ promise and the first-impression, so they matter before launch.
 ## Launch blockers
 
 ### 1. The gate fails **open** on a panic — and bypasses the fail-closed switch
-`crates/hector-cli/src/main.rs` installs no `std::panic::set_hook`, so any panic
-unwinds to process exit **101**. `crates/hector-core/src/runner.rs:669` is a
+`crates/ironlint-cli/src/main.rs` installs no `std::panic::set_hook`, so any panic
+unwinds to process exit **101**. `crates/ironlint-core/src/runner.rs:669` is a
 live panic site: `ThreadPoolBuilder::build().expect("rayon pool construction
 must not fail")` — `build()` is fallible (OS thread-spawn exhaustion). The
 Claude Code adapter's post-tool-use handler
@@ -28,7 +28,7 @@ through the `*)` arm, which prints to stderr and `exit 1` → Claude Code treats
 hook exit 1 as non-blocking → **the edit is allowed.**
 
 The sharp part: the clean internal-error path (`3)`,
-`hook.sh:239-249`) honors `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`, but the `*)` arm
+`hook.sh:239-249`) honors `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1`, but the `*)` arm
 does **not**. So a user who explicitly opted into strict gating still gets
 fail-**open** when the binary panics. For a policy-*enforcement* tool, "crashes
 silently disable enforcement, even in fail-closed mode" is the worst failure
@@ -42,14 +42,14 @@ Fix (two-pronged, both small):
 - Core: make `runner.rs:669` return `Result` and surface as
   `Status::InternalError` rather than `.expect`.
 - Adapter (defense in depth): have the `*)` arm also respect
-  `HECTOR_FAIL_CLOSED_ON_INTERNAL`.
+  `IRONLINT_FAIL_CLOSED_ON_INTERNAL`.
 
 ### 2. No way to try it without a 10-minute source build
 README (`README.md:19-24`) and `docs/getting-started.md` offer only
 `cargo build --release`. CI uploads binaries with **1-day retention**
 (`.github/workflows/ci.yml:47-52`) — no GitHub Release despite existing tags, no
-`cargo install` (crates aren't publishable: `crates/hector-cli/Cargo.toml` and
-`crates/hector-core/Cargo.toml` lack the mandatory `description` field and
+`cargo install` (crates aren't publishable: `crates/ironlint-cli/Cargo.toml` and
+`crates/ironlint-core/Cargo.toml` lack the mandatory `description` field and
 others), no Homebrew/install script. The HN "let me try it right now" impulse
 dies at a cold Rust compile. Add a tag-triggered release workflow shipping
 prebuilt linux + macOS binaries; add crates.io metadata.
@@ -64,10 +64,10 @@ users and OSPO teams won't touch it. Drop in the Apache-2.0 text. (effort: S)
 ## Fix before HN (high-value polish)
 
 - **macOS capability enforcement is a silent no-op.**
-  `crates/hector-core/src/engine/capability.rs:387` —
+  `crates/ironlint-core/src/engine/capability.rs:387` —
   `run_best_effort_macos(cmd, cwd, _caps, env)` ignores `_caps` entirely. A
   macOS user who writes `network: false` on a script rule believes the script
-  can't phone home; it can. Only `hector doctor` warns — `hector check` is
+  can't phone home; it can. Only `ironlint doctor` warns — `ironlint check` is
   silent. Given how many HN readers are on macOS, this is a credibility risk.
   Emit a one-time `AtomicBool`-gated stderr warning on first capability use
   during `check` (mirror the existing unprivileged-user warning at
@@ -86,7 +86,7 @@ users and OSPO teams won't touch it. Drop in the Apache-2.0 text. (effort: S)
   experimental.
 - **Hardcoded absolute path in a shipped example.**
   `adapters/reasonix/hooks/settings.example.json:5` points at
-  `/Users/chrisarter/Documents/projects/hector/...`. Anyone who copies it gets a
+  `/Users/chrisarter/Documents/projects/ironlint/...`. Anyone who copies it gets a
   broken hook that silently no-ops. Replace with a `<INSTALL_PATH>` placeholder.
 - **Hooks don't validate `jq`.** `adapters/claude-code/hooks/hook.sh:135` and
   `adapters/reasonix/hooks/hook.sh` assume `jq` exists. Missing → exit 127 →
@@ -131,7 +131,7 @@ users and OSPO teams won't touch it. Drop in the Apache-2.0 text. (effort: S)
   commit it for reproducible `cargo install --git`. GitHub Actions use floating
   `@v4`/`@stable` tags throughout `ci.yml` — pin to commit SHAs.
 - **`lib.rs` exports 12 modules with no stability tiers** (`lib.rs:1-17`).
-  Library users already import deep internals (`hector_core::engine::ast::…`)
+  Library users already import deep internals (`ironlint_core::engine::ast::…`)
   that will break silently on refactor. Document stable-vs-internal before
   adoption grows.
 - **Trust YAML-anchor guard has known false positives** (`trust.rs:35-88`):

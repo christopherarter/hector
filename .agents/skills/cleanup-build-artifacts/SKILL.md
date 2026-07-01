@@ -1,11 +1,11 @@
 ---
 name: cleanup-build-artifacts
-description: Removes transient build artifacts this task produced in the hector repo before declaring work done. Use at the end of any task that ran `cargo build --release`, `cargo mutants`, `cargo llvm-cov`, generated a one-off binary, wrote a scratch file like `pr.diff` or an ad-hoc tarball, or any other throwaway output. Do NOT use to wipe the actively-iterating `target/` directory.
+description: Removes transient build artifacts this task produced in the ironlint repo before declaring work done. Use at the end of any task that ran `cargo build --release`, `cargo mutants`, `cargo llvm-cov`, generated a one-off binary, wrote a scratch file like `pr.diff` or an ad-hoc tarball, or any other throwaway output. Do NOT use to wipe the actively-iterating `target/` directory.
 metadata:
   author: chris
   version: 1.0.0
   category: workflow
-  tags: [hector, rust, cleanup, disk-hygiene]
+  tags: [ironlint, rust, cleanup, disk-hygiene]
 ---
 
 # Cleanup Build Artifacts
@@ -25,7 +25,7 @@ Sweep up the transient artifacts *this task* produced so the working tree and di
 **Out of scope — DO NOT TOUCH:**
 - The persistent `target/` debug tree being actively iterated on (`cargo build`, `cargo test` incremental output). Leave it.
 - Anything tracked by git that's modified (M) or staged — those are real work.
-- `.hector/` runtime state unless the task explicitly created it for a one-off check.
+- `.ironlint/` runtime state unless the task explicitly created it for a one-off check.
 - Pre-existing files in the working tree the task didn't author.
 
 If unsure whether something is yours, leave it.
@@ -57,7 +57,7 @@ Cross-reference with what the conversation actually did. If you didn't run `carg
 
 ### Step 2: Confirm before destructive operations
 
-If the list contains anything non-obvious (e.g. a `.diff` you don't recognize, a binary you didn't build, an `.hector/` directory with data), surface it to the user before deleting. The user's AGENTS.md says investigate-before-deleting when finding unfamiliar state.
+If the list contains anything non-obvious (e.g. a `.diff` you don't recognize, a binary you didn't build, an `.ironlint/` directory with data), surface it to the user before deleting. The user's AGENTS.md says investigate-before-deleting when finding unfamiliar state.
 
 For artifacts clearly produced this turn, proceed without asking.
 
@@ -92,14 +92,14 @@ If a release binary was rebuilt at ~30MB+ purely to verify behavior and is now g
 
 ### Example 1: Built a release binary to spot-check CLI output
 
-User asked to verify that `hector check` exits 2 on a Block verdict. The task ran `cargo build --release` and `./target/release/hector check tests/fixtures/...`.
+User asked to verify that `ironlint check` exits 2 on a Block verdict. The task ran `cargo build --release` and `./target/release/ironlint check tests/fixtures/...`.
 
 Actions:
-1. `ls target/release/hector` — confirm it exists
-2. `cargo clean -p hector-cli` — drops the binary and its build cache for the cli crate
+1. `ls target/release/ironlint` — confirm it exists
+2. `cargo clean -p ironlint-cli` — drops the binary and its build cache for the cli crate
 3. `git status --short` — confirm no other scratch files
 
-Result: `target/release/hector` gone, `target/debug/` (the iterating tree) untouched.
+Result: `target/release/ironlint` gone, `target/debug/` (the iterating tree) untouched.
 
 ### Example 2: Ran `cargo mutants` on a diff
 
@@ -114,7 +114,7 @@ Result: 2MB+ of mutants output and the diff file gone.
 
 ### Example 3: Task only edited source files
 
-The task added a new `pub fn` and a test, ran `cargo test -p hector-core`, all green.
+The task added a new `pub fn` and a test, ran `cargo test -p ironlint-core`, all green.
 
 Actions:
 1. `git status --short` — only the intentional file edits show
@@ -126,7 +126,7 @@ Result: Skill no-ops cleanly. Don't invent work.
 
 ### `cargo clean -p <crate>` says "package not found"
 
-Cause: Wrong crate name. The workspace has `hector-core` and `hector-cli`; the binary is `hector` but the package is `hector-cli`.
+Cause: Wrong crate name. The workspace has `ironlint-core` and `ironlint-cli`; the binary is `ironlint` but the package is `ironlint-cli`.
 
 Solution: Check `Cargo.toml` `[package] name =` fields, or `cargo metadata --no-deps --format-version 1 | jq '.packages[].name'`.
 
@@ -136,7 +136,7 @@ Cause: The files match a pattern in `.gitignore` (e.g. `mutants.out*/` is ignore
 
 Solution: Trust the filesystem check, not just `git status`.
 
-### Found an unfamiliar `.hector/` or scratch directory you didn't create
+### Found an unfamiliar `.ironlint/` or scratch directory you didn't create
 
 Cause: Prior session or another tool produced it.
 

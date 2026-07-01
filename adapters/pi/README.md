@@ -1,26 +1,26 @@
-# Hector — pi adapter
+# IronLint — pi adapter
 
-[pi](https://pi.dev) extension integration for Hector. Mirrors the OpenCode and
+[pi](https://pi.dev) extension integration for IronLint. Mirrors the OpenCode and
 Claude Code adapters: it runs checks on `write` / `edit` tool calls against your
-project's `.hector.yml` policy **before they execute**. It is a static,
+project's `.ironlint.yml` policy **before they execute**. It is a static,
 per-file pre-write check — each tool call is evaluated on its own.
 
 The extension is a pure translation layer between pi's lifecycle and the
-`hector` binary — it contains no policy logic of its own.
+`ironlint` binary — it contains no policy logic of its own.
 
 | pi event | Action |
 |----------|--------|
-| `tool_call` (`write` / `edit`) | Compute the proposed content, run `hector check --file <path> --content - --format json`, and `return { block: true, reason }` on a block (exit 2) — where `reason` is the blocking check's message, parsed from the JSON verdict's `blocks[].message`. The check runs against piped stdin — nothing is written to disk. |
+| `tool_call` (`write` / `edit`) | Compute the proposed content, run `ironlint check --file <path> --content - --format json`, and `return { block: true, reason }` on a block (exit 2) — where `reason` is the blocking check's message, parsed from the JSON verdict's `blocks[].message`. The check runs against piped stdin — nothing is written to disk. |
 
 ## Install
 
 ```bash
-hector init --harness pi
+ironlint init --harness pi
 ```
 
-This writes the adapter plugin atomically to `<project>/.pi/extensions/hector.ts`
-(default) or `~/.pi/agent/extensions/hector.ts` with `--global`. A
-`.hector-adapter.json` sidecar (per-file sha256 + version) is placed alongside
+This writes the adapter plugin atomically to `<project>/.pi/extensions/ironlint.ts`
+(default) or `~/.pi/agent/extensions/ironlint.ts` with `--global`. A
+`.ironlint-adapter.json` sidecar (per-file sha256 + version) is placed alongside
 the artifact. A backup of any prior settings is saved as `<settings>.bak` on the
 first write; re-runs are idempotent (unchanged → "already present", changed
 artifact → "updated").
@@ -28,26 +28,26 @@ artifact → "updated").
 Verify the install:
 
 ```bash
-hector doctor
+ironlint doctor
 ```
 
 To remove the hook:
 
 ```bash
-hector init --uninstall --harness pi
+ironlint init --uninstall --harness pi
 ```
 
 This removes the materialized artifact and sidecar from the extensions directory.
-Your `.hector.yml` and trust store are untouched.
+Your `.ironlint.yml` and trust store are untouched.
 
 ## Requirements
 
-- The `hector` binary on `PATH` (`cargo install --git https://github.com/christopherarter/hector hector-cli` or a release binary), ≥ 0.1.
+- The `ironlint` binary on `PATH` (`cargo install --git https://github.com/christopherarter/ironlint ironlint-cli` or a release binary), ≥ 0.1.
 - Node ≥ 22.6 (pi's runtime; also required for the bundled `node:test` suite).
 
 ## Manual fallback
 
-Use these steps if the `hector` binary is not available (e.g., bootstrapping a
+Use these steps if the `ironlint` binary is not available (e.g., bootstrapping a
 fresh machine before you can build):
 
 ### Local development
@@ -57,17 +57,17 @@ Copy or symlink the source into a pi extensions directory:
 ```bash
 # project-scoped
 mkdir -p .pi/extensions
-ln -sf "$(pwd)/../hector/adapters/pi/src/index.ts" .pi/extensions/hector.ts
+ln -sf "$(pwd)/../ironlint/adapters/pi/src/index.ts" .pi/extensions/ironlint.ts
 
 # or global
 mkdir -p ~/.pi/agent/extensions
-ln -sf "/abs/path/to/hector/adapters/pi/src/index.ts" ~/.pi/agent/extensions/hector.ts
+ln -sf "/abs/path/to/ironlint/adapters/pi/src/index.ts" ~/.pi/agent/extensions/ironlint.ts
 ```
 
 Or reference an absolute path in pi `settings.json`:
 
 ```json
-{ "extensions": ["/abs/path/to/hector/adapters/pi/src/index.ts"] }
+{ "extensions": ["/abs/path/to/ironlint/adapters/pi/src/index.ts"] }
 ```
 
 Ad-hoc load for one session: `pi -e ./adapters/pi/src/index.ts`. Hot-reload
@@ -75,39 +75,39 @@ with `/reload`.
 
 ### npm (once published)
 
-`@dynamik-dev/hector-pi` ships a `"pi": { "extensions": ["./src/index.ts"] }`
+`@christopherarter/ironlint-pi` ships a `"pi": { "extensions": ["./src/index.ts"] }`
 field, so pi discovers it automatically once the package is installed.
 
 ## Initialise the project
 
 ```bash
-hector init    # scaffold .hector.yml (auto-blesses it in the trust store)
-hector trust   # bless the config in the out-of-repo trust store
+ironlint init    # scaffold .ironlint.yml (auto-blesses it in the trust store)
+ironlint trust   # bless the config in the out-of-repo trust store
 ```
 
 Trust is **required**: `check` fails closed (exit 1) on a config that is missing
-from, or no longer matches, the trust store at `$XDG_CONFIG_HOME/hector/trust.json`
-(else `~/.config/hector/trust.json`). The adapter treats exit 1 as a config error
+from, or no longer matches, the trust store at `$XDG_CONFIG_HOME/ironlint/trust.json`
+(else `~/.config/ironlint/trust.json`). The adapter treats exit 1 as a config error
 and **allows** the edit (fail-open), so an untrusted config leaves the check
-silently inert — re-run `hector trust` after every edit to `.hector.yml`.
+silently inert — re-run `ironlint trust` after every edit to `.ironlint.yml`.
 
 ## Exit-code contract
 
-The extension honours the `hector` CLI exit-code contract
-(`crates/hector-cli/src/commands/check.rs`):
+The extension honours the `ironlint` CLI exit-code contract
+(`crates/ironlint-cli/src/commands/check.rs`):
 
 | Exit | Behaviour |
 |------|-----------|
 | `0` (pass) | Allow. |
 | `2` (block) | `return { block: true, reason }` — pi cancels the tool call. |
-| `3` (internal error) | Fail-open (log + allow) by default; set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` to fail closed (block). |
+| `3` (internal error) | Fail-open (log + allow) by default; set `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1` to fail closed (block). |
 | `1` / other (config error, incl. untrusted or modified config) | Log to stderr, allow. |
 
 ## Known gaps (v1)
 
 - **`bash`-tool shell-out** (`cat > foo`, redirections) bypasses the check — universal across all adapters; arbitrary commands are too brittle to parse.
 - **`edit` fuzzy-match fallback** can't be faithfully simulated, so those edits skip the check (fail-open on simulate-failure). Exact + unique `oldText` edits check normally.
-- **Checks that read the file from disk** (via `$HECTOR_FILE`) see the *pre-edit* content; only the proposed post-edit content piped on **stdin** reflects the pending change. `hector-disable` directives carried in that proposed content are honoured.
+- **Checks that read the file from disk** (via `$IRONLINT_FILE`) see the *pre-edit* content; only the proposed post-edit content piped on **stdin** reflects the pending change. `ironlint-disable` directives carried in that proposed content are honoured.
 - **pi subagents** are not specially handled (deferred).
 - **No cross-edit checks.** The check evaluates each `write` / `edit` in isolation; it does not aggregate edits across a turn.
 
@@ -115,11 +115,11 @@ The extension honours the `hector` CLI exit-code contract
 
 If the check isn't firing:
 
-1. `hector --version` runs on `PATH`.
-2. `.hector.yml` is present in the project root.
-3. `.hector.yml` is trusted: `hector trust`.
+1. `ironlint --version` runs on `PATH`.
+2. `.ironlint.yml` is present in the project root.
+3. `.ironlint.yml` is trusted: `ironlint trust`.
 4. pi loaded the extension (check pi's extension discovery logs / `/reload`).
-5. Run `hector doctor` for a structured health report.
+5. Run `ironlint doctor` for a structured health report.
 6. Run the bundled suite against your install:
 
    ```bash

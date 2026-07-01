@@ -38,7 +38,7 @@ Grounded in `adapters/claude-code/` as of 2026-05-28. Line numbers are anchors â
 | 6 | Output envelope `hookSpecificOutput.{hookEventName,additionalContext}` | `adapters/claude-code/hooks/hook.sh:68-73,190-195` | hooks reference |
 | 7 | Plugin manifest schema + location `.claude-plugin/plugin.json` | `adapters/claude-code/.claude-plugin/plugin.json` | plugins reference |
 | 8 | Skill `SKILL.md` frontmatter + description-based activation | `adapters/claude-code/skills/*/SKILL.md` | skills reference |
-| 9 | Subagent frontmatter (`name`/`description`/`model`/`tools`/`color`) | `adapters/claude-code/agents/hector-evaluator.md:1-7` | sub-agents reference |
+| 9 | Subagent frontmatter (`name`/`description`/`model`/`tools`/`color`) | `adapters/claude-code/agents/ironlint-evaluator.md:1-7` | sub-agents reference |
 | 10 | Per-dispatch subagent model override (does inline override exist yet?) | `adapters/claude-code/README.md:55-65` (flagged unresolved) | sub-agents reference |
 
 ## Known-fragile spots

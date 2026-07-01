@@ -16,7 +16,7 @@ Splits the problem into two halves that each play to a harness's strengths:
 
 ## Mechanism
 
-1. **PostToolUse (detect):** run `hector check --file <landed-file>`. On a block-severity verdict, append a fingerprint to a persisted queue (e.g. `.hector/pending-blocks.json`).
+1. **PostToolUse (detect):** run `ironlint check --file <landed-file>`. On a block-severity verdict, append a fingerprint to a persisted queue (e.g. `.ironlint/pending-blocks.json`).
 2. **PreToolUse (enforce):** before allowing the next tool call, if the queue is non-empty, return exit 2 with the prior violation ("previous edit to X violated Y — revert/fix before continuing").
 3. **Stop (sweep):** at session end, evaluate the queue for anything with no subsequent write; surface it.
 
@@ -26,7 +26,7 @@ The genuine niche is **tree-bound / whole-program tools** (`tsc`, `cargo check`,
 
 ## Why it is NOT a general replacement
 
-- **The bad edit lands.** Hector's core promise is *physical prevention* — the violation never enters the tree. This admits it, then trips later. In the window, build/watchers/dev-server/other agents see the bad code.
+- **The bad edit lands.** IronLint's core promise is *physical prevention* — the violation never enters the tree. This admits it, then trips later. In the window, build/watchers/dev-server/other agents see the bad code.
 - **The terminal edit can be unblockable.** If the bad write is the agent's last action, there's no "next write" to block. The `Stop` sweep only helps if `Stop` *gates* — in Reasonix it is **non-gating**, so the most important case (final on-disk state) leaks as a warning.
 - **It blocks the wrong edit.** Edit B (possibly a different file) is refused because edit A was bad; the agent must infer it should revert A. The revert is itself an edit the queue would block unless "edits that resolve the queue" are special-cased — which needs pre-write evaluation again.
 - **It adds stateful machinery.** Persisted queue, fingerprinting the blocked edit, reconciling whether a later write fixed it, concurrent-session safety. Compare the stdin primitive: ~10 lines, no state.

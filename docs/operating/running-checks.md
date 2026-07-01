@@ -1,12 +1,12 @@
 # Running checks
 
-`hector check` runs your checks against a file and returns a verdict. It's what your adapter calls on every edit, and what you run by hand to test a check.
+`ironlint check` runs your checks against a file and returns a verdict. It's what your adapter calls on every edit, and what you run by hand to test a check.
 
 ```bash
-hector check --file src/auth.rs
+ironlint check --file src/auth.rs
 ```
 
-Hector loads `.hector.yml`, confirms the config is trusted, then runs every check whose `files` globs match the path — one `run` invocation per matching file. It reads only each check's exit code, folds them into a single verdict, and prints it.
+IronLint loads `.ironlint.yml`, confirms the config is trusted, then runs every check whose `files` globs match the path — one `run` invocation per matching file. It reads only each check's exit code, folds them into a single verdict, and prints it.
 
 ## Choosing what to check
 
@@ -33,12 +33,12 @@ There is no warn tier. `0` and `2` are the normal pass/block signals. `1` means 
 
 ## Fail-open vs. fail-closed on internal errors
 
-Exit `3` is an open question: a check couldn't run, so Hector can't say pass or block. Adapters **fail-open** on `3` by default — the edit is allowed, because an unrelated problem (a script that failed to spawn, say) shouldn't block an agent's work.
+Exit `3` is an open question: a check couldn't run, so IronLint can't say pass or block. Adapters **fail-open** on `3` by default — the edit is allowed, because an unrelated problem (a script that failed to spawn, say) shouldn't block an agent's work.
 
 To flip that and treat internal errors as blocking, set:
 
 ```bash
-export HECTOR_FAIL_CLOSED_ON_INTERNAL=1
+export IRONLINT_FAIL_CLOSED_ON_INTERNAL=1
 ```
 
 Use fail-closed where a skipped check is unacceptable — a CI pipeline where a check silently not running would let a violation through.
@@ -47,7 +47,7 @@ Use fail-closed where a skipped check is unacceptable — a CI pipeline where a 
 
 | Flag | Effect |
 |------|--------|
-| `--config <path>` | Load a config other than `.hector.yml`. |
+| `--config <path>` | Load a config other than `.ironlint.yml`. |
 | `--check <id>` | Run only this check. Repeatable; multiple flags are OR'd. |
 
 For JSON output (`--format json`) and the complete flag list, see the [CLI reference](../reference/cli.md) and [Verdict JSON](../reference/verdict-json.md).
@@ -56,4 +56,4 @@ For JSON output (`--format json`) and the complete flag list, see the [CLI refer
 
 - [Verdict JSON](../reference/verdict-json.md) — the machine-readable verdict and exit codes
 - [Inspecting your config](inspecting-config.md) — read-only commands that never run a check
-- [Diagnostics](diagnostics.md) — `hector doctor` when checks behave unexpectedly
+- [Diagnostics](diagnostics.md) — `ironlint doctor` when checks behave unexpectedly

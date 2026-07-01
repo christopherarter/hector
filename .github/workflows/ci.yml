@@ -47,16 +47,16 @@ jobs:
       - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:
-          name: hector-${{ matrix.os }}
-          path: target/release/hector
+          name: ironlint-${{ matrix.os }}
+          path: target/release/ironlint
           retention-days: 1
 
       # The claude-code and reasonix adapter contract tests are Rust
-      # integration tests under crates/hector-cli/tests/ — they run as part of
+      # integration tests under crates/ironlint-cli/tests/ — they run as part of
       # `cargo test --workspace` above (they spawn the adapter hook.sh against
       # the just-built binary; jq/python3/bash are present on the runners).
-      - name: Hector dogfood (.hector.yml on own source)
-        if: hashFiles('.hector.yml') != ''
+      - name: IronLint dogfood (.ironlint.yml on own source)
+        if: hashFiles('.ironlint.yml') != ''
         run: PATH="$(pwd)/target/release:${PATH}" bash scripts/ci-dogfood.sh
 
   coverage:
@@ -89,10 +89,10 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: hector-ubuntu-latest
+          name: ironlint-ubuntu-latest
           path: target/release
 
-      - run: chmod +x target/release/hector
+      - run: chmod +x target/release/ironlint
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -118,10 +118,10 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: hector-ubuntu-latest
+          name: ironlint-ubuntu-latest
           path: target/release
 
-      - run: chmod +x target/release/hector
+      - run: chmod +x target/release/ironlint
 
       - uses: actions/setup-node@v4
         with:

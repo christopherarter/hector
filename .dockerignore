@@ -9,7 +9,7 @@ node_modules/
 tests/e2e/*/runs/
 .repowise/
 .claude/
-.hector/
+.ironlint/
 *.profraw
 .DS_Store
 # Docs/specs/plans aren't needed by the build (only Cargo.toml + crates/ +

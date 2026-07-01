@@ -1,4 +1,4 @@
-# Hector `check` audit remediation — orchestration design
+# IronLint `check` audit remediation — orchestration design
 
 **Date:** 2026-05-25
 **Author:** Claude (Opus 4.7) via `superpowers:brainstorming`
@@ -72,10 +72,10 @@ The reviewer-separation rule from CLAUDE.md is enforced *structurally*: the impl
 Sub-task sequence inside Phase 5:
 
 1. **C6 first** — pin schema-version policy (additive-no-bump vs `major.minor`). Document in `verdict.rs` doc comment and `docs/telemetry.md`. Add `version_only_bumps_on_breaking_change` invariant test. **Every later task in this phase follows this rule.**
-2. **B7** — `Status::InternalError` variant + exit code 3. Adapters (Claude Code hook + opencode plugin) gain an exit-3 handler; default = allow with stderr message; strict CI opt-in via `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`.
+2. **B7** — `Status::InternalError` variant + exit code 3. Adapters (Claude Code hook + opencode plugin) gain an exit-3 handler; default = allow with stderr message; strict CI opt-in via `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1`.
 3. **B4 + B5 + C5 together** — these all touch `DeferredPayload` / `build_evaluator_input` / `crate::llm::prompt`. One agent, one set of commits, one `DEFERRED_SCHEMA_VERSION` bump at the end.
 4. **B3** — subagent-session stop path. Reuses the new envelope shape from step 3. Adds session-aggregate framing.
-5. **C1** — trust fingerprint canonicalization through `serde_json::Value`. One-time re-trust nudge in the load-error message. Re-trust every checked-in `.hector.yml` in the same commit.
+5. **C1** — trust fingerprint canonicalization through `serde_json::Value`. One-time re-trust nudge in the load-error message. Re-trust every checked-in `.ironlint.yml` in the same commit.
 6. **Final commit (phase-closing)** — CHANGELOG migration section, snapshot updates, version bumps for the affected crates, one-line release-note draft. Single squash-merge or as-is merge per project preference.
 
 ## Per-task contract
@@ -115,13 +115,13 @@ After Phase 6, the orchestrator runs end-to-end:
 - Fresh `cargo clean && cargo test --all-targets --all-features` from a clean checkout
 - `scripts/ci-coverage.sh` across the workspace
 - Adapter integration tests under `adapters/claude-code/tests/` and `adapters/opencode/tests/` against the new envelope shape (validates B3, B4, B5, B7 end-to-end)
-- Manual smoke test: `hector check`, `hector check --diff`, `hector check --session` against a real `.hector.yml` configured for both direct-API and `claude-code-subagent` providers
+- Manual smoke test: `ironlint check`, `ironlint check --diff`, `ironlint check --session` against a real `.ironlint.yml` configured for both direct-API and `claude-code-subagent` providers
 - Confirm `docs/audits/2026-05-24-check-end-to-end-audit.md` has every checkbox ticked
 
 ## Risks & mitigations
 
 - **B6 (`clone(2)`-per-child) requires more `unsafe` than is reasonable.** Mitigation: keep the audit's rejected-alternative ("document + reject mixed-network configs at load") as a fallback. Decision point lives inside Phase 3; orchestrator pauses to surface the trade if `unsafe` blast radius exceeds ~150 lines.
-- **C1 (trust fingerprint) breaks every checked-in `.hector.yml` simultaneously.** Mitigation: the load-error message gains a "run `hector trust` to re-sign" nudge before C1 ships; CHANGELOG and release notes call this out as the headline 0.2 migration.
+- **C1 (trust fingerprint) breaks every checked-in `.ironlint.yml` simultaneously.** Mitigation: the load-error message gains a "run `ironlint trust` to re-sign" nudge before C1 ships; CHANGELOG and release notes call this out as the headline 0.2 migration.
 - **Phase 5 is large.** Mitigation: it ships as one PR but is reviewed sub-task by sub-task (B7 → C6 → B4+B5+C5 → B3 → C1 → close). The reviewer agent has the audit anchors as ground truth.
 - **A code-review subagent has no project memory.** Mitigation: the orchestrator hands it `CLAUDE.md` + the specific audit finding by file:line. The reviewer can read the rest of the repo as needed but starts from those anchors.
 - **D1 design pin choice (whole-file vs added-lines-only diff mode) is contested.** Mitigation: Phase 0's `AskUserQuestion` presents both options with their downstream cost. If the user prefers B (added-lines-only), Phase 2's path/scope work grows by one task (added-lines threading); if A, it shrinks (drop `added_lines` field).

@@ -1,45 +1,43 @@
-# Hector
+# IronLint
 
-> Hector is a local, static policy-enforcement gate for AI coding agents: it checks each proposed or completed edit against a trusted `.hector.yml` and returns a machine-readable verdict with stable exit codes, so a policy violation blocks the bad edit before it lands.
+> IronLint is a local, static policy gate for AI coding agents: every proposed edit runs the shell checks from a trusted `.ironlint.yml` before it lands, and any nonzero exit (1–125) blocks the write. A machine-readable verdict with stable exit codes makes the result consumable by CI and agent adapters.
 
-Hector runs two deterministic engines — `script` (capability-sandboxed shell commands) and `ast` (ast-grep structural patterns) — with no LLM or network dependency. A trust gate fingerprints the YAML config so untrusted `script:` rules never run. The verdict JSON and the `.hector/log.jsonl` telemetry log are versioned wire formats consumed by CI and by editor/agent adapters (Claude Code, OpenCode, pi, Reasonix).
+A check is a file glob plus a shell command (or a `steps:` sequence). IronLint hands the command the proposed content on stdin plus a small env ABI (`$IRONLINT_FILE`, `$IRONLINT_FILES`, `$IRONLINT_ROOT`, `$IRONLINT_EVENT`, `$IRONLINT_TMPFILE`) and reads back only the exit code — no engines, no severities, no output parsing; the check owns the decision. Checks fire on two lifecycles: `write` (per edit, pre-landing) and `pre-commit` (once over the staged set). An out-of-repo trust store means an unblessed config never runs. The verdict JSON (schema 5) and the append-only `.ironlint/log.jsonl` telemetry log are versioned wire formats consumed by CI and by agent adapters (Claude Code, OpenCode, pi, Reasonix).
 
 ## Start here
 
 - [Documentation index](docs/README.md): table of contents for every guide and reference.
-- [Getting started](docs/getting-started.md): install the binary, scaffold a `.hector.yml`, and gate your first edit.
-- [Architecture](docs/architecture.md): how config, the trust gate, the two engines, and the verdict fit together (with a diagram).
+- [Getting started](docs/getting-started.md): install the binary, scaffold a `.ironlint.yml`, and gate your first edit.
+- [Architecture](docs/architecture.md): how config, the trust store, the check runner, and the verdict fit together (with a diagram).
 
 ## Reference
 
-- [CLI reference](docs/reference/cli.md): every subcommand and flag — `check`, `trust`, `validate`, `init`, `migrate`, `baseline`, `doctor`, `explain`, `guide`, `show-resolved-config`.
-- [Config schema](docs/reference/config-schema.md): the `.hector.yml` format — rule fields, the `engine` enum (`script` | `ast`), `scope`, `severity`, and `capabilities`.
-- [Verdict JSON](docs/reference/verdict-json.md): the machine-readable verdict wire format (schema 3), statuses, and the exit-code contract (0/1/2/3).
-- [show-resolved-config](docs/reference/show-resolved-config.md): print the post-`extends:` merged rule set, attributing each rule to its source file.
+- [CLI reference](docs/reference/cli.md): every subcommand and flag — `check`, `trust`, `validate`, `init`, `explain`, `show-resolved-config`, `doctor`, `schema`, `watch`, `update`.
+- [Config schema](docs/reference/config-schema.md): the `.ironlint.yml` format — `checks:` entries with `files`, `run` or `steps`, `on`, `name`, plus `extends:` and `execution:`.
+- [Verdict JSON](docs/reference/verdict-json.md): the machine-readable verdict wire format (schema 5), statuses, and the exit-code contract (0/1/2/3).
+- [show-resolved-config](docs/reference/show-resolved-config.md): print the post-`extends:` merged check set, attributing each check to its source file.
 
-## Writing rules
+## Writing checks
 
-- [Writing rules](docs/writing-rules/README.md): how to author rules and choose between the `script` and `ast` engines.
-- [Shell checks](docs/writing-rules/shell-checks.md): `engine: script` rules that shell out to a linter, grep, or any command.
-- [Matching code structure](docs/writing-rules/matching-code.md): `engine: ast` rules using ast-grep patterns.
+- [Anatomy of a check](docs/writing-checks/README.md): `files`, `run`/`steps`, the stdin/env ABI, and the exit-code contract.
+- [Check recipes](docs/writing-checks/recipes.md): grep checks, linters over stdin, and whole-tree tools.
 
 ## Configuring
 
-- [Sharing config with extends](docs/configuring/inheritance.md): compose `.hector.yml` files across a repo; local rules win on collision.
-- [Targeting files](docs/configuring/targeting-files.md): `scope:` glob semantics.
-- [Severity and disabling](docs/configuring/severity-and-disabling.md): `error` vs. `warning`, and `hector-disable:` line directives.
-- [Baselines](docs/configuring/baselines.md): record existing violations so only new ones block.
+- [Targeting files](docs/configuring/targeting-files.md): the `files:` glob semantics each check matches.
+- [Disabling a check in-line](docs/configuring/disabling.md): `ironlint-disable:` directives.
+- [Sharing config with extends](docs/configuring/inheritance.md): compose `.ironlint.yml` files across repos; local checks win on collision.
 
 ## Operating
 
-- [Running checks](docs/operating/running-checks.md): `hector check` in file and diff modes, and how exit codes map to outcomes.
-- [Inspecting your config](docs/operating/inspecting-config.md): debug scope and rule resolution with `explain` / `guide` / `show-resolved-config`.
-- [Telemetry](docs/operating/telemetry.md): the append-only `.hector/log.jsonl` check log (schema 2).
-- [Diagnostics](docs/operating/diagnostics.md): `hector doctor` environment and config health checks.
+- [Running checks](docs/operating/running-checks.md): `ironlint check` in file and diff modes, exit codes, and fail-open behavior.
+- [Inspecting your config](docs/operating/inspecting-config.md): debug scope and check resolution with `explain` / `show-resolved-config`.
+- [Telemetry](docs/operating/telemetry.md): the append-only `.ironlint/log.jsonl` check log.
+- [Diagnostics](docs/operating/diagnostics.md): `ironlint doctor` environment, config, and adapter health checks.
 
 ## Adapters
 
-- [Adapters overview](docs/adapters/README.md): the shared adapter contract — exit codes and fail-open-on-internal-error behavior.
+- [Adapters overview](docs/adapters/README.md): the shared adapter contract — the check ABI, exit codes, and fail-open-on-internal-error behavior.
 - [Claude Code adapter](docs/adapters/claude-code.md): the PostToolUse plugin that gates `Edit`/`Write`.
 - [OpenCode adapter](docs/adapters/opencode.md): the `tool.execute.before` plugin gate.
 - [Reasonix adapter](adapters/reasonix/README.md): the PreToolUse hook for DeepSeek-Reasonix.
@@ -47,11 +45,10 @@ Hector runs two deterministic engines — `script` (capability-sandboxed shell c
 
 ## Security
 
-- [The trust gate](docs/security/trust.md): YAML fingerprinting — the defense against malicious `script:` rules.
-- [Capability sandboxing](docs/security/capabilities.md): per-rule `network` / `writes` constraints on script execution.
+- [The trust store](docs/security/trust.md): why IronLint refuses an unblessed config, and how `ironlint trust` works.
 
 ## Optional
 
 - [Visual elevator pitch](docs/visual-elevator-pitch.md): a one-screen visual overview.
-- [Changelog](CHANGELOG.md): release notes, including the 0.2 removal of LLM evaluation.
+- [Changelog](CHANGELOG.md): release notes.
 - [Repo guidance (AGENTS.md)](AGENTS.md): conventions for contributors and coding agents working in this repo.

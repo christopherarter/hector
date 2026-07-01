@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "DEPRECATED: install.sh is superseded by \`hector init --harness reasonix\`. This script is kept only as a fallback for environments without the hector binary." >&2
-echo "Run \`hector init --harness reasonix\` instead for atomic writes, idempotency, and \`hector doctor\` integration." >&2
+echo "DEPRECATED: install.sh is superseded by \`ironlint init --harness reasonix\`. This script is kept only as a fallback for environments without the ironlint binary." >&2
+echo "Run \`ironlint init --harness reasonix\` instead for atomic writes, idempotency, and \`ironlint doctor\` integration." >&2
 
-# Install or refresh the Hector Reasonix PreToolUse hook in Reasonix settings.
+# Install or refresh the IronLint Reasonix PreToolUse hook in Reasonix settings.
 #
-# This keeps onboarding repeatable and also cleans up stale Hector Reasonix
+# This keeps onboarding repeatable and also cleans up stale IronLint Reasonix
 # entries from earlier adapter revisions, including non-gating PostToolUse
 # hooks.
 
@@ -16,19 +16,19 @@ SETTINGS="${REASONIX_SETTINGS:-${HOME}/.reasonix/settings.json}"
 BACKUP=""
 
 if ! command -v jq >/dev/null 2>&1; then
-  echo "hector reasonix installer: jq is required" >&2
+  echo "ironlint reasonix installer: jq is required" >&2
   exit 1
 fi
 
 if [[ ! -f "${HOOK_PATH}" ]]; then
-  echo "hector reasonix installer: hook not found at ${HOOK_PATH}" >&2
+  echo "ironlint reasonix installer: hook not found at ${HOOK_PATH}" >&2
   exit 1
 fi
 
 mkdir -p "$(dirname -- "${SETTINGS}")"
 
-INPUT=$(mktemp -t hector-reasonix-settings-in.XXXXXX)
-OUTPUT=$(mktemp -t hector-reasonix-settings-out.XXXXXX)
+INPUT=$(mktemp -t ironlint-reasonix-settings-in.XXXXXX)
+OUTPUT=$(mktemp -t ironlint-reasonix-settings-out.XXXXXX)
 cleanup() {
   rm -f "${INPUT}" "${OUTPUT}"
 }
@@ -44,17 +44,17 @@ else
 fi
 
 jq --arg command "${HOOK_PATH} pre-tool-use" '
-  def without_hector_reasonix:
+  def without_ironlint_reasonix:
     map(select(((.command // "") | contains("adapters/reasonix/hooks/hook.sh")) | not));
 
   .hooks = (.hooks // {})
-  | .hooks.PostToolUse = ((.hooks.PostToolUse // []) | without_hector_reasonix)
+  | .hooks.PostToolUse = ((.hooks.PostToolUse // []) | without_ironlint_reasonix)
   | .hooks.PreToolUse = (
-      ((.hooks.PreToolUse // []) | without_hector_reasonix)
+      ((.hooks.PreToolUse // []) | without_ironlint_reasonix)
       + [{
           "command": $command,
           "match": "^(write_file|edit_file|multi_edit)$",
-          "description": "Block edits that violate hector policy before they land on disk",
+          "description": "Block edits that violate ironlint policy before they land on disk",
           "timeout": 30000
         }]
     )
@@ -64,7 +64,7 @@ mv "${OUTPUT}" "${SETTINGS}"
 trap - EXIT
 rm -f "${INPUT}"
 
-echo "Installed Hector Reasonix hook in ${SETTINGS}"
+echo "Installed IronLint Reasonix hook in ${SETTINGS}"
 if [[ -n "${BACKUP}" ]]; then
   echo "Backup written to ${BACKUP}"
 fi

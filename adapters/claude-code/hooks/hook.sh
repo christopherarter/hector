@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Claude Code adapter for hector.
+# Claude Code adapter for ironlint.
 #
 # Gates Edit/Write edits via the PostToolUse hook: synthesize a unified diff
-# from the event's (old_string, new_string), then run `hector check --diff`
+# from the event's (old_string, new_string), then run `ironlint check --diff`
 # against it. Exit codes:
 #   - 2 = block (verdict JSON on stderr),
 #   - 3 = engine internal error (fail-open by default; set
-#         HECTOR_FAIL_CLOSED_ON_INTERNAL=1 to block instead),
+#         IRONLINT_FAIL_CLOSED_ON_INTERNAL=1 to block instead),
 #   - 0 = pass/warn.
 #
 # Event JSON arrives on stdin. We pipe through jq to extract paths. A first
@@ -17,7 +17,7 @@ set -euo pipefail
 
 # Default project root is the CWD where Claude Code is running.
 PROJECT_ROOT="$(pwd)"
-CONFIG="${PROJECT_ROOT}/.hector.yml"
+CONFIG="${PROJECT_ROOT}/.ironlint.yml"
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYNTHESIZE_DIFF="${HOOK_DIR}/synthesize_diff.sh"
 
@@ -35,7 +35,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Skip silently if hector isn't configured for this project.
+# Skip silently if ironlint isn't configured for this project.
 if [[ ! -f "${CONFIG}" ]]; then
   exit 0
 fi
@@ -49,17 +49,17 @@ if [[ -z "${FILE}" ]]; then
 fi
 
 # R3: short-circuit on edits to the policy file itself. The on-disk sha will
-# not match `trust:` while the user is mid-edit; any `hector` invocation would
+# not match `trust:` while the user is mid-edit; any `ironlint` invocation would
 # fail the trust gate and surface a misleading "internal error" to the user.
 # Match by basename so the skip works for both relative and absolute paths
 # Claude Code may send.
 BASENAME="${FILE##*/}"
-if [[ "${BASENAME}" == ".hector.yml" || "${BASENAME}" == ".bully.yml" ]]; then
+if [[ "${BASENAME}" == ".ironlint.yml" || "${BASENAME}" == ".bully.yml" ]]; then
   exit 0
 fi
 
 # Compute the changed file's path relative to the project root. Unified diffs
-# use repo-relative `a/`/`b/` headers, and `hector check --diff` rejects
+# use repo-relative `a/`/`b/` headers, and `ironlint check --diff` rejects
 # absolute and `..`-escaping paths (P0-4). Claude Code sends absolute
 # file_paths, so relativize here. Resolve both sides to their physical
 # (symlink-free) form first: on macOS $TMPDIR lives under /var, a symlink to
@@ -81,7 +81,7 @@ fi
 # synthesizer emits correct `@@ -1,N +1,M @@` counts for multi-line edits and
 # escapes any OLD/NEW line that looks like a diff header, so attacker-
 # controlled content can't reframe the diff onto another file. The header uses
-# REL when available so the diff is a valid `hector check --diff` input.
+# REL when available so the diff is a valid `ironlint check --diff` input.
 OLD=$(echo "${EVENT}" | jq -r '.tool_input.old_string // ""')
 NEW=$(echo "${EVENT}" | jq -r '.tool_input.new_string // .tool_input.content // ""')
 DIFF=$("${SYNTHESIZE_DIFF}" "${REL:-${FILE}}" "${OLD}" "${NEW}")
@@ -91,21 +91,21 @@ DIFF=$("${SYNTHESIZE_DIFF}" "${REL:-${FILE}}" "${OLD}" "${NEW}")
 # on-disk file in diff mode either way, so this is a strict superset of
 # `--file`. Fall back to `--file` when the path couldn't be relativized.
 if [[ -n "${REL}" ]]; then
-  TMP_DIFF=$(mktemp -t hector-diff.XXXXXX)
+  TMP_DIFF=$(mktemp -t ironlint-diff.XXXXXX)
   printf '%s\n' "${DIFF}" > "${TMP_DIFF}"
   GATE_INPUT=(--diff "${TMP_DIFF}")
 else
   GATE_INPUT=(--file "${FILE}")
 fi
 
-# Gate the edit. Differentiate hector exit codes:
+# Gate the edit. Differentiate ironlint exit codes:
 #   0 = pass/warn, 2 = block, 3 = engine internal error, 1 = config/load error.
-# Suppress hector's own stderr so the verdict JSON we cat to stderr on block
+# Suppress ironlint's own stderr so the verdict JSON we cat to stderr on block
 # (exit 2) parses cleanly. The macOS capability sandbox emits a per-process
 # advisory warning that would otherwise prepend to the verdict stream.
-TMP_VERDICT=$(mktemp -t hector-verdict.XXXXXX)
+TMP_VERDICT=$(mktemp -t ironlint-verdict.XXXXXX)
 EC=0
-hector check "${GATE_INPUT[@]}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" 2>/dev/null || EC=$?
+ironlint check "${GATE_INPUT[@]}" --config "${CONFIG}" --format json > "${TMP_VERDICT}" 2>/dev/null || EC=$?
 case "${EC}" in
   0) exit 0 ;;
   2)
@@ -115,17 +115,17 @@ case "${EC}" in
   3)
     # Engine internal error (script spawn failure, etc.). Fail-open by default
     # so a broken gate doesn't block the agent. Opt-in fail-closed:
-    # HECTOR_FAIL_CLOSED_ON_INTERNAL=1.
-    if [[ "${HECTOR_FAIL_CLOSED_ON_INTERNAL:-0}" == "1" ]]; then
-      echo "hector: internal error — failing closed (HECTOR_FAIL_CLOSED_ON_INTERNAL=1)" >&2
+    # IRONLINT_FAIL_CLOSED_ON_INTERNAL=1.
+    if [[ "${IRONLINT_FAIL_CLOSED_ON_INTERNAL:-0}" == "1" ]]; then
+      echo "ironlint: internal error — failing closed (IRONLINT_FAIL_CLOSED_ON_INTERNAL=1)" >&2
       [[ -s "${TMP_VERDICT}" ]] && cat "${TMP_VERDICT}" >&2
       exit 2
     fi
-    echo "hector: internal error during check — allowing edit; see .hector/log.jsonl" >&2
+    echo "ironlint: internal error during check — allowing edit; see .ironlint/log.jsonl" >&2
     exit 0
     ;;
   *)
-    echo "hector: internal error checking ${FILE} (exit ${EC})" >&2
+    echo "ironlint: internal error checking ${FILE} (exit ${EC})" >&2
     [[ -s "${TMP_VERDICT}" ]] && cat "${TMP_VERDICT}" >&2
     exit 1
     ;;

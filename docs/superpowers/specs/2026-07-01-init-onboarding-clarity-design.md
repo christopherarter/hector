@@ -1,20 +1,20 @@
-# `hector init` onboarding clarity — design
+# `ironlint init` onboarding clarity — design
 
 **Date:** 2026-07-01
 **Status:** approved, pre-implementation
-**Touches:** `hector-core::adapter` (ops/registry), `hector-cli::commands::init::onboard`
+**Touches:** `ironlint-core::adapter` (ops/registry), `ironlint-cli::commands::init::onboard`
 
 ## Problem
 
-`hector init`'s harness-onboarding phase does not make it obvious **what** gets
+`ironlint init`'s harness-onboarding phase does not make it obvious **what** gets
 installed, and it treats the two entry paths inconsistently:
 
 - **Explicit `--harness <name>`** installs *silently* — no preview, no
   confirmation. The user learns what landed only from the terse per-harness
   result lines printed *after* the fact.
-- **Auto-detect** prompts, but the prompt (`Install hector hooks into
+- **Auto-detect** prompts, but the prompt (`Install ironlint hooks into
   claude-code, pi? [Y/n]`) says "hooks" — understating it, since each harness
-  also gets the `hector-config` authoring **skill** — and names no paths, so the
+  also gets the `ironlint-config` authoring **skill** — and names no paths, so the
   user can't see what files are about to be written or which settings file is
   patched.
 - Nothing signals *why* a harness is in the set: detected on disk vs. named on
@@ -43,12 +43,12 @@ the post-install result lines. This is presentation + flow only.
 ### 1. Structured plan model (core)
 
 Replace the stringly-typed dry-run output with a structured plan so the CLI owns
-all formatting. In `hector-core::adapter`:
+all formatting. In `ironlint-core::adapter`:
 
 ```rust
 pub enum PlanStep {
     Hook   { path: PathBuf },              // hook.sh / synthesize_diff.sh
-    Plugin { path: PathBuf },              // hector.ts
+    Plugin { path: PathBuf },              // ironlint.ts
     Patch  { path: PathBuf, key: &'static str },  // settings.json › PostToolUse
     Skill  { path: PathBuf },              // SKILL.md
 }
@@ -71,7 +71,7 @@ pub enum PlanStep {
   "remove" verb (a removal plan).
 
 **Boundary:** core produces data (`PlanStep`), CLI produces pixels. The
-pretty-printer lives entirely in `hector-cli` and is unit-tested as pure string
+pretty-printer lives entirely in `ironlint-cli` and is unit-tested as pure string
 formatting, exactly like today's `format_outcome`.
 
 **Skill dedup is honored in the plan.** `should_install_skill` already skips
@@ -112,25 +112,25 @@ prompts.
 Layout is a per-harness tree under a section header:
 
 ```
-  hector · onboarding
+  ironlint · onboarding
   ───────────────────
 
   claude-code   detected
-    ├ hook    ~/.config/hector/adapters/claude-code/hook.sh
-    ├ hook    ~/.config/hector/adapters/claude-code/synthesize_diff.sh
+    ├ hook    ~/.config/ironlint/adapters/claude-code/hook.sh
+    ├ hook    ~/.config/ironlint/adapters/claude-code/synthesize_diff.sh
     ├ patch   ./.claude/settings.json  › PostToolUse
-    └ skill   ./.claude/skills/hector-config/SKILL.md
+    └ skill   ./.claude/skills/ironlint-config/SKILL.md
 
   pi            requested
-    ├ plugin  ./.pi/extensions/hector.ts
-    └ skill   ./.pi/skills/hector-config/SKILL.md
+    ├ plugin  ./.pi/extensions/ironlint.ts
+    └ skill   ./.pi/skills/ironlint-config/SKILL.md
 
   Proceed? [Y/n]
 ```
 
 Rules:
 
-- **Section header** `hector · onboarding` with an underline rule.
+- **Section header** `ironlint · onboarding` with an underline rule.
 - **Step-kind column** (`hook`/`plugin`/`patch`/`skill`) is fixed-width so paths
   align. Patch shows its array key after `›`.
 - **Path display** is shortened: home-relative (`~/…`) for artifacts under the

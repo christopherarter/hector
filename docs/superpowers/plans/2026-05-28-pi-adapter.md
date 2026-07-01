@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `adapters/pi/` — a pi (`@earendil-works/pi-coding-agent`) extension that wires pi's `tool_call` / `tool_result` / `session_start` / `agent_end` lifecycle events to the `hector` CLI, gating file edits against project policy before they execute.
+**Goal:** Build `adapters/pi/` — a pi (`@earendil-works/pi-coding-agent`) extension that wires pi's `tool_call` / `tool_result` / `session_start` / `agent_end` lifecycle events to the `ironlint` CLI, gating file edits against project policy before they execute.
 
-**Architecture:** A single TypeScript module (`src/index.ts`) default-exports a factory `(pi) => void` that registers four lifecycle handlers via `pi.on(...)`. The handlers are a pure translation layer — they compute the proposed post-edit content, shell out to the `hector` binary (`hector check --file <path> --content -` with the content piped on stdin), and translate hector's exit code into pi's block contract (`return { block: true, reason }`). No rule logic lives in the adapter. It mirrors the existing `adapters/opencode/` plugin feature-for-feature, adapted to pi's API, using the `--content -` pre-write check from `adapters/reasonix/`.
+**Architecture:** A single TypeScript module (`src/index.ts`) default-exports a factory `(pi) => void` that registers four lifecycle handlers via `pi.on(...)`. The handlers are a pure translation layer — they compute the proposed post-edit content, shell out to the `ironlint` binary (`ironlint check --file <path> --content -` with the content piped on stdin), and translate ironlint's exit code into pi's block contract (`return { block: true, reason }`). No rule logic lives in the adapter. It mirrors the existing `adapters/opencode/` plugin feature-for-feature, adapted to pi's API, using the `--content -` pre-write check from `adapters/reasonix/`.
 
-**Tech Stack:** TypeScript (loaded by pi via `jiti`, no build step), Node built-ins (`node:child_process`, `node:fs`, `node:path`), `node:test` test runner (zero extra runtime deps), the compiled `hector` Rust binary on `PATH`.
+**Tech Stack:** TypeScript (loaded by pi via `jiti`, no build step), Node built-ins (`node:child_process`, `node:fs`, `node:path`), `node:test` test runner (zero extra runtime deps), the compiled `ironlint` Rust binary on `PATH`.
 
 ---
 
@@ -15,18 +15,18 @@
 - **Design spec:** `docs/superpowers/specs/2026-05-28-pi-adapter-design.md` — the authoritative behavior contract. Every section number referenced below (§5, §6.1, etc.) points here.
 - **Feature-parity reference:** `adapters/opencode/src/index.ts` and its tests `adapters/opencode/tests/plugin.test.ts`, `adapters/opencode/tests/synthesize_diff.test.ts`. The pi adapter reproduces this behavior on pi's API. `synthesizeDiff` is ported almost verbatim (extended for batch edits).
 - **`--content -` precedent:** `adapters/reasonix/hooks/hook.sh` — the pre-write stdin check pattern.
-- **CLI exit-code contract:** `crates/hector-cli/src/commands/check.rs` (function `run`, `exit_code`) and `crates/hector-cli/src/commands/session.rs` (function `record`). Flags defined in `crates/hector-cli/src/cli.rs`.
+- **CLI exit-code contract:** `crates/ironlint-cli/src/commands/check.rs` (function `run`, `exit_code`) and `crates/ironlint-cli/src/commands/session.rs` (function `record`). Flags defined in `crates/ironlint-cli/src/cli.rs`.
 - **CI wiring reference:** the `opencode-adapter` job in `.github/workflows/ci.yml`.
 
 ### Exit-code contract (locked — do not reinterpret)
 
-From `crates/hector-cli/src/commands/check.rs`:
+From `crates/ironlint-cli/src/commands/check.rs`:
 
 | Exit | Meaning | Adapter behavior |
 |------|---------|------------------|
 | `0` | Pass or Warn | Allow (return nothing). |
 | `2` | Block (≥1 error-severity violation) | `return { block: true, reason }`. |
-| `3` | Engine internal error (missing API key, script spawn failure, AST refused diff) | Fail-open (log + allow) by default; fail-closed (block) when `HECTOR_FAIL_CLOSED_ON_INTERNAL=1`. |
+| `3` | Engine internal error (missing API key, script spawn failure, AST refused diff) | Fail-open (log + allow) by default; fail-closed (block) when `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1`. |
 | `1` / other | Config/load error | Log to stderr, allow. |
 
 ---
@@ -35,12 +35,12 @@ From `crates/hector-cli/src/commands/check.rs`:
 
 | File | Responsibility |
 |------|----------------|
-| `adapters/pi/src/index.ts` | The whole adapter: type definitions, pure helpers (`normalizeEdits`, `synthesizeDiff`, `computeProposedContent`, `getPath`, `isPolicyFile`), the `hector` subprocess wrapper (`runHector`), and the default-exported factory that registers the four `pi.on(...)` handlers. Single focused file (~250 lines), matching the opencode adapter's single-file shape. |
-| `adapters/pi/test/index.test.ts` | `node:test` suite. Drives the exported factory with a fake `pi` object and synthetic events, plus unit tests for the pure helpers, against the real `hector` binary on `PATH`. |
-| `adapters/pi/package.json` | `@dynamik-dev/hector-pi`. `type: module`, `pi.extensions` discovery field, `test`/`typecheck` scripts, `@types/node` + `typescript` dev deps. |
+| `adapters/pi/src/index.ts` | The whole adapter: type definitions, pure helpers (`normalizeEdits`, `synthesizeDiff`, `computeProposedContent`, `getPath`, `isPolicyFile`), the `ironlint` subprocess wrapper (`runIronLint`), and the default-exported factory that registers the four `pi.on(...)` handlers. Single focused file (~250 lines), matching the opencode adapter's single-file shape. |
+| `adapters/pi/test/index.test.ts` | `node:test` suite. Drives the exported factory with a fake `pi` object and synthetic events, plus unit tests for the pure helpers, against the real `ironlint` binary on `PATH`. |
+| `adapters/pi/package.json` | `@christopherarter/ironlint-pi`. `type: module`, `pi.extensions` discovery field, `test`/`typecheck` scripts, `@types/node` + `typescript` dev deps. |
 | `adapters/pi/tsconfig.json` | Strict TS config mirroring opencode's, with `types: ["node"]`. |
 | `adapters/pi/README.md` | Install paths, requirements, exit-code table, known gaps (§12, §13). |
-| `.github/workflows/ci.yml` | Add a `pi-adapter` job mirroring `opencode-adapter`: download the built binary, set up Node, type-check, run the `node:test` suite with `hector` on `PATH`. |
+| `.github/workflows/ci.yml` | Add a `pi-adapter` job mirroring `opencode-adapter`: download the built binary, set up Node, type-check, run the `node:test` suite with `ironlint` on `PATH`. |
 
 **Design note on types:** the adapter source defines its own structural `PiExtensionAPI` interface rather than importing `@earendil-works/pi-coding-agent`. This keeps the adapter a zero-hard-dependency translation layer — `tsc` and `node:test` run without the pi package installed, and tests inject a fake `pi`. The pi package is declared as an *optional peer dependency* for documentation only (the real runtime types come from the host).
 
@@ -48,13 +48,13 @@ From `crates/hector-cli/src/commands/check.rs`:
 
 ## Prerequisites (do once, before Task 1)
 
-- [ ] **Build the `hector` binary** so the integration tests can invoke it:
+- [ ] **Build the `ironlint` binary** so the integration tests can invoke it:
 
 ```bash
 cargo build --release
 ```
 
-Expected: `./target/release/hector` exists.
+Expected: `./target/release/ironlint` exists.
 
 - [ ] **Confirm Node ≥ 22.6** (for `node:test` + native TypeScript type-stripping):
 
@@ -68,7 +68,7 @@ Expected: `v22.6.0` or higher (type-stripping via `--experimental-strip-types` r
 
 ```bash
 export PATH="$(pwd)/target/release:${PATH}"
-hector --version   # sanity: prints a version
+ironlint --version   # sanity: prints a version
 ```
 
 ---
@@ -84,7 +84,7 @@ hector --version   # sanity: prints a version
 
 - [ ] **Step 1: Resolve spec §14 — does `pi.exec` support stdin + exit code?** Read `pi.exec`'s signature in the pi source (`earendil-works/pi`, `packages/coding-agent/src/`) or `pi.dev/docs/latest/extensions`.
 
-  - **Decision rule:** This plan uses `node:child_process` `spawnSync` (deterministic stdin via `{ input }` + exit code via `.status`) regardless. `spawnSync` is the guaranteed-correct path and is what every code step below is written against. *If* the investigation proves `pi.exec` accepts stdin input **and** surfaces an exit code, you may later swap `runHector`'s internals to gain `ctx.signal` abort integration — but that is an optional enhancement, not required for v1. Do not block on it.
+  - **Decision rule:** This plan uses `node:child_process` `spawnSync` (deterministic stdin via `{ input }` + exit code via `.status`) regardless. `spawnSync` is the guaranteed-correct path and is what every code step below is written against. *If* the investigation proves `pi.exec` accepts stdin input **and** surfaces an exit code, you may later swap `runIronLint`'s internals to gain `ctx.signal` abort integration — but that is an optional enhancement, not required for v1. Do not block on it.
 
 - [ ] **Step 2: Confirm how the extension learns the project root.** Read how pi passes the working directory to extensions (factory arg field, a `pi.cwd` property, or the per-handler `ctx`).
 
@@ -96,9 +96,9 @@ hector --version   # sanity: prints a version
 
 ```json
 {
-  "name": "@dynamik-dev/hector-pi",
+  "name": "@christopherarter/ironlint-pi",
   "version": "0.1.0",
-  "description": "pi extension for Hector — policy enforcement for AI coding agents. tool_call gate + session record + session check.",
+  "description": "pi extension for IronLint — policy enforcement for AI coding agents. tool_call gate + session record + session check.",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -133,7 +133,7 @@ hector --version   # sanity: prints a version
   "keywords": [
     "pi",
     "pi-extension",
-    "hector",
+    "ironlint",
     "lint",
     "policy",
     "ai-agents"
@@ -141,11 +141,11 @@ hector --version   # sanity: prints a version
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dynamik-dev/hector.git",
+    "url": "https://github.com/christopherarter/ironlint.git",
     "directory": "adapters/pi"
   },
-  "homepage": "https://github.com/dynamik-dev/hector#readme",
-  "bugs": "https://github.com/dynamik-dev/hector/issues"
+  "homepage": "https://github.com/christopherarter/ironlint#readme",
+  "bugs": "https://github.com/christopherarter/ironlint/issues"
 }
 ```
 
@@ -210,7 +210,7 @@ git commit -m "feat(pi): scaffold pi adapter package + toolchain"
 
 ## Task 2: Pure helpers — `synthesizeDiff` and `normalizeEdits`
 
-These are pure functions (no I/O, no `hector`), so they're unit-tested in isolation first. `synthesizeDiff` is ported from the opencode adapter and extended to emit **one hunk per edit** for pi's batch `edit` tool (§6.1). `normalizeEdits` is shared by both `synthesizeDiff` and (Task 3) `computeProposedContent`.
+These are pure functions (no I/O, no `ironlint`), so they're unit-tested in isolation first. `synthesizeDiff` is ported from the opencode adapter and extended to emit **one hunk per edit** for pi's batch `edit` tool (§6.1). `normalizeEdits` is shared by both `synthesizeDiff` and (Task 3) `computeProposedContent`.
 
 **Files:**
 - Create: `adapters/pi/src/index.ts`
@@ -329,8 +329,8 @@ Expected: FAIL — `Cannot find module '../src/index.ts'` / the imported names a
 - [ ] **Step 4: Create `adapters/pi/src/index.ts` with the pure helpers:**
 
 ```typescript
-// pi adapter for Hector. A pure translation layer between pi's extension
-// lifecycle and the `hector` CLI — it contains no rule logic. See
+// pi adapter for IronLint. A pure translation layer between pi's extension
+// lifecycle and the `ironlint` CLI — it contains no rule logic. See
 // docs/superpowers/specs/2026-05-28-pi-adapter-design.md.
 
 /** The shape of the input payload pi passes for `write` / `edit` tool calls. */
@@ -388,7 +388,7 @@ export function normalizeEdits(input: PiToolInput): Edit[] | null {
 const DIFF_HEADER_RE = /^(---|\+\+\+|@@) /
 
 /**
- * Prefix any line that mimics a diff header with a backslash so hector's
+ * Prefix any line that mimics a diff header with a backslash so ironlint's
  * diff parser does not mistake user content for a real `--- a/...`,
  * `+++ b/...`, or `@@ ... @@` header (P1-9). We scrub the already-prefixed
  * block so a malicious old line `-- a/SECRET` (which becomes `--- a/SECRET`
@@ -405,7 +405,7 @@ function scrub(block: string): string {
  * Build a single `@@ ... @@` hunk from one (oldText, newText) pair.
  *
  * P1-8: a literal `@@ -1 +1 @@` is wrong the moment either side has more
- * than one line — hector's parser uses the header counts to number added
+ * than one line — ironlint's parser uses the header counts to number added
  * lines. Emit `1,N` form whenever a side has > 1 line, and omit a side's
  * block entirely when it is empty (a pure addition / pure deletion).
  */
@@ -423,7 +423,7 @@ function buildHunk(oldText: string, newText: string): string {
 
 /**
  * Build a synthetic unified diff for a write/edit tool call so
- * `hector session record` can ingest it. pi's tool events carry no real
+ * `ironlint session record` can ingest it. pi's tool events carry no real
  * diff. A `write` is the single-hunk `"" -> content` case; an `edit` is a
  * batch, so we emit one scrubbed hunk per `{oldText,newText}` under a single
  * file header.
@@ -472,7 +472,7 @@ git commit -m "feat(pi): normalizeEdits + synthesizeDiff with P1-8/P1-9 hardenin
 
 ## Task 3: `computeProposedContent` (§5.1)
 
-Computes the exact post-edit file body that pi is about to write, so the gate can pipe it to `hector check --content -`. Pure except for reading the target file from disk on the `edit` path. `write` → the full body; `edit` → apply each replacement, requiring each `oldText` to occur **exactly once** (mirrors pi's own contract); any miss → `null` (skip the gate, §3 / §5.1).
+Computes the exact post-edit file body that pi is about to write, so the gate can pipe it to `ironlint check --content -`. Pure except for reading the target file from disk on the `edit` path. `write` → the full body; `edit` → apply each replacement, requiring each `oldText` to occur **exactly once** (mirrors pi's own contract); any miss → `null` (skip the gate, §3 / §5.1).
 
 **Files:**
 - Modify: `adapters/pi/src/index.ts`
@@ -501,7 +501,7 @@ test("computeProposedContent: write with non-string content returns null", () =>
 })
 
 test("computeProposedContent: edit applies a single replacement", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "hello world\n")
@@ -515,7 +515,7 @@ test("computeProposedContent: edit applies a single replacement", () => {
 })
 
 test("computeProposedContent: edit applies a batch in order", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "alpha beta\n")
@@ -544,7 +544,7 @@ test("computeProposedContent: edit returns null when file does not exist", () =>
 })
 
 test("computeProposedContent: edit returns null when oldText is missing from file", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "hello world\n")
@@ -558,7 +558,7 @@ test("computeProposedContent: edit returns null when oldText is missing from fil
 })
 
 test("computeProposedContent: edit returns null when oldText is non-unique", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "a a\n")
@@ -592,7 +592,7 @@ Then append the function to the end of `adapters/pi/src/index.ts`:
 ```typescript
 /**
  * Compute the file body pi is about to write, so the gate can pipe it to
- * `hector check --content -`. See spec §5.1.
+ * `ironlint check --content -`. See spec §5.1.
  *
  *   - `write` -> `input.content` (the full body), even for a new file.
  *     Non-string content (malformed call) -> null; pi would reject it too.
@@ -602,7 +602,7 @@ Then append the function to the end of `adapters/pi/src/index.ts`:
  *     A non-existent file -> null.
  *
  * We deliberately do NOT reproduce pi's fuzzy-match fallback — diverging
- * there would feed hector content pi won't actually write, risking false
+ * there would feed ironlint content pi won't actually write, risking false
  * blocks. Returning null skips the gate (fail-open on simulate-failure).
  */
 export function computeProposedContent(
@@ -651,7 +651,7 @@ git commit -m "feat(pi): computeProposedContent for write/edit pre-write simulat
 
 ---
 
-## Task 4: The gate — `runHector` + factory + `tool_call` handler (§5)
+## Task 4: The gate — `runIronLint` + factory + `tool_call` handler (§5)
 
 The core. Registers the `tool_call` handler that gates `write`/`edit` against the proposed content. This task wires the factory, the subprocess wrapper, the small path helpers, and the happy-path + block behavior. (Edit-specific and edge-case gate tests come in Task 5; the other three handlers in Tasks 6–7.)
 
@@ -664,10 +664,10 @@ The core. Registers the `tool_call` handler that gates `write`/`edit` against th
 ```typescript
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
-import hectorExtension from "../src/index.ts"
+import ironlintExtension from "../src/index.ts"
 
 // Drive the exported factory with a fake `pi` that records handlers, then
-// invoke them with synthetic pi-shaped events against the real `hector`
+// invoke them with synthetic pi-shaped events against the real `ironlint`
 // binary (CI prepends target/release to PATH).
 
 type Handler = (event: unknown, ctx?: unknown) => unknown
@@ -680,11 +680,11 @@ function loadExtension(root: string): Record<string, Handler> {
     cwd: root,
   }
   // Cast through unknown — the fake only implements the surface the factory uses.
-  hectorExtension(pi as unknown as Parameters<typeof hectorExtension>[0])
+  ironlintExtension(pi as unknown as Parameters<typeof ironlintExtension>[0])
   return handlers
 }
 
-const HECTOR_YML = `schema_version: 2
+const IRONLINT_YML = `schema_version: 2
 rules:
   no-debug:
     description: "no DEBUG markers in source"
@@ -695,9 +695,9 @@ rules:
 `
 
 function makeProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-proj-"))
-  writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
-  execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-proj-"))
+  writeFileSync(join(dir, ".ironlint.yml"), IRONLINT_YML)
+  execFileSync("ironlint", ["trust", "--config", join(dir, ".ironlint.yml")])
   return dir
 }
 
@@ -739,7 +739,7 @@ test("tool_call: write introducing DEBUG blocks", () => {
 - [ ] **Step 2: Run the tests to verify they fail:**
 
 Run: `cd adapters/pi && node --experimental-strip-types --test test/*.test.ts`
-Expected: FAIL — the default export `hectorExtension` does not exist yet.
+Expected: FAIL — the default export `ironlintExtension` does not exist yet.
 
 - [ ] **Step 3: Implement the subprocess wrapper, path helpers, and factory.** First extend the `node:fs` import line and add `node:child_process` + `node:path` imports at the top of `adapters/pi/src/index.ts`:
 
@@ -761,10 +761,10 @@ Then append to the end of `adapters/pi/src/index.ts`:
 // like `cat > foo` are too brittle to parse — universal adapter gap §13).
 const GATED_TOOLS = new Set(["write", "edit"])
 
-// R3: filenames hector treats as policy files. Edits to these short-circuit
+// R3: filenames ironlint treats as policy files. Edits to these short-circuit
 // both the gate and session record — checking a mid-edit policy file fails
 // the trust gate (sha mismatch) and surfaces a confusing internal error.
-const POLICY_FILES = new Set([".hector.yml", ".bully.yml"])
+const POLICY_FILES = new Set([".ironlint.yml", ".bully.yml"])
 
 /** R3: basename match covers both relative and absolute paths. */
 export function isPolicyFile(filePath: string): boolean {
@@ -779,13 +779,13 @@ export function getPath(input: PiToolInput): string | undefined {
 type ExecResult = { exitCode: number; stdout: string; stderr: string }
 
 /**
- * Invoke the `hector` binary (must be on PATH). Uses node:child_process
+ * Invoke the `ironlint` binary (must be on PATH). Uses node:child_process
  * spawnSync for deterministic stdin (`input`) + exit code (`status`) — see
  * the spec §14 resolution. `status` is null only when the process was
  * killed by a signal; map that to -1 so it falls through to fail-open.
  */
-export function runHector(args: string[], input = ""): ExecResult {
-  const res = spawnSync("hector", args, { input, encoding: "utf8" })
+export function runIronLint(args: string[], input = ""): ExecResult {
+  const res = spawnSync("ironlint", args, { input, encoding: "utf8" })
   return {
     exitCode: typeof res.status === "number" ? res.status : -1,
     stdout: res.stdout ?? "",
@@ -795,22 +795,22 @@ export function runHector(args: string[], input = ""): ExecResult {
 
 /**
  * Shared exit-3 (engine-internal-error) policy: fail-open (log + allow) by
- * default; fail-closed (return a block) under HECTOR_FAIL_CLOSED_ON_INTERNAL=1.
- * A misconfigured hector must never brick the agent.
+ * default; fail-closed (return a block) under IRONLINT_FAIL_CLOSED_ON_INTERNAL=1.
+ * A misconfigured ironlint must never brick the agent.
  */
 function failOpenOrClosed(
   kind: string,
   stderr: string,
 ): { block: true; reason: string } | undefined {
   const suffix = stderr ? `: ${stderr}` : ""
-  if (process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] === "1") {
+  if (process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"] === "1") {
     console.error(
-      `hector: internal error during ${kind} — failing closed (HECTOR_FAIL_CLOSED_ON_INTERNAL=1)${suffix}`,
+      `ironlint: internal error during ${kind} — failing closed (IRONLINT_FAIL_CLOSED_ON_INTERNAL=1)${suffix}`,
     )
-    return { block: true, reason: `hector: internal error during ${kind} — failing closed` }
+    return { block: true, reason: `ironlint: internal error during ${kind} — failing closed` }
   }
   console.error(
-    `hector: internal error during ${kind} — allowing; see .hector/log.jsonl${suffix}`,
+    `ironlint: internal error during ${kind} — allowing; see .ironlint/log.jsonl${suffix}`,
   )
   return undefined
 }
@@ -834,16 +834,16 @@ function resolveRoot(pi: PiExtensionAPI): string {
 }
 
 /**
- * Hector pi extension. Registers four lifecycle handlers (the gate is wired
+ * IronLint pi extension. Registers four lifecycle handlers (the gate is wired
  * here; tool_result / session_start / agent_end are added in later tasks).
  */
-export default function hectorExtension(pi: PiExtensionAPI): void {
+export default function ironlintExtension(pi: PiExtensionAPI): void {
   const projectRoot = resolveRoot(pi)
-  const configPath = join(projectRoot, ".hector.yml")
-  const sessionStatePath = join(projectRoot, ".hector", "session.json")
+  const configPath = join(projectRoot, ".ironlint.yml")
+  const sessionStatePath = join(projectRoot, ".ironlint", "session.json")
 
   pi.on("tool_call", (event: ToolCallEvent) => {
-    // Late existence check: the extension may load before `hector init`.
+    // Late existence check: the extension may load before `ironlint init`.
     // Re-checking here means mid-session init starts gating with no restart.
     if (!existsSync(configPath)) return
     const toolName = event?.toolName
@@ -856,7 +856,7 @@ export default function hectorExtension(pi: PiExtensionAPI): void {
     const proposed = computeProposedContent(toolName, filePath, input)
     if (proposed === null) return // can't faithfully simulate — skip the gate
 
-    const res = runHector(
+    const res = runIronLint(
       ["check", "--file", filePath, "--content", "-", "--config", configPath, "--format", "json"],
       proposed,
     )
@@ -869,7 +869,7 @@ export default function hectorExtension(pi: PiExtensionAPI): void {
     }
     // exit 1 / other -> config error: log + allow.
     const suffix = res.stderr.trim() ? `: ${res.stderr.trim()}` : ""
-    console.error(`hector: internal error checking ${filePath} (exit ${res.exitCode})${suffix}`)
+    console.error(`ironlint: internal error checking ${filePath} (exit ${res.exitCode})${suffix}`)
     return
   })
 }
@@ -891,7 +891,7 @@ Expected: no output, exit 0.
 
 ```bash
 git add adapters/pi/src/index.ts adapters/pi/test/index.test.ts
-git commit -m "feat(pi): tool_call gate via hector check --content -"
+git commit -m "feat(pi): tool_call gate via ironlint check --content -"
 ```
 
 ---
@@ -1012,11 +1012,11 @@ test("tool_call: missing path is a no-op", () => {
   }
 })
 
-test("tool_call: gate activates after .hector.yml is created mid-session", () => {
+test("tool_call: gate activates after .ironlint.yml is created mid-session", () => {
   // Regression: the existence check runs per-invocation, so a project that
-  // becomes a hector project after the extension loads starts gating with
+  // becomes an ironlint project after the extension loads starts gating with
   // no restart.
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-late-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-late-"))
   try {
     const file = join(dir, "dirty.txt")
     const handlers = loadExtension(dir)
@@ -1029,8 +1029,8 @@ test("tool_call: gate activates after .hector.yml is created mid-session", () =>
       undefined,
     )
     // Create + trust the config, re-invoke the SAME handler closure.
-    writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
-    execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+    writeFileSync(join(dir, ".ironlint.yml"), IRONLINT_YML)
+    execFileSync("ironlint", ["trust", "--config", join(dir, ".ironlint.yml")])
     const result = handlers.tool_call!(
       { toolName: "write", input: { path: file, content: "this has DEBUG\n" } },
       {},
@@ -1041,25 +1041,25 @@ test("tool_call: gate activates after .hector.yml is created mid-session", () =>
   }
 })
 
-test("tool_call: .hector.yml self-edit short-circuits (R3) — no hector invocation", () => {
-  // Break the trust hash so ANY hector check would log an internal error.
+test("tool_call: .ironlint.yml self-edit short-circuits (R3) — no ironlint invocation", () => {
+  // Break the trust hash so ANY ironlint check would log an internal error.
   // A clean run proves the basename short-circuit fired before any check.
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-policy-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-policy-"))
   const errs: string[] = []
   const origErr = console.error
   console.error = (...args: unknown[]) => {
     errs.push(args.map(String).join(" "))
   }
   try {
-    writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
-    execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
-    const current = readFileSync(join(dir, ".hector.yml"), "utf8")
+    writeFileSync(join(dir, ".ironlint.yml"), IRONLINT_YML)
+    execFileSync("ironlint", ["trust", "--config", join(dir, ".ironlint.yml")])
+    const current = readFileSync(join(dir, ".ironlint.yml"), "utf8")
     writeFileSync(
-      join(dir, ".hector.yml"),
+      join(dir, ".ironlint.yml"),
       current.replace(/sha256:[0-9a-f]+/, "sha256:" + "0".repeat(64)),
     )
     const handlers = loadExtension(dir)
-    const file = join(dir, ".hector.yml")
+    const file = join(dir, ".ironlint.yml")
     assert.equal(
       handlers.tool_call!({ toolName: "write", input: { path: file, content: "x\n" } }, {}),
       undefined,
@@ -1086,13 +1086,13 @@ test("tool_call: .bully.yml self-edit short-circuits (R3)", () => {
   }
 })
 
-test("tool_call: bare relative .hector.yml self-edit short-circuits (R3)", () => {
+test("tool_call: bare relative .ironlint.yml self-edit short-circuits (R3)", () => {
   const dir = makeProject()
   try {
     const handlers = loadExtension(dir)
     assert.equal(
       handlers.tool_call!(
-        { toolName: "write", input: { path: ".hector.yml", content: "x\n" } },
+        { toolName: "write", input: { path: ".ironlint.yml", content: "x\n" } },
         {},
       ),
       undefined,
@@ -1124,7 +1124,7 @@ git commit -m "test(pi): gate edge cases — batch/legacy edits, R3, late-config
 
 ## Task 6: `tool_result` session record (§6)
 
-After a gated tool finishes (and did not error), record a synthetic diff into `.hector/session.json` for cross-edit (session-engine) rules. Best-effort: a flaky record never affects the agent. Skips on missing config, non-gated tools, `isError`, missing path, and policy files (R3).
+After a gated tool finishes (and did not error), record a synthetic diff into `.ironlint/session.json` for cross-edit (session-engine) rules. Best-effort: a flaky record never affects the agent. Skips on missing config, non-gated tools, `isError`, missing path, and policy files (R3).
 
 **Files:**
 - Modify: `adapters/pi/src/index.ts`
@@ -1143,7 +1143,7 @@ test("tool_result: records a write to session.json", () => {
       { toolName: "write", input: { path: file, content: "ok\n" }, isError: false },
       {},
     )
-    const stateFile = join(dir, ".hector", "session.json")
+    const stateFile = join(dir, ".ironlint", "session.json")
     assert.equal(existsSync(stateFile), true)
     assert.ok(readFileSync(stateFile, "utf8").includes("tracked.txt"))
   } finally {
@@ -1160,7 +1160,7 @@ test("tool_result: isError result records nothing", () => {
       { toolName: "write", input: { path: file, content: "x\n" }, isError: true },
       {},
     )
-    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+    assert.equal(existsSync(join(dir, ".ironlint", "session.json")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -1171,7 +1171,7 @@ test("tool_result: non-gated tool records nothing", () => {
   try {
     const handlers = loadExtension(dir)
     handlers.tool_result!({ toolName: "read", input: { path: "x" } }, {})
-    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+    assert.equal(existsSync(join(dir, ".ironlint", "session.json")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -1182,10 +1182,10 @@ test("tool_result: policy-file edit records nothing (R3)", () => {
   try {
     const handlers = loadExtension(dir)
     handlers.tool_result!(
-      { toolName: "write", input: { path: join(dir, ".hector.yml"), content: "x\n" } },
+      { toolName: "write", input: { path: join(dir, ".ironlint.yml"), content: "x\n" } },
       {},
     )
-    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+    assert.equal(existsSync(join(dir, ".ironlint", "session.json")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -1207,7 +1207,7 @@ interface ToolResultEvent {
 }
 ```
 
-Then register the handler inside `hectorExtension`, immediately after the `pi.on("tool_call", ...)` block:
+Then register the handler inside `ironlintExtension`, immediately after the `pi.on("tool_call", ...)` block:
 
 ```typescript
   pi.on("tool_result", (event: ToolResultEvent) => {
@@ -1223,7 +1223,7 @@ Then register the handler inside `hectorExtension`, immediately after the `pi.on
     // Best-effort: a flaky session record must never affect the agent.
     try {
       const diff = synthesizeDiff(toolName, filePath, input)
-      runHector([
+      runIronLint([
         "session", "record",
         "--dir", projectRoot,
         "--file", filePath,
@@ -1256,7 +1256,7 @@ git commit -m "feat(pi): tool_result records synthetic diff to session.json"
 
 ## Task 7: `session_start` clear + `agent_end` advisory check (§7, §8)
 
-`session_start` deletes a stale `.hector/session.json` from a prior aborted run. `agent_end` runs `hector check --session` — advisory only, because the turn is already finished and cannot be retroactively blocked; it surfaces the verdict so the user (and next turn) see what to fix.
+`session_start` deletes a stale `.ironlint/session.json` from a prior aborted run. `agent_end` runs `ironlint check --session` — advisory only, because the turn is already finished and cannot be retroactively blocked; it surfaces the verdict so the user (and next turn) see what to fix.
 
 **Files:**
 - Modify: `adapters/pi/src/index.ts`
@@ -1270,14 +1270,14 @@ import { mkdirSync } from "node:fs"
 test("session_start: clears stale session.json", () => {
   const dir = makeProject()
   try {
-    mkdirSync(join(dir, ".hector"), { recursive: true })
+    mkdirSync(join(dir, ".ironlint"), { recursive: true })
     writeFileSync(
-      join(dir, ".hector", "session.json"),
+      join(dir, ".ironlint", "session.json"),
       JSON.stringify({ session_id: "stale", started_at: "t", edits: [] }),
     )
     const handlers = loadExtension(dir)
     handlers.session_start!({}, {})
-    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+    assert.equal(existsSync(join(dir, ".ironlint", "session.json")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -1288,7 +1288,7 @@ test("session_start: no-op when no session.json exists", () => {
   try {
     const handlers = loadExtension(dir)
     handlers.session_start!({}, {}) // must not throw
-    assert.equal(existsSync(join(dir, ".hector", "session.json")), false)
+    assert.equal(existsSync(join(dir, ".ironlint", "session.json")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -1319,14 +1319,14 @@ rules:
     session:
       max_files_changed: 0
 `
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-session-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-session-"))
   try {
-    writeFileSync(join(dir, ".hector.yml"), SESSION_YML)
-    execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+    writeFileSync(join(dir, ".ironlint.yml"), SESSION_YML)
+    execFileSync("ironlint", ["trust", "--config", join(dir, ".ironlint.yml")])
     const file = join(dir, "x.txt")
     writeFileSync(file, "hi\n")
     // Record one edit so the session rule has something to fire on.
-    execFileSync("hector", [
+    execFileSync("ironlint", [
       "session", "record",
       "--dir", dir,
       "--file", file,
@@ -1359,7 +1359,7 @@ rules:
 })
 ```
 
-> **Confirm the session-rule fixture during implementation.** The `SESSION_YML` above assumes a session-engine field (`max_files_changed: 0`) that fires whenever any file is recorded. Verify the exact session-rule schema in `crates/hector-core/src/config` / the session engine (`crates/hector-core/src/engine`) and adjust the fixture so the rule reliably blocks with one recorded edit. The assertion (advisory surface, no block returned) is what matters; the fixture just needs to produce a `--session` exit code of 2.
+> **Confirm the session-rule fixture during implementation.** The `SESSION_YML` above assumes a session-engine field (`max_files_changed: 0`) that fires whenever any file is recorded. Verify the exact session-rule schema in `crates/ironlint-core/src/config` / the session engine (`crates/ironlint-core/src/engine`) and adjust the fixture so the rule reliably blocks with one recorded edit. The assertion (advisory surface, no block returned) is what matters; the fixture just needs to produce a `--session` exit code of 2.
 
 - [ ] **Step 2: Run the tests to verify they fail:**
 
@@ -1374,7 +1374,7 @@ interface PiContext {
 }
 ```
 
-Then register both handlers inside `hectorExtension`, after the `pi.on("tool_result", ...)` block:
+Then register both handlers inside `ironlintExtension`, after the `pi.on("tool_result", ...)` block:
 
 ```typescript
   pi.on("session_start", () => {
@@ -1389,7 +1389,7 @@ Then register both handlers inside `hectorExtension`, after the `pi.on("tool_res
 
   pi.on("agent_end", (_event: unknown, ctx?: PiContext) => {
     if (!existsSync(sessionStatePath)) return
-    const res = runHector([
+    const res = runIronLint([
       "check", "--session",
       "--config", configPath,
       "--format", "json",
@@ -1398,7 +1398,7 @@ Then register both handlers inside `hectorExtension`, after the `pi.on("tool_res
       const verdict = res.stdout.trim() || "session rule violation"
       // agent_end fires after the turn — we cannot retroactively block.
       // Surface the verdict so the user sees what to fix next iteration.
-      const msg = `hector: session check blocked:\n${verdict}`
+      const msg = `ironlint: session check blocked:\n${verdict}`
       console.error(msg)
       ctx?.ui?.notify?.(msg)
       return
@@ -1411,7 +1411,7 @@ Then register both handlers inside `hectorExtension`, after the `pi.on("tool_res
     }
     if (res.exitCode !== 0) {
       const suffix = res.stderr.trim() ? `: ${res.stderr.trim()}` : ""
-      console.error(`hector: internal error during session check (exit ${res.exitCode})${suffix}`)
+      console.error(`ironlint: internal error during session check (exit ${res.exitCode})${suffix}`)
     }
   })
 ```
@@ -1437,7 +1437,7 @@ git commit -m "feat(pi): session_start stale-clear + agent_end advisory session 
 
 ## Task 8: exit-3 fail-open / fail-closed behavior (§5.2, §9)
 
-The default exit-3 posture is fail-open (allow); `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` flips it to a block. Drive this through the gate with a semantic rule that errors with no API key (exit 3 — "missing API key" per the CLI contract).
+The default exit-3 posture is fail-open (allow); `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1` flips it to a block. Drive this through the gate with a semantic rule that errors with no API key (exit 3 — "missing API key" per the CLI contract).
 
 **Files:**
 - Modify: `adapters/pi/test/index.test.ts`
@@ -1456,9 +1456,9 @@ rules:
 `
 
 function makeSemanticProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-sem-"))
-  writeFileSync(join(dir, ".hector.yml"), SEMANTIC_YML)
-  execFileSync("hector", ["trust", "--config", join(dir, ".hector.yml")])
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-sem-"))
+  writeFileSync(join(dir, ".ironlint.yml"), SEMANTIC_YML)
+  execFileSync("ironlint", ["trust", "--config", join(dir, ".ironlint.yml")])
   return dir
 }
 
@@ -1466,7 +1466,7 @@ test("tool_call: exit-3 fails open by default (allows the edit)", () => {
   const dir = makeSemanticProject()
   const hadKey = process.env["ANTHROPIC_API_KEY"]
   delete process.env["ANTHROPIC_API_KEY"]
-  delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+  delete process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"]
   const origErr = console.error
   console.error = () => {}
   try {
@@ -1484,11 +1484,11 @@ test("tool_call: exit-3 fails open by default (allows the edit)", () => {
   }
 })
 
-test("tool_call: exit-3 fails closed under HECTOR_FAIL_CLOSED_ON_INTERNAL=1", () => {
+test("tool_call: exit-3 fails closed under IRONLINT_FAIL_CLOSED_ON_INTERNAL=1", () => {
   const dir = makeSemanticProject()
   const hadKey = process.env["ANTHROPIC_API_KEY"]
   delete process.env["ANTHROPIC_API_KEY"]
-  process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] = "1"
+  process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"] = "1"
   const origErr = console.error
   console.error = () => {}
   try {
@@ -1501,14 +1501,14 @@ test("tool_call: exit-3 fails closed under HECTOR_FAIL_CLOSED_ON_INTERNAL=1", ()
     assert.equal(result?.block, true) // fail-closed
   } finally {
     console.error = origErr
-    delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+    delete process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"]
     if (hadKey !== undefined) process.env["ANTHROPIC_API_KEY"] = hadKey
     rmSync(dir, { recursive: true, force: true })
   }
 })
 ```
 
-> **Confirm the exit-3 trigger during implementation.** This assumes a `semantic` rule with no `ANTHROPIC_API_KEY` produces exit 3 (engine internal error). Verify against `crates/hector-cli/src/commands/check.rs` (`exit_code` maps `Status::InternalError` → 3) and the semantic engine's missing-key path. If a bare semantic rule needs more fields to reach the key check, adjust `SEMANTIC_YML` so the gate run returns exit 3. (You can confirm directly: `cd <tmp> && hector check --file x.txt --content - --config .hector.yml --format json <<<'hi'; echo $?` should print `3`.)
+> **Confirm the exit-3 trigger during implementation.** This assumes a `semantic` rule with no `ANTHROPIC_API_KEY` produces exit 3 (engine internal error). Verify against `crates/ironlint-cli/src/commands/check.rs` (`exit_code` maps `Status::InternalError` → 3) and the semantic engine's missing-key path. If a bare semantic rule needs more fields to reach the key check, adjust `SEMANTIC_YML` so the gate run returns exit 3. (You can confirm directly: `cd <tmp> && ironlint check --file x.txt --content - --config .ironlint.yml --format json <<<'hi'; echo $?` should print `3`.)
 
 - [ ] **Step 2: Run the tests:**
 
@@ -1532,31 +1532,31 @@ git commit -m "test(pi): exit-3 fail-open default + fail-closed under env"
 - [ ] **Step 1: Write `adapters/pi/README.md`:**
 
 ````markdown
-# Hector — pi adapter
+# IronLint — pi adapter
 
-[pi](https://pi.dev) extension integration for Hector. Mirrors the OpenCode and
+[pi](https://pi.dev) extension integration for IronLint. Mirrors the OpenCode and
 Claude Code adapters: it gates `write` / `edit` tool calls against your
-project's `.hector.yml` policy **before they execute**, records edits for
+project's `.ironlint.yml` policy **before they execute**, records edits for
 cross-edit (session) rules, and runs a session check at the end of each turn.
 
 The extension is a pure translation layer between pi's lifecycle and the
-`hector` binary — it contains no rule logic.
+`ironlint` binary — it contains no rule logic.
 
 | pi event | Action |
 |----------|--------|
-| `tool_call` (`write` / `edit`) | Compute the proposed content, run `hector check --file <path> --content -`, and `return { block: true, reason }` on a policy violation (exit 2). The check runs against piped stdin — nothing is written to disk. |
-| `tool_result` (`write` / `edit`) | Record a synthetic diff into `.hector/session.json` for session rules (best-effort). |
-| `session_start` | Clear a stale `.hector/session.json` from a prior aborted run. |
-| `agent_end` | Run `hector check --session`. **Advisory** — the turn is already over, so the verdict is surfaced (it cannot retroactively block). |
+| `tool_call` (`write` / `edit`) | Compute the proposed content, run `ironlint check --file <path> --content -`, and `return { block: true, reason }` on a policy violation (exit 2). The check runs against piped stdin — nothing is written to disk. |
+| `tool_result` (`write` / `edit`) | Record a synthetic diff into `.ironlint/session.json` for session rules (best-effort). |
+| `session_start` | Clear a stale `.ironlint/session.json` from a prior aborted run. |
+| `agent_end` | Run `ironlint check --session`. **Advisory** — the turn is already over, so the verdict is surfaced (it cannot retroactively block). |
 
 ## Requirements
 
-- The `hector` binary on `PATH` (`cargo install hector` or a release binary), ≥ 0.1.
+- The `ironlint` binary on `PATH` (`cargo install ironlint` or a release binary), ≥ 0.1.
 - Node ≥ 22.6 (pi's runtime; also required for the bundled `node:test` suite).
 
 ## Install
 
-The extension silently no-ops in any project without a `.hector.yml`, so a
+The extension silently no-ops in any project without a `.ironlint.yml`, so a
 global install is safe.
 
 ### Local development
@@ -1566,17 +1566,17 @@ Copy or symlink the source into a pi extensions directory:
 ```bash
 # project-scoped
 mkdir -p .pi/extensions
-ln -sf "$(pwd)/../hector/adapters/pi/src/index.ts" .pi/extensions/hector.ts
+ln -sf "$(pwd)/../ironlint/adapters/pi/src/index.ts" .pi/extensions/ironlint.ts
 
 # or global
 mkdir -p ~/.pi/agent/extensions
-ln -sf "/abs/path/to/hector/adapters/pi/src/index.ts" ~/.pi/agent/extensions/hector.ts
+ln -sf "/abs/path/to/ironlint/adapters/pi/src/index.ts" ~/.pi/agent/extensions/ironlint.ts
 ```
 
 Or reference an absolute path in pi `settings.json`:
 
 ```json
-{ "extensions": ["/abs/path/to/hector/adapters/pi/src/index.ts"] }
+{ "extensions": ["/abs/path/to/ironlint/adapters/pi/src/index.ts"] }
 ```
 
 Ad-hoc load for one session: `pi -e ./adapters/pi/src/index.ts`. Hot-reload
@@ -1584,33 +1584,33 @@ with `/reload`.
 
 ### npm (once published)
 
-`@dynamik-dev/hector-pi` ships a `"pi": { "extensions": ["./src/index.ts"] }`
+`@christopherarter/ironlint-pi` ships a `"pi": { "extensions": ["./src/index.ts"] }`
 field, so pi discovers it automatically once the package is installed.
 
 ## Initialise the project
 
 ```bash
-hector init    # scaffold .hector.yml
-hector trust   # fingerprint the config
+ironlint init    # scaffold .ironlint.yml
+ironlint trust   # fingerprint the config
 ```
 
 ## Exit-code contract
 
-The extension honours the `hector` CLI exit-code contract
-(`crates/hector-cli/src/commands/check.rs`):
+The extension honours the `ironlint` CLI exit-code contract
+(`crates/ironlint-cli/src/commands/check.rs`):
 
 | Exit | Behaviour |
 |------|-----------|
 | `0` (pass / warn) | Allow. |
 | `2` (block) | `return { block: true, reason }` — pi cancels the tool call. |
-| `3` (engine internal error) | Fail-open (log + allow) by default; set `HECTOR_FAIL_CLOSED_ON_INTERNAL=1` to fail closed (block). |
+| `3` (engine internal error) | Fail-open (log + allow) by default; set `IRONLINT_FAIL_CLOSED_ON_INTERNAL=1` to fail closed (block). |
 | `1` / other (config error) | Log to stderr, allow. |
 
 ## Known gaps (v1)
 
 - **`bash`-tool shell-out** (`cat > foo`, redirections) bypasses the gate — universal across all adapters; arbitrary commands are too brittle to parse.
 - **`edit` fuzzy-match fallback** can't be faithfully simulated, so those edits skip the gate (fail-open on simulate-failure). Exact + unique `oldText` edits gate normally.
-- **`engine: script` rules** read the pre-edit on-disk file under `--content -`. AST / semantic / `hector-disable` rules gate correctly against the proposed pre-write content.
+- **`engine: script` rules** read the pre-edit on-disk file under `--content -`. AST / semantic / `ironlint-disable` rules gate correctly against the proposed pre-write content.
 - **pi subagents** are not specially handled (deferred).
 - **The `agent_end` session check is advisory** — it cannot retroactively block a finished turn; it surfaces the verdict for the next iteration.
 
@@ -1618,9 +1618,9 @@ The extension honours the `hector` CLI exit-code contract
 
 If the gate isn't firing:
 
-1. `hector --version` runs on `PATH`.
-2. `.hector.yml` is present in the project root.
-3. `.hector.yml` is trusted: `hector trust`.
+1. `ironlint --version` runs on `PATH`.
+2. `.ironlint.yml` is present in the project root.
+3. `.ironlint.yml` is trusted: `ironlint trust`.
 4. pi loaded the extension (check pi's extension discovery logs / `/reload`).
 5. Run the bundled suite against your install:
 
@@ -1641,7 +1641,7 @@ git commit -m "docs(pi): adapter README — install, exit-code table, known gaps
 
 ## Task 10: CI wiring (§10)
 
-Add a `pi-adapter` job to `.github/workflows/ci.yml` mirroring the existing `opencode-adapter` job: download the built `hector` artifact, set up Node, type-check, and run the `node:test` suite with `hector` on `PATH`.
+Add a `pi-adapter` job to `.github/workflows/ci.yml` mirroring the existing `opencode-adapter` job: download the built `ironlint` artifact, set up Node, type-check, and run the `node:test` suite with `ironlint` on `PATH`.
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
@@ -1658,10 +1658,10 @@ Add a `pi-adapter` job to `.github/workflows/ci.yml` mirroring the existing `ope
 
       - uses: actions/download-artifact@v4
         with:
-          name: hector-ubuntu-latest
+          name: ironlint-ubuntu-latest
           path: target/release
 
-      - run: chmod +x target/release/hector
+      - run: chmod +x target/release/ironlint
 
       - uses: actions/setup-node@v4
         with:
@@ -1687,16 +1687,16 @@ python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml')); p
 ```
 Expected: `ok`.
 
-- [ ] **Step 3: Confirm the artifact name matches.** The `rust` job uploads `hector-ubuntu-latest` (see the existing `Upload release binary` step). Verify the `download-artifact` `name:` above matches it exactly.
+- [ ] **Step 3: Confirm the artifact name matches.** The `rust` job uploads `ironlint-ubuntu-latest` (see the existing `Upload release binary` step). Verify the `download-artifact` `name:` above matches it exactly.
 
-Run: `grep -n "hector-ubuntu-latest\|name: hector-" .github/workflows/ci.yml`
-Expected: the upload (`hector-${{ matrix.os }}`) and both adapter jobs' downloads reference the same `hector-ubuntu-latest` artifact.
+Run: `grep -n "ironlint-ubuntu-latest\|name: ironlint-" .github/workflows/ci.yml`
+Expected: the upload (`ironlint-${{ matrix.os }}`) and both adapter jobs' downloads reference the same `ironlint-ubuntu-latest` artifact.
 
 - [ ] **Step 4: Commit:**
 
 ```bash
 git add .github/workflows/ci.yml
-git commit -m "ci(pi): run pi adapter node:test suite against built hector"
+git commit -m "ci(pi): run pi adapter node:test suite against built ironlint"
 ```
 
 ---
@@ -1722,7 +1722,7 @@ Expected: only the intended tracked files (`src/index.ts`, `test/index.test.ts`,
 
 - [ ] **Step 3: Clean up the release build artifact** (per CLAUDE.md — drop artifacts this task created):
 
-Run: `cargo clean -p hector-cli`
+Run: `cargo clean -p ironlint-cli`
 
 - [ ] **Step 4: Self-review against the spec.** Re-read `docs/superpowers/specs/2026-05-28-pi-adapter-design.md` §4–§9 and §11 and confirm each behavior has a passing test:
   - gate on `tool_call` with exit-code mapping (Tasks 4, 5, 8) ✓
@@ -1740,5 +1740,5 @@ Run: `cargo clean -p hector-cli`
 ## Self-Review (author)
 
 - **Spec coverage:** §4 lifecycle → Tasks 4–7; §5 gate algorithm → Task 4 (+ edges Task 5, exit-3 Task 8); §5.1 `computeProposedContent` → Task 3; §5.2 exit contract → Tasks 4/7/8; §6 + §6.1 session record + `synthesizeDiff` → Tasks 6/2; §7 session check → Task 7; §8 `session_start` → Task 7; §9 invariants (fail-open, best-effort, R3, late re-check) → Tasks 4–7; §10 files → all; §11 test cases → Tasks 2–8; §12/§13 docs → Task 9; §14 `pi.exec` open question → Task 1 (resolved to `spawnSync`); CI → Task 10.
-- **Naming consistency:** `synthesizeDiff(toolName, filePath, input)`, `computeProposedContent(toolName, filePath, input)`, `normalizeEdits(input)`, `getPath(input)`, `isPolicyFile(filePath)`, `runHector(args, input?)`, `resolveRoot(pi)`, default export `hectorExtension(pi)`, interface `PiExtensionAPI`, type `PiToolInput`. Used consistently across all tasks.
-- **Two confirm-during-implementation notes** are flagged inline (Task 7 session-rule fixture, Task 8 exit-3 trigger) because they depend on the exact hector session/semantic schema; both include a concrete verification command and a fallback. The assertions they prove are unambiguous.
+- **Naming consistency:** `synthesizeDiff(toolName, filePath, input)`, `computeProposedContent(toolName, filePath, input)`, `normalizeEdits(input)`, `getPath(input)`, `isPolicyFile(filePath)`, `runIronLint(args, input?)`, `resolveRoot(pi)`, default export `ironlintExtension(pi)`, interface `PiExtensionAPI`, type `PiToolInput`. Used consistently across all tasks.
+- **Two confirm-during-implementation notes** are flagged inline (Task 7 session-rule fixture, Task 8 exit-3 trigger) because they depend on the exact ironlint session/semantic schema; both include a concrete verification command and a fallback. The assertions they prove are unambiguous.

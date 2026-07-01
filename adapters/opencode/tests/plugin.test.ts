@@ -3,21 +3,21 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "no
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { $ } from "bun"
-import HectorPlugin from "../src/index.ts"
+import IronLintPlugin from "../src/index.ts"
 
 // End-to-end test of the OpenCode adapter plugin.
 // Drives the plugin hooks directly with synthetic OpenCode-shaped input,
-// against a real `.hector.yml` and the real `hector` binary on PATH.
+// against a real `.ironlint.yml` and the real `ironlint` binary on PATH.
 //
 // Requirements:
-//   - `hector` binary on PATH (CI prepends target/release before running).
+//   - `ironlint` binary on PATH (CI prepends target/release before running).
 
 let project: string
 
-const HECTOR_YML = `gates:
+const IRONLINT_YML = `checks:
   no-debug:
     files: ["*.txt"]
-    run: "grep -nE 'DEBUG' $HECTOR_FILE && exit 2 || exit 0"
+    run: "! grep -nE 'DEBUG'"
 `
 
 function fakeCtx(root: string) {
@@ -28,26 +28,26 @@ function fakeCtx(root: string) {
     $,
     directory: root,
     worktree: root,
-  } as unknown as Parameters<typeof HectorPlugin>[0]
+  } as unknown as Parameters<typeof IronLintPlugin>[0]
 }
 
 beforeAll(async () => {
-  project = mkdtempSync(join(tmpdir(), "hector-opencode-"))
-  writeFileSync(join(project, ".hector.yml"), HECTOR_YML)
-  await $`hector trust --config ${join(project, ".hector.yml")}`.quiet()
+  project = mkdtempSync(join(tmpdir(), "ironlint-opencode-"))
+  writeFileSync(join(project, ".ironlint.yml"), IRONLINT_YML)
+  await $`ironlint trust --config ${join(project, ".ironlint.yml")}`.quiet()
 })
 
 afterAll(() => {
   rmSync(project, { recursive: true, force: true })
 })
 
-test("hooks no-op when .hector.yml is absent at load time", async () => {
-  // Hooks are always registered so that a project that becomes a hector
+test("hooks no-op when .ironlint.yml is absent at load time", async () => {
+  // Hooks are always registered so that a project that becomes an ironlint
   // project mid-session starts gating without an opencode restart. When
-  // .hector.yml is missing, every invocation short-circuits silently.
-  const empty = mkdtempSync(join(tmpdir(), "hector-opencode-empty-"))
+  // .ironlint.yml is missing, every invocation short-circuits silently.
+  const empty = mkdtempSync(join(tmpdir(), "ironlint-opencode-empty-"))
   try {
-    const hooks = await HectorPlugin(fakeCtx(empty))
+    const hooks = await IronLintPlugin(fakeCtx(empty))
     expect(hooks["tool.execute.before"]).toBeDefined()
     const file = join(empty, "anything.txt")
     await expect(
@@ -62,15 +62,15 @@ test("hooks no-op when .hector.yml is absent at load time", async () => {
   }
 })
 
-test("gate activates when .hector.yml is created after plugin load", async () => {
+test("gate activates when .ironlint.yml is created after plugin load", async () => {
   // Regression test for the silent-disable bug: opencode loads plugins once
-  // at startup. If `.hector.yml` doesn't exist yet, the original plugin
+  // at startup. If `.ironlint.yml` doesn't exist yet, the original plugin
   // returned `{}` and the gate was dead for the rest of the session. The
-  // existsSync check now runs per-invocation, so late-init `hector init`
+  // existsSync check now runs per-invocation, so late-init `ironlint init`
   // starts gating immediately.
-  const root = mkdtempSync(join(tmpdir(), "hector-opencode-late-"))
+  const root = mkdtempSync(join(tmpdir(), "ironlint-opencode-late-"))
   try {
-    const hooks = await HectorPlugin(fakeCtx(root))
+    const hooks = await IronLintPlugin(fakeCtx(root))
     const file = join(root, "dirty.txt")
 
     // Sanity: no gating yet.
@@ -82,35 +82,35 @@ test("gate activates when .hector.yml is created after plugin load", async () =>
     ).resolves.toBeUndefined()
 
     // Now create + trust the config and re-invoke the SAME hook closure.
-    writeFileSync(join(root, ".hector.yml"), HECTOR_YML)
-    await $`hector trust --config ${join(root, ".hector.yml")}`.quiet()
+    writeFileSync(join(root, ".ironlint.yml"), IRONLINT_YML)
+    await $`ironlint trust --config ${join(root, ".ironlint.yml")}`.quiet()
 
     await expect(
       hooks["tool.execute.before"]!(
         { tool: "write", sessionID: "s", callID: "c" },
         { args: { filePath: file, content: "this has DEBUG\n" } },
       ),
-    ).rejects.toThrow(/hector blocked this edit/)
+    ).rejects.toThrow(/ironlint blocked this edit/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test("module exposes both default and named HectorPlugin exports", async () => {
+test("module exposes both default and named IronLintPlugin exports", async () => {
   // The opencode plugin docs consistently show named exports
   // (`export const MyPlugin = ...`). The published Claude Code adapter and
   // our own tests use the default import. Keep both alive so neither
   // loader pattern silently no-ops.
   const mod = await import("../src/index.ts")
   expect(typeof mod.default).toBe("function")
-  expect(typeof mod.HectorPlugin).toBe("function")
-  expect(mod.default).toBe(mod.HectorPlugin)
+  expect(typeof mod.IronLintPlugin).toBe("function")
+  expect(mod.default).toBe(mod.IronLintPlugin)
 })
 
 test("before-hook on clean Write content passes", async () => {
   const file = join(project, "clean-write.txt")
   rmSync(file, { force: true })
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "write", sessionID: "s", callID: "c" },
@@ -125,27 +125,27 @@ test("before-hook on clean Write content passes", async () => {
 test("before-hook on Write with DEBUG blocks and leaves no file behind", async () => {
   const file = join(project, "dirty-write.txt")
   rmSync(file, { force: true })
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "write", sessionID: "s", callID: "c" },
       { args: { filePath: file, content: "this has DEBUG\n" } },
     ),
-  ).rejects.toThrow(/hector blocked this edit/)
+  ).rejects.toThrow(/ironlint blocked this edit/)
   expect(existsSync(file)).toBe(false)
 })
 
 test("before-hook on Edit that would introduce DEBUG blocks; file is unchanged", async () => {
   const file = join(project, "edit-introduce-debug.txt")
   writeFileSync(file, "hello world\n")
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
 
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "edit", sessionID: "s", callID: "c" },
       { args: { filePath: file, oldString: "world", newString: "DEBUG" } },
     ),
-  ).rejects.toThrow(/hector blocked this edit/)
+  ).rejects.toThrow(/ironlint blocked this edit/)
 
   expect(readFileSync(file, "utf8")).toBe("hello world\n")
 })
@@ -157,14 +157,14 @@ test("before-hook handles opencode's native find/replace arg shape", async () =>
   // proposed content.
   const file = join(project, "edit-find-replace.txt")
   writeFileSync(file, "hello world\n")
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
 
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "edit", sessionID: "s", callID: "c" },
       { args: { filePath: file, find: "world", replace: "DEBUG" } },
     ),
-  ).rejects.toThrow(/hector blocked this edit/)
+  ).rejects.toThrow(/ironlint blocked this edit/)
 
   expect(readFileSync(file, "utf8")).toBe("hello world\n")
 })
@@ -172,14 +172,14 @@ test("before-hook handles opencode's native find/replace arg shape", async () =>
 test("before-hook honours replaceAll", async () => {
   const file = join(project, "edit-replace-all.txt")
   writeFileSync(file, "clean clean clean\n")
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
 
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "edit", sessionID: "s", callID: "c" },
       { args: { filePath: file, find: "clean", replace: "DEBUG", replaceAll: true } },
     ),
-  ).rejects.toThrow(/hector blocked this edit/)
+  ).rejects.toThrow(/ironlint blocked this edit/)
 
   expect(readFileSync(file, "utf8")).toBe("clean clean clean\n")
 })
@@ -187,7 +187,7 @@ test("before-hook honours replaceAll", async () => {
 test("before-hook on clean Edit passes and leaves file unchanged (opencode writes next)", async () => {
   const file = join(project, "edit-clean.txt")
   writeFileSync(file, "hello world\n")
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
 
   await expect(
     hooks["tool.execute.before"]!(
@@ -208,7 +208,7 @@ test("before-hook skips gate when Edit's oldString is not in the file", async ()
   // than write garbage.
   const file = join(project, "edit-no-match.txt")
   writeFileSync(file, "hello world\n")
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "edit", sessionID: "s", callID: "c" },
@@ -219,7 +219,7 @@ test("before-hook skips gate when Edit's oldString is not in the file", async ()
 })
 
 test("before-hook ignores non-gated tools", async () => {
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "read", sessionID: "s", callID: "c" },
@@ -235,7 +235,7 @@ test("before-hook ignores non-gated tools", async () => {
 })
 
 test("before-hook no-ops when filePath is missing", async () => {
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "edit", sessionID: "s", callID: "c" },
@@ -244,33 +244,33 @@ test("before-hook no-ops when filePath is missing", async () => {
   ).resolves.toBeUndefined()
 })
 
-test("before-hook skips self-check of .hector.yml (R3)", async () => {
-  // R3: editing the policy file itself used to invoke hector check on
+test("before-hook skips self-check of .ironlint.yml (R3)", async () => {
+  // R3: editing the policy file itself used to invoke ironlint check on
   // a mid-edit file whose on-disk sha no longer matched `trust:`, which
   // failed the trust gate (exit 1) and surfaced a confusing "internal
   // error" to the user. The plugin must short-circuit by basename
-  // before any hector invocation runs.
+  // before any ironlint invocation runs.
   //
-  // To prove no hector invocation ran, we deliberately break the trust
-  // hash so any `hector check` would log an "internal error" line to
+  // To prove no ironlint invocation ran, we deliberately break the trust
+  // hash so any `ironlint check` would log an "internal error" line to
   // console.error. A clean run means the basename short-circuit fired.
-  const root = mkdtempSync(join(tmpdir(), "hector-opencode-policy-"))
+  const root = mkdtempSync(join(tmpdir(), "ironlint-opencode-policy-"))
   const errs: string[] = []
   const origErr = console.error
   console.error = (msg: unknown) => {
     errs.push(String(msg))
   }
   try {
-    writeFileSync(join(root, ".hector.yml"), HECTOR_YML)
-    await $`hector trust --config ${join(root, ".hector.yml")}`.quiet()
-    const current = readFileSync(join(root, ".hector.yml"), "utf8")
+    writeFileSync(join(root, ".ironlint.yml"), IRONLINT_YML)
+    await $`ironlint trust --config ${join(root, ".ironlint.yml")}`.quiet()
+    const current = readFileSync(join(root, ".ironlint.yml"), "utf8")
     writeFileSync(
-      join(root, ".hector.yml"),
+      join(root, ".ironlint.yml"),
       current.replace(/sha256:[0-9a-f]+/, "sha256:0".repeat(64)),
     )
 
-    const hooks = await HectorPlugin(fakeCtx(root))
-    const file = join(root, ".hector.yml")
+    const hooks = await IronLintPlugin(fakeCtx(root))
+    const file = join(root, ".ironlint.yml")
     const beforeBytes = readFileSync(file, "utf8")
 
     await expect(
@@ -280,7 +280,7 @@ test("before-hook skips self-check of .hector.yml (R3)", async () => {
       ),
     ).resolves.toBeUndefined()
 
-    // No hector invocation: no "internal error" log, no trust-verify log.
+    // No ironlint invocation: no "internal error" log, no trust-verify log.
     expect(errs.join("\n")).not.toContain("internal error")
     expect(errs.join("\n")).not.toContain("trust verify")
     // File untouched (shadow-write never happened).
@@ -297,7 +297,7 @@ test("before-hook skips self-check of .bully.yml (R3)", async () => {
   // recognize the basename and exit before attempting any shadow-write.
   const file = join(project, ".bully.yml")
   rmSync(file, { force: true })
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
 
   await expect(
     hooks["tool.execute.before"]!(
@@ -310,14 +310,14 @@ test("before-hook skips self-check of .bully.yml (R3)", async () => {
   expect(existsSync(file)).toBe(false)
 })
 
-test("before-hook skips self-check of bare relative .hector.yml (R3)", async () => {
+test("before-hook skips self-check of bare relative .ironlint.yml (R3)", async () => {
   // Basename match must work even when filePath is a bare filename
   // (no directory component).
-  const hooks = await HectorPlugin(fakeCtx(project))
+  const hooks = await IronLintPlugin(fakeCtx(project))
   await expect(
     hooks["tool.execute.before"]!(
       { tool: "write", sessionID: "s", callID: "c" },
-      { args: { filePath: ".hector.yml", content: "anything\n" } },
+      { args: { filePath: ".ironlint.yml", content: "anything\n" } },
     ),
   ).resolves.toBeUndefined()
 })

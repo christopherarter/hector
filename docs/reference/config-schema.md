@@ -1,11 +1,11 @@
 # Config schema
 
-The full shape of `.hector.yml`. For a guided introduction, see [Anatomy of a check](../writing-checks/README.md); for inheritance, see [Sharing config with `extends:`](../configuring/inheritance.md).
+The full shape of `.ironlint.yml`. For a guided introduction, see [Anatomy of a check](../writing-checks/README.md); for inheritance, see [Sharing config with `extends:`](../configuring/inheritance.md).
 
 A config has three top-level keys. Only `checks` is required:
 
 ```yaml
-# .hector.yml
+# .ironlint.yml
 extends: ["./base.yml"]   # optional — inherit checks from parent configs
 execution:                # optional — execution tuning
   timeout_secs: 30
@@ -33,7 +33,7 @@ A check is exactly two fields:
 checks:
   biome:
     files: ["src/**/*.ts", "src/**/*.tsx"]
-    run: ".hector/gates/biome.sh"
+    run: ".ironlint/gates/biome.sh"
 ```
 
 | Field | Type | Required | Notes |
@@ -41,7 +41,7 @@ checks:
 | `files` | string or list of strings | yes | Glob(s) the check matches. A bare string is treated as a one-element list. A pattern without `/` matches at any depth — `*.ts` is equivalent to `**/*.ts`. See [Targeting files](../configuring/targeting-files.md). |
 | `run` | string | yes | A shell command, handed to `sh -c` verbatim. Any nonzero exit (1–125) blocks. See [Anatomy of a check](../writing-checks/README.md). |
 
-`run` receives no string templating — there is no `{file}`. The path under check arrives as `$HECTOR_FILE`, the project root as `$HECTOR_ROOT`, the trigger as `$HECTOR_EVENT`, and the proposed post-edit content on stdin. For `write` checks whose `run` references it, `$HECTOR_TMPFILE` holds the absolute path to a temp file beside `$HECTOR_FILE` containing the proposed content (same extension, auto-cleaned). `run` may be an inline command or a path to a script under `.hector/gates/`; the shell makes no distinction.
+`run` receives no string templating — there is no `{file}`. The path under check arrives as `$IRONLINT_FILE`, the project root as `$IRONLINT_ROOT`, the trigger as `$IRONLINT_EVENT`, and the proposed post-edit content on stdin. For `write` checks whose `run` references it, `$IRONLINT_TMPFILE` holds the absolute path to a temp file beside `$IRONLINT_FILE` containing the proposed content (same extension, auto-cleaned). `run` may be an inline command or a path to a script under `.ironlint/gates/`; the shell makes no distinction.
 
 ## Execution
 
@@ -54,10 +54,10 @@ execution:
 |-------|------|---------|-------|
 | `timeout_secs` | integer | `30` | Per-check wall-clock budget. A check that exceeds it is killed and reported as an internal error, never a silent pass. Clamped to a minimum of 1. |
 
-The `HECTOR_TIMEOUT` environment variable overrides `timeout_secs` at run time. Dispatch is sequential; there is no worker-pool tuning.
+The `IRONLINT_TIMEOUT` environment variable overrides `timeout_secs` at run time. Dispatch is sequential; there is no worker-pool tuning.
 
 ## See also
 
 - [Anatomy of a check](../writing-checks/README.md) — what `files` and `run` do
-- [Verdict JSON](verdict-json.md) — the output `hector check` produces
+- [Verdict JSON](verdict-json.md) — the output `ironlint check` produces
 - [CLI reference](cli.md) — the commands that read this config

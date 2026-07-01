@@ -1,12 +1,12 @@
 {
-  "name": "hector",
+  "name": "ironlint",
   "description": "Policy-enforcement pipeline for AI coding agents. Hybrid script+ast rule engines, trust gate, capability sandbox. Claude Code adapter.",
   "version": "0.2.0",
   "author": {
     "name": "dynamik-dev"
   },
-  "homepage": "https://github.com/dynamik-dev/hector",
-  "repository": "https://github.com/dynamik-dev/hector",
+  "homepage": "https://github.com/christopherarter/ironlint",
+  "repository": "https://github.com/christopherarter/ironlint",
   "license": "Apache-2.0",
   "keywords": [
     "lint",

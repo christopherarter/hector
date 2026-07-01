@@ -1,15 +1,15 @@
-# `hector init` interactive onboarding — design
+# `ironlint init` interactive onboarding — design
 
 **Date:** 2026-07-01
 **Status:** approved, pre-implementation
-**Touches:** `hector-core::adapter` (new `git` module, `registry`/`ops` scope
-handling), `hector-cli::commands::init` (`mod`/`onboard`/`render`), `hector-cli::cli`
+**Touches:** `ironlint-core::adapter` (new `git` module, `registry`/`ops` scope
+handling), `ironlint-cli::commands::init` (`mod`/`onboard`/`render`), `ironlint-cli::cli`
 **Builds on:** `docs/superpowers/specs/2026-07-01-init-onboarding-clarity-design.md`
 (the plan-and-confirm flow this extends)
 
 ## Problem
 
-The onboarding-clarity work made `hector init` *show* a per-harness plan before
+The onboarding-clarity work made `ironlint init` *show* a per-harness plan before
 installing, but the interactive path is still coarse:
 
 - **No subset selection.** In a TTY with no `--harness`, init resolves the set
@@ -21,7 +21,7 @@ installing, but the interactive path is still coarse:
   for this project only" is invisible in the UI. Worse, under local scope a
   harness with no per-project settings (reasonix) *silently* patches the global
   `~/.reasonix/settings.json` — "project only" is a quiet lie for it.
-- **`on: [pre-commit]` never fires out of the box.** `hector check --event
+- **`on: [pre-commit]` never fires out of the box.** `ironlint check --event
   pre-commit --diff <diff>` works and dispatches once over the changed set, but
   nothing installs a git hook to invoke it. A user who adds a `pre-commit` check
   gets no enforcement until they hand-wire `.git/hooks/pre-commit` themselves.
@@ -33,7 +33,7 @@ installing, but the interactive path is still coarse:
 2. **Scope choice in the UI.** Offer `this project only` (default) vs `global`,
    and make "project only" *honest* (don't silently write global).
 3. **Opt-in git pre-commit hook.** Install a `.git/hooks/pre-commit` that runs
-   `hector check --event pre-commit`, so the pre-commit lifecycle works out of
+   `ironlint check --event pre-commit`, so the pre-commit lifecycle works out of
    the box — without clobbering an existing hook.
 
 Non-goals: changing the exit-code contract, the trust model, the verdict JSON,
@@ -111,7 +111,7 @@ there. This makes the local/global distinction the plan shows match what lands.
 *(Explicit `--harness reasonix` without `--global` follows the same rule, so the
 flag and the picker agree.)*
 
-### 3. Git pre-commit hook (new `hector-core::adapter::git`)
+### 3. Git pre-commit hook (new `ironlint-core::adapter::git`)
 
 A standalone module — the git hook is harness-agnostic (it is about git, not any
 coding agent), so it is **not** a `Harness` in the registry. Public surface:
@@ -124,11 +124,11 @@ pub struct GitHookPlan { pub path: PathBuf, pub action: GitHookAction }
 // resolve `.git/hooks` honoring worktrees + core.hooksPath; None if not a repo
 pub fn hooks_dir(project_root: &Path) -> Option<PathBuf>;
 
-// pure: the hook script body, with the absolute hector path baked in
-pub fn precommit_script(hector_bin: &Path) -> String;
+// pure: the hook script body, with the absolute ironlint path baked in
+pub fn precommit_script(ironlint_bin: &Path) -> String;
 
 pub fn plan_git_hook(project_root: &Path, uninstall: bool) -> GitHookPlan;
-pub fn install_git_hook(project_root: &Path, hector_bin: &Path) -> Result<InstallResult>;
+pub fn install_git_hook(project_root: &Path, ironlint_bin: &Path) -> Result<InstallResult>;
 pub fn uninstall_git_hook(project_root: &Path) -> Result<InstallResult>;
 ```
 
@@ -139,30 +139,30 @@ pub fn uninstall_git_hook(project_root: &Path) -> Result<InstallResult>;
   repository" → `None` → the hook step is skipped everywhere (picker question is
   not shown; a passed `--git-hook` prints a one-line "not a git repo" notice).
 
-- **Script.** Built by the pure `precommit_script(hector_bin)`:
+- **Script.** Built by the pure `precommit_script(ironlint_bin)`:
 
   ```sh
   #!/bin/sh
-  # hector pre-commit hook (managed by `hector init`; safe to delete)
-  command -v "<hector_bin>" >/dev/null 2>&1 || exit 0
+  # ironlint pre-commit hook (managed by `ironlint init`; safe to delete)
+  command -v "<ironlint_bin>" >/dev/null 2>&1 || exit 0
   diff=$(mktemp) || exit 0
   trap 'rm -f "$diff"' EXIT
   git diff --cached --no-color > "$diff"
   [ -s "$diff" ] || exit 0                 # nothing staged → pass
-  "<hector_bin>" check --event pre-commit --diff "$diff"
+  "<ironlint_bin>" check --event pre-commit --diff "$diff"
   code=$?
   [ "$code" -eq 2 ] && exit 1              # block → abort commit
-  if [ "$code" -eq 3 ] && [ "${HECTOR_FAIL_CLOSED_ON_INTERNAL:-0}" = "1" ]; then
+  if [ "$code" -eq 3 ] && [ "${IRONLINT_FAIL_CLOSED_ON_INTERNAL:-0}" = "1" ]; then
     exit 1
   fi
   exit 0                                    # 0/1, or fail-open 3 → allow commit
   ```
 
-  The absolute `hector_bin` is resolved once at install time via
+  The absolute `ironlint_bin` is resolved once at install time via
   `std::env::current_exe()` (mirrors how the claude JSON hook bakes its absolute
   `hook.sh` path). The exit map mirrors the claude adapter: only a real block
   (`2`) aborts the commit; internal errors (`3`) fail open unless the opt-in env
-  is set; hector's own config error (`1`) and empty diff never block. The
+  is set; ironlint's own config error (`1`) and empty diff never block. The
   first-line marker identifies our hook for idempotent update + safe uninstall.
 
 - **Conflict policy** (per the chosen "skip + snippet" rule):
@@ -173,19 +173,19 @@ pub fn uninstall_git_hook(project_root: &Path) -> Result<InstallResult>;
   | present, **no marker** (foreign) | **do not touch**; `Skipped("existing pre-commit hook")` + print a paste-in snippet |
 
   The snippet (printed once, after the result lines) tells the user how to chain
-  hector into husky/lefthook or a hand-rolled hook:
+  ironlint into husky/lefthook or a hand-rolled hook:
 
   ```
-  git · an existing pre-commit hook was left untouched. To enable hector at
+  git · an existing pre-commit hook was left untouched. To enable ironlint at
         commit time, add this to it (or your husky/lefthook config):
-          hector check --event pre-commit --diff <(git diff --cached); [ $? -ne 2 ]
+          ironlint check --event pre-commit --diff <(git diff --cached); [ $? -ne 2 ]
   ```
 
 - **Scope.** The git hook is always project-local — it lives in the repo's
   `.git/`. It is independent of the harness scope choice (a global harness
   install can still install a local git hook). `chmod +x` on write.
 
-- **Uninstall.** `hector init --uninstall` calls `uninstall_git_hook`, which
+- **Uninstall.** `ironlint init --uninstall` calls `uninstall_git_hook`, which
   removes the file **only when our marker is present** — a foreign hook is never
   deleted.
 
@@ -214,22 +214,22 @@ final confirm.
   non-interactively (so `--harness X` alone stays hook-only unless `--git-hook`
   is added).
 - `dialoguer` added to `[workspace.dependencies]` and referenced from
-  `hector-cli` (`.workspace = true`).
+  `ironlint-cli` (`.workspace = true`).
 
 ### 6. Baseline scaffold (`init/mod.rs`)
 
 Add a *commented* pre-commit example to `BASELINE`, so the freshly-installed
-hook has a documented path to usefulness — a check reading `$HECTOR_FILES`
+hook has a documented path to usefulness — a check reading `$IRONLINT_FILES`
 rather than stdin:
 
 ```yaml
 # A pre-commit check runs once over the whole staged set. Unlike write checks,
-# stdin is empty and the file list arrives in $HECTOR_FILES:
+# stdin is empty and the file list arrives in $IRONLINT_FILES:
 #
 #   no-todo-precommit:
 #     files: ["src/**/*"]
 #     on: [pre-commit]
-#     run: 'for f in $HECTOR_FILES; do ! grep -nE "TODO" "$f" || exit 1; done'
+#     run: 'for f in $IRONLINT_FILES; do ! grep -nE "TODO" "$f" || exit 1; done'
 ```
 
 The default `no-fixme` / `no-merge-markers` checks stay **write-only** — they
@@ -254,7 +254,7 @@ no-op. The commented example is the correct pattern.
     stdout, and leaves the foreign bytes untouched.
   - `--uninstall` removes our hook but leaves a foreign one.
   - **End-to-end fire:** a config with an `on: [pre-commit]` check that blocks a
-    staged `FIXME`, driven through `hector check --event pre-commit --diff`
+    staged `FIXME`, driven through `ironlint check --event pre-commit --diff`
     exactly as the installed hook would, returns exit 2 → proves the event path.
   - `--no-git-hook` writes no hook; `--git-hook` outside a git repo prints the
     notice and exits cleanly.
@@ -268,5 +268,5 @@ no-op. The commented example is the correct pattern.
   disk). Out of scope to change here.
 - We detect and skip framework-managed hooks; we do not integrate with or manage
   husky/lefthook. The printed snippet is the escape hatch.
-- If `hector` is not on `PATH` (or at the baked path) when a GUI git client
+- If `ironlint` is not on `PATH` (or at the baked path) when a GUI git client
   commits, the hook no-ops (`command -v` guard) — a safe fail-open, but silent.

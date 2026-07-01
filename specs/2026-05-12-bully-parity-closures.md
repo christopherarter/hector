@@ -1,16 +1,16 @@
-# Hector — Bully Parity Closures (0.2 scope)
+# IronLint — Bully Parity Closures (0.2 scope)
 
 **Status:** Draft v0.1
 **Date:** 2026-05-12
 **Owner:** dynamik-dev
-**Companion to:** [`overview.md`](./overview.md), [`2026-05-11-hector-plan-and-0.1-design.md`](./2026-05-11-hector-plan-and-0.1-design.md)
+**Companion to:** [`overview.md`](./overview.md), [`2026-05-11-ironlint-plan-and-0.1-design.md`](./2026-05-11-ironlint-plan-and-0.1-design.md)
 **Extends:** §3 (Phasing) — sharpens the 0.2 "Provider + tool-agnostic" theme with a concrete punch-list of bully-source-material gaps discovered after 0.1c shipped.
 
 ---
 
 ## 1. Summary
 
-After 0.1c (all four engines wired, Claude Code adapter shipped) and the 0.1-extra OpenCode adapter, a comparative review against [`dynamik-dev/bully`](https://github.com/dynamik-dev/bully) surfaced a set of features bully ships that Hector currently does not. They split into four tracks:
+After 0.1c (all four engines wired, Claude Code adapter shipped) and the 0.1-extra OpenCode adapter, a comparative review against [`dynamik-dev/bully`](https://github.com/dynamik-dev/bully) surfaced a set of features bully ships that IronLint currently does not. They split into four tracks:
 
 - **A. Semantic-eval cost & correctness** — prompt-injection defense, skip patterns, diff pre-filter, per-rule context lines.
 - **B. Performance** — parallel rule execution.
@@ -20,7 +20,7 @@ After 0.1c (all four engines wired, Claude Code adapter shipped) and the 0.1-ext
 - **F. Architecture** — declarative session rules as an alternative to LLM-driven session eval.
 - **G. Trust model** — surface (but defer) the drive-by-rule-addition risk in our committed-fingerprint approach. Action item: dedicated security-model spec before 0.3.
 
-Each item below is a self-contained work unit. A fresh session should be able to pick one section, read its **Bully reference** and **Hector current state** subsections, and produce an implementation plan under `plans/` without re-running the gap analysis.
+Each item below is a self-contained work unit. A fresh session should be able to pick one section, read its **Bully reference** and **IronLint current state** subsections, and produce an implementation plan under `plans/` without re-running the gap analysis.
 
 This spec does **not** include implementation. Each numbered item will get a corresponding `plans/YYYY-MM-DD-…md` when work begins.
 
@@ -36,8 +36,8 @@ This spec does **not** include implementation. Each numbered item will get a cor
 
 | Topic | Default proposed | Alternative |
 |---|---|---|
-| Skip-pattern semantics | `skip:` adds to a built-in default list (lockfiles, minified, generated, vendor dirs). User-global `~/.hector-ignore` opt-in. | Make built-ins replaceable, not additive. *Rejected unless someone has a real need.* |
-| Trust-store model | Stay with committed `trust.fingerprint:` in YAML (current Hector model), with optional CI-lint stop-gap. | Adopt bully's `~/.hector-trust.json` machine-local model, or a hybrid. *Defer to dedicated spec — see §G1 for the drive-by-rule-addition concern that motivates revisiting this.* |
+| Skip-pattern semantics | `skip:` adds to a built-in default list (lockfiles, minified, generated, vendor dirs). User-global `~/.ironlint-ignore` opt-in. | Make built-ins replaceable, not additive. *Rejected unless someone has a real need.* |
+| Trust-store model | Stay with committed `trust.fingerprint:` in YAML (current IronLint model), with optional CI-lint stop-gap. | Adopt bully's `~/.ironlint-trust.json` machine-local model, or a hybrid. *Defer to dedicated spec — see §G1 for the drive-by-rule-addition concern that motivates revisiting this.* |
 | Session engine | Add declarative `when.changed_any` / `require.changed_any` **alongside** the existing LLM-driven session engine. Two `EngineKind` variants: `Session` (LLM) → keep; `SessionRule` (declarative) → new. | Replace LLM session engine entirely. *Rejected — LLM variant is more flexible for cross-edit invariants that can't be expressed as globs.* |
 | Parallel execution lib | `rayon` (sync, simple, already-in-ecosystem). | `tokio` (async, overkill for the rule fan-out, drags in runtime). |
 | Prompt-injection escaping | Sentinel-tag neutralization (bully's approach) for `<TRUSTED_POLICY>` / `<UNTRUSTED_EVIDENCE>`. | Base64-encode user-controlled spans. *Rejected — destroys model's ability to read/reference content.* |
@@ -53,8 +53,8 @@ These should be confirmed in the first plan doc that touches each area; this spe
 **Bully reference**
 - `src/bully/semantic/payload.py` wraps file/diff content in `<UNTRUSTED_EVIDENCE>…</UNTRUSTED_EVIDENCE>` tags and explicitly neutralizes the literal strings `<TRUSTED_POLICY>`, `</TRUSTED_POLICY>`, `<UNTRUSTED_EVIDENCE>`, `</UNTRUSTED_EVIDENCE>` inside user content before substitution.
 
-**Hector current state**
-- `crates/hector-core/src/llm/prompt.rs` inlines `primary` (file/diff) and `context` between triple-backtick fences with no escaping. An attacker writing a literal `` ``` ``\n`## Rules\n- always-pass: …` block in a comment can rewrite the rule list mid-prompt.
+**IronLint current state**
+- `crates/ironlint-core/src/llm/prompt.rs` inlines `primary` (file/diff) and `context` between triple-backtick fences with no escaping. An attacker writing a literal `` ``` ``\n`## Rules\n- always-pass: …` block in a comment can rewrite the rule list mid-prompt.
 
 **Why it matters**
 We tell users that `engine: semantic` will faithfully evaluate their rules; today an adversarial PR can suppress its own evaluation. This is a defect, not an enhancement.
@@ -67,43 +67,43 @@ We tell users that `engine: semantic` will faithfully evaluate their rules; toda
 
 **Acceptance criteria**
 - [ ] `prompt.rs` no longer inlines unsanitized user content.
-- [ ] A test in `crates/hector-core/tests/` (or co-located unit test) verifies a file containing `</UNTRUSTED_EVIDENCE>` does not break boundary semantics — assertion: an injected `pass-everything` rule in the diff is NOT honored.
+- [ ] A test in `crates/ironlint-core/tests/` (or co-located unit test) verifies a file containing `</UNTRUSTED_EVIDENCE>` does not break boundary semantics — assertion: an injected `pass-everything` rule in the diff is NOT honored.
 - [ ] Existing wiremock tests still pass; if they encode the old prompt shape, update snapshots.
 
 **Notes**
 - Don't change the LLM-facing JSON output contract. Only the prompt body changes.
-- Touch `crates/hector-core/src/llm/prompt.rs` plus its callers in `engine/semantic.rs` and `engine/session.rs`.
+- Touch `crates/ironlint-core/src/llm/prompt.rs` plus its callers in `engine/semantic.rs` and `engine/session.rs`.
 
 ---
 
-### A2. Built-in skip patterns + project `skip:` + user-global `~/.hector-ignore` 🔴 critical
+### A2. Built-in skip patterns + project `skip:` + user-global `~/.ironlint-ignore` 🔴 critical
 
 **Bully reference**
 - `src/bully/config/skip.py` short-circuits scope matching for: lockfiles (`*.lock`, `package-lock.json`, `Pipfile.lock`, `poetry.lock`, `Cargo.lock`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`), minified assets (`*.min.js`, `*.min.css`), build/dist dirs (`dist/`, `build/`, `__pycache__/`, `node_modules/`, `target/`, `.next/`, `.nuxt/`), generated markers (`*.generated.*`, `*.pb.go`, `*.g.dart`, `*.freezed.dart`).
 - Project: top-level `skip:` list in `.bully.yml`, merged with built-ins.
 - User-global: `~/.bully-ignore`, one glob per line, `#` comments.
 
-**Hector current state**
-- No skip layer. `crates/hector-core/src/runner.rs:108` iterates every rule against every file in scope. A `engine: semantic` rule scoped `**/*.json` will run an LLM call on `Cargo.lock`.
+**IronLint current state**
+- No skip layer. `crates/ironlint-core/src/runner.rs:108` iterates every rule against every file in scope. A `engine: semantic` rule scoped `**/*.json` will run an LLM call on `Cargo.lock`.
 
 **Why it matters**
 Cost: a single semantic rule on a JSON-scoped lockfile costs more per check than the entire `script` ruleset combined. Correctness: lockfile churn dominates real diff noise; almost no rule is meaningful against generated content.
 
 **Proposed design**
-1. Add `crates/hector-core/src/config/skip.rs` exporting `built_in_skip_globs() -> &'static [&'static str]` and a `SkipMatcher` wrapping a `GlobSet`.
+1. Add `crates/ironlint-core/src/config/skip.rs` exporting `built_in_skip_globs() -> &'static [&'static str]` and a `SkipMatcher` wrapping a `GlobSet`.
 2. Extend `Config` (`config/types.rs`) with `skip: Vec<String>` (default empty). Built-ins are always appended; user `skip:` adds.
-3. In `HectorEngine::load`, also read `~/.hector-ignore` if it exists (one glob per line, ignore `#` comments and blanks).
+3. In `IronLintEngine::load`, also read `~/.ironlint-ignore` if it exists (one glob per line, ignore `#` comments and blanks).
 4. In `runner::check`, after the `(rule_id, rule)` loop guard for scope-match, also bail out if `skip_matcher.matches(&path)` — return early with a `Verdict { status: Pass, passed_checks: [] }` (no rules evaluated, no telemetry beyond a single "skipped" record).
-5. Emit a `skipped` reason in the telemetry record (see D1) so users can confirm via `hector check --format json` that a file was skipped intentionally.
+5. Emit a `skipped` reason in the telemetry record (see D1) so users can confirm via `ironlint check --format json` that a file was skipped intentionally.
 
 **Acceptance criteria**
-- [ ] `.hector.yml` accepts a top-level `skip:` list; built-ins applied even if user list is empty.
-- [ ] `Cargo.lock` is skipped by default with the default config (verified by running `hector check --file Cargo.lock` on a hector workspace itself).
-- [ ] `~/.hector-ignore` is honored if present; absence is a silent no-op.
+- [ ] `.ironlint.yml` accepts a top-level `skip:` list; built-ins applied even if user list is empty.
+- [ ] `Cargo.lock` is skipped by default with the default config (verified by running `ironlint check --file Cargo.lock` on an ironlint workspace itself).
+- [ ] `~/.ironlint-ignore` is honored if present; absence is a silent no-op.
 - [ ] Verdict for a skipped file has `status: Pass` and empty `violations`/`passed_checks`. Status alternative: introduce `Status::Skipped` — see open question.
 
 **Open question**
-Add `Status::Skipped` to the verdict enum, or fold into `Pass`? Bully has a distinct `"skipped"` status. Hector's adapter code distinguishes only on exit code (`0/1/2`). Adding `Skipped` is a verdict-schema bump (`SCHEMA_VERSION` → 2). Recommend: fold into `Pass` for 0.2; reconsider before the 0.3 freeze. Document via telemetry instead.
+Add `Status::Skipped` to the verdict enum, or fold into `Pass`? Bully has a distinct `"skipped"` status. IronLint's adapter code distinguishes only on exit code (`0/1/2`). Adding `Skipped` is a verdict-schema bump (`SCHEMA_VERSION` → 2). Recommend: fold into `Pass` for 0.2; reconsider before the 0.3 freeze. Document via telemetry instead.
 
 ---
 
@@ -117,14 +117,14 @@ Add `Status::Skipped` to the verdict enum, or fold into `Pass`? Bully has a dist
   - the diff is pure-deletion AND the rule is phrased as "avoid X" / "don't X" / "no X" / "ban X" / "forbid X" (word-boundary, case-insensitive).
 - Also builds N-line context excerpts (see A4).
 
-**Hector current state**
+**IronLint current state**
 - `engine/semantic.rs` dispatches to the LLM for any non-empty input matching scope. Comment-only diffs and pure deletions hit the API.
 
 **Why it matters**
 Most edits during a debugging session are pure-deletion churn or comment cleanup. Filtering these locally is free; dispatching them is ~$0.01 per rule per file. A ten-rule semantic config on a busy session costs real money.
 
 **Proposed design**
-1. New module `crates/hector-core/src/diff/analysis.rs`. Public API:
+1. New module `crates/ironlint-core/src/diff/analysis.rs`. Public API:
    ```rust
    pub fn can_match_diff(diff: &str, rule_description: &str) -> CanMatch;
    pub enum CanMatch { Yes, No { reason: SkipReason } }
@@ -148,8 +148,8 @@ Most edits during a debugging session are pure-deletion churn or comment cleanup
 **Bully reference**
 - `src/bully/diff/context.py` builds `<EXCERPT_FOR_RULE rule="…">` blocks containing N lines of source around each diff hunk, per-rule via `context: { lines: <int> }`.
 
-**Hector current state**
-- `crates/hector-core/src/engine/context.rs` has `ContextScope::{Diff, File, Repo}` — coarse-grained ("just diff" vs "whole file"). No middle ground.
+**IronLint current state**
+- `crates/ironlint-core/src/engine/context.rs` has `ContextScope::{Diff, File, Repo}` — coarse-grained ("just diff" vs "whole file"). No middle ground.
 
 **Why it matters**
 "Whole file" is wasteful tokens for large files; "just diff" misses the surrounding function signature. N-line context is the right default for most rules.
@@ -177,18 +177,18 @@ This is a config-schema additive — bump `SUPPORTED_SCHEMAS` not needed if the 
 **Bully reference**
 - `src/bully/runtime/rule_runner.py:run_rules_parallel()` uses `ThreadPoolExecutor` with `execution.max_workers` (config) or `BULLY_MAX_WORKERS` (env) or `min(8, cpu_count)`. Single-rule fast path bypasses the pool.
 
-**Hector current state**
-- `crates/hector-core/src/runner.rs:108` is a serial `for (rule_id, rule) in &self.config.rules { … }`. Five semantic rules on one file = five serialized HTTP round trips.
+**IronLint current state**
+- `crates/ironlint-core/src/runner.rs:108` is a serial `for (rule_id, rule) in &self.config.rules { … }`. Five semantic rules on one file = five serialized HTTP round trips.
 
 **Why it matters**
 Semantic rules are HTTP-bound; serial execution is the single biggest UX regression vs bully for users with semantic-heavy configs. Script rules also benefit (one slow npm script no longer blocks four fast ones).
 
 **Proposed design**
-1. Add `rayon` to `hector-core` (already-stable, sync; no `tokio` runtime needed since we're not async-end-to-end).
+1. Add `rayon` to `ironlint-core` (already-stable, sync; no `tokio` runtime needed since we're not async-end-to-end).
 2. Replace the `for` loop with `self.config.rules.par_iter()` from `rayon::prelude::*`. Output collection is `Vec<(String, RuleOutcome)>` — preserve insertion order with `IntoParallelRefIterator` + `.collect()` (rayon collects in deterministic order matching the input iterator).
 3. Single-rule fast path: if `rules.len() == 1`, skip rayon.
 4. Add `execution: { max_workers: usize }` to `Config`. Wire to `rayon::ThreadPoolBuilder::new().num_threads(N).build_global()` *or* per-call via `pool.install(…)`. Prefer per-call; `build_global` is process-wide and fights tests.
-5. Env override: `HECTOR_MAX_WORKERS` (mirroring `BULLY_MAX_WORKERS`).
+5. Env override: `IRONLINT_MAX_WORKERS` (mirroring `BULLY_MAX_WORKERS`).
 6. Default: `min(8, num_cpus::get())`. Add `num_cpus` dep (small, already-transitive).
 
 **Acceptance criteria**
@@ -205,22 +205,22 @@ Semantic rules are HTTP-bound; serial execution is the single biggest UX regress
 
 ## Track C — Developer/operator UX
 
-### C1. `hector doctor` 🔴 critical UX
+### C1. `ironlint doctor` 🔴 critical UX
 
 **Bully reference**
 - `src/bully/cli/doctor.py` reports: Python version, config present, config parses, trust status, ast-grep on PATH, PostToolUse hook wired in `.claude/settings.json`, evaluator agent present, skills present (bully, bully-init, bully-author, bully-review).
 
-**Hector current state**
+**IronLint current state**
 - No diagnostic command. Adapter setup failures surface as silent no-ops or cryptic errors from the hook script.
 
 **Why it matters**
 Adapter integration is where users hit the most friction. `doctor` is the single highest-leverage UX feature bully ships and the most-quoted in support questions.
 
 **Proposed design**
-1. New subcommand: `hector doctor`. Output: human-readable checklist by default; `--format json` for machine consumption.
+1. New subcommand: `ironlint doctor`. Output: human-readable checklist by default; `--format json` for machine consumption.
 2. Checks to run (each emits `pass`/`warn`/`fail` + remediation text):
-   - **Binary**: `hector --version` resolvable on PATH (well, trivially true if the user typed `hector doctor`, but check `which hector` and report the path).
-   - **Config**: `.hector.yml` exists at cwd or specified `--dir`.
+   - **Binary**: `ironlint --version` resolvable on PATH (well, trivially true if the user typed `ironlint doctor`, but check `which ironlint` and report the path).
+   - **Config**: `.ironlint.yml` exists at cwd or specified `--dir`.
    - **Config parses**: `parse_file_with_extends` succeeds.
    - **Trust**: fingerprint matches.
    - **Schema**: `schema_version: 2`. Warn on 1 with migration hint.
@@ -229,51 +229,51 @@ Adapter integration is where users hit the most friction. `doctor` is the single
      - `ast-grep`: not needed (we link `ast-grep-core`), but check anyway in case users expect the binary too.
      - `LLM`: if any `engine: semantic|session` rule exists, check `llm:` block is configured and `api_key_env` resolves to a present env var.
    - **Adapters**: if `~/.claude/settings.json` exists, check if the Claude Code hook is wired. If an OpenCode plugin install is detectable, same.
-   - **Runtime state**: `.hector/` writable; current baseline/session/log file sizes.
+   - **Runtime state**: `.ironlint/` writable; current baseline/session/log file sizes.
 3. Exit code: `0` if all pass or only warnings; `1` if any failure.
 
 **Acceptance criteria**
-- [ ] `hector doctor` runs in a freshly initialized project and reports the expected checks.
+- [ ] `ironlint doctor` runs in a freshly initialized project and reports the expected checks.
 - [ ] Each check has a remediation hint pointing at the relevant command or doc.
 - [ ] JSON output schema documented in `docs/` (this is part of the public contract).
 
 **Notes**
 - Doctor should never modify state. Read-only.
-- Where bully checks Python version, Hector should not — version skew is a non-issue for a shipped binary. Replace with: `hector` binary date/version vs latest release (defer the "latest release" check to 0.3 to avoid a network hop).
+- Where bully checks Python version, IronLint should not — version skew is a non-issue for a shipped binary. Replace with: `ironlint` binary date/version vs latest release (defer the "latest release" check to 0.3 to avoid a network hop).
 
 ---
 
-### C2. `hector explain <file>` and `hector guide <file>` 🟡 high UX
+### C2. `ironlint explain <file>` and `ironlint guide <file>` 🟡 high UX
 
 **Bully reference**
 - `bully explain <file>` shows which globs matched/skipped each rule.
 - `bully guide <file>` lists rules in scope for the file with their descriptions.
 
-**Hector current state**
+**IronLint current state**
 - No equivalent. Users debug "why didn't my rule fire?" by reading globs by hand.
 
 **Proposed design**
-- `hector explain <file>`: for each rule, print `MATCH <rule-id> via <glob>` or `skip <rule-id> scope=<globs>`, plus skip reasons if the file matches a skip pattern.
-- `hector guide <file>`: list of `<rule-id> [<severity>] <description>` for rules whose scope matches.
+- `ironlint explain <file>`: for each rule, print `MATCH <rule-id> via <glob>` or `skip <rule-id> scope=<globs>`, plus skip reasons if the file matches a skip pattern.
+- `ironlint guide <file>`: list of `<rule-id> [<severity>] <description>` for rules whose scope matches.
 - Both read-only, no execution.
 
 **Acceptance criteria**
-- [ ] Both subcommands work without a `--config` flag (default `.hector.yml`).
+- [ ] Both subcommands work without a `--config` flag (default `.ironlint.yml`).
 - [ ] Output is greppable: one rule per line.
 - [ ] `--format json` available for both.
 
 ---
 
-### C3. `hector show-resolved-config` 🟢 medium
+### C3. `ironlint show-resolved-config` 🟢 medium
 
 **Bully reference**
 - `bully show-resolved-config` prints merged rules after `extends:` resolution as tab-separated `id <tab> engine <tab> severity <tab> scope <tab> fix_hint`.
 
-**Hector current state**
+**IronLint current state**
 - No way to inspect post-extends rule set without writing a Rust test.
 
 **Proposed design**
-- New subcommand `hector show-resolved-config`. Default format: TSV. `--format yaml` to print canonical merged YAML (sans trust block). `--format json` for tooling.
+- New subcommand `ironlint show-resolved-config`. Default format: TSV. `--format yaml` to print canonical merged YAML (sans trust block). `--format json` for tooling.
 
 **Acceptance criteria**
 - [ ] Output includes rules inherited from `extends:` parents, marked with their origin.
@@ -281,14 +281,14 @@ Adapter integration is where users hit the most friction. `doctor` is the single
 
 ---
 
-### C4. `--rule`, `--explain`, `--print-prompt` flags on `hector check` 🟡 high UX
+### C4. `--rule`, `--explain`, `--print-prompt` flags on `ironlint check` 🟡 high UX
 
 **Bully reference**
 - `--rule RULE_ID` (repeatable, multiple flags OR'd) — filter to specific rules.
 - `--explain` — per-rule fire/pass/dispatched/skipped report.
 - `--print-prompt` — dump the LLM prompt for a semantic rule.
 
-**Hector current state**
+**IronLint current state**
 - None of these. Iterating on a single rule means commenting out the others.
 
 **Proposed design**
@@ -297,18 +297,18 @@ Adapter integration is where users hit the most friction. `doctor` is the single
 3. `--print-prompt`: for `engine: semantic`, instead of dispatching to the LLM, print the rendered prompt to stdout and exit 0. Useful for prompt-debugging without burning API calls.
 
 **Acceptance criteria**
-- [ ] `hector check --file foo.rs --rule rule-a --rule rule-b` runs only those two rules.
+- [ ] `ironlint check --file foo.rs --rule rule-a --rule rule-b` runs only those two rules.
 - [ ] `--print-prompt` short-circuits before the HTTP call (verified by wiremock receiving zero requests).
 
 ---
 
-### C5. `--execute-dry-run` on `hector validate` 🟢 medium
+### C5. `--execute-dry-run` on `ironlint validate` 🟢 medium
 
 **Bully reference**
 - `bully --validate --execute-dry-run` runs each script rule against `/dev/null` to surface shell-syntax errors at config time.
 
-**Hector current state**
-- `hector validate` only parses and checks scope globs; doesn't execute scripts.
+**IronLint current state**
+- `ironlint validate` only parses and checks scope globs; doesn't execute scripts.
 
 **Proposed design**
 - Add `--execute-dry-run` flag. For each `engine: script` rule, run `rule.script.replace("{file}", "/dev/null")` (or platform-appropriate `NUL` on Windows, though Windows isn't a 0.2 target) with the capability sandbox active. Capture stderr; if exit ≠ 0 and stderr matches known shell-error patterns (`syntax error`, `command not found`, `unexpected EOF`), report as a validation failure.
@@ -331,8 +331,8 @@ Adapter integration is where users hit the most friction. `doctor` is the single
   - `subagent_stop { ts, type }`
   - Legacy per-rule check record (file-level)
 
-**Hector current state**
-- `crates/hector-core/src/telemetry.rs` writes a single `LogEntry { timestamp, kind, file, rule_id, status, elapsed_ms }` for every check. `kind` is only ever `"check"` or `"check_session"`. No per-rule, no skip reasons, no version stamping.
+**IronLint current state**
+- `crates/ironlint-core/src/telemetry.rs` writes a single `LogEntry { timestamp, kind, file, rule_id, status, elapsed_ms }` for every check. `kind` is only ever `"check"` or `"check_session"`. No per-rule, no skip reasons, no version stamping.
 
 **Why it matters**
 This is the foundation under D2/D3 (`coverage`/`debt`). Without typed records, the analysis tooling can't be built.
@@ -342,7 +342,7 @@ This is the foundation under D2/D3 (`coverage`/`debt`). Without typed records, t
    ```rust
    #[serde(tag = "type", rename_all = "snake_case")]
    pub enum LogEntry {
-       SessionInit { ts: String, hector_version: String, schema_version: u32 },
+       SessionInit { ts: String, ironlint_version: String, schema_version: u32 },
        Check { ts: String, file: String, status: String, elapsed_ms: u64, rules: Vec<PerRuleRecord> },
        SemanticVerdict { ts: String, rule: String, verdict: String, file: Option<String> },
        SemanticSkipped { ts: String, file: String, rule: String, reason: String },
@@ -355,22 +355,22 @@ This is the foundation under D2/D3 (`coverage`/`debt`). Without typed records, t
    - New `commands/session.rs::session_start` → write `SessionInit` (mirroring bully).
 
 **Acceptance criteria**
-- [ ] `.hector/log.jsonl` contains all four record types in a realistic session.
+- [ ] `.ironlint/log.jsonl` contains all four record types in a realistic session.
 - [ ] Each record validates against a documented JSON schema (publish under `docs/telemetry.md`).
 - [ ] Old `log.jsonl` files still parse during the deprecation window.
 
 ---
 
-### D2. `hector coverage` 🟢 medium
+### D2. `ironlint coverage` 🟢 medium
 
 **Bully reference**
 - `bully coverage` reports per-file rule-scope coverage from telemetry. JSON output: `{ total_rules, files_seen, uncovered_files, files: { <file>: { rules_in_scope, rule_ids } } }`.
 
-**Hector current state**
+**IronLint current state**
 - None.
 
 **Proposed design**
-- New subcommand `hector coverage`. Reads `.hector/log.jsonl`, builds `file → set<rule_id>`. Prints text table (default) or JSON. Cross-references against `config.rules` to compute "rules with no telemetry hits" (dead rules).
+- New subcommand `ironlint coverage`. Reads `.ironlint/log.jsonl`, builds `file → set<rule_id>`. Prints text table (default) or JSON. Cross-references against `config.rules` to compute "rules with no telemetry hits" (dead rules).
 
 **Depends on**: D1.
 
@@ -380,20 +380,20 @@ This is the foundation under D2/D3 (`coverage`/`debt`). Without typed records, t
 
 ---
 
-### D3. `hector debt` 🟢 medium
+### D3. `ironlint debt` 🟢 medium
 
 **Bully reference**
 - `bully debt` aggregates `bully-disable-line <rule> reason: <text>` markers grouped by rule. Optional `--strict` requires reasons ≥12 chars.
 
-**Hector current state**
-- `crates/hector-core/src/disable.rs` parses `hector-disable: <rule-ids>` directives but doesn't surface them in a report.
+**IronLint current state**
+- `crates/ironlint-core/src/disable.rs` parses `ironlint-disable: <rule-ids>` directives but doesn't surface them in a report.
 
 **Proposed design**
-- New subcommand `hector debt`. Walks tracked files (`git ls-files` or scope-glob union), greps for `hector-disable:` markers, groups by rule_id, prints `<rule>: <count>` then per-disable `<file>:<line> reason: <text>` lines. `--strict` flag: fail if any reason is empty or shorter than 12 chars.
+- New subcommand `ironlint debt`. Walks tracked files (`git ls-files` or scope-glob union), greps for `ironlint-disable:` markers, groups by rule_id, prints `<rule>: <count>` then per-disable `<file>:<line> reason: <text>` lines. `--strict` flag: fail if any reason is empty or shorter than 12 chars.
 
 **Acceptance criteria**
 - [ ] A repo with no disable directives prints "no debt recorded" and exits 0.
-- [ ] A repo with one untagged `hector-disable:` (no reason) exits 1 under `--strict`.
+- [ ] A repo with one untagged `ironlint-disable:` (no reason) exits 1 under `--strict`.
 - [ ] Output greppable: rule id at line start.
 
 ---
@@ -405,17 +405,17 @@ This is the foundation under D2/D3 (`coverage`/`debt`). Without typed records, t
 **Bully reference**
 - `src/bully/state/baseline.py` stores `{ rule_id, file, line, line_sha256 }`. On replay, baseline only matches if the line content also matches — moving the violating line shifts the baseline; editing the line invalidates it.
 
-**Hector current state**
-- `crates/hector-core/src/baseline.rs` fingerprints by `rule_id::file::line`. Moving the violating line invalidates the baseline silently; worse, a new violation that lands on the old line is then silenced.
+**IronLint current state**
+- `crates/ironlint-core/src/baseline.rs` fingerprints by `rule_id::file::line`. Moving the violating line invalidates the baseline silently; worse, a new violation that lands on the old line is then silenced.
 
 **Why it matters**
-This is a correctness bug: baseline drift can cause Hector to miss real violations. Today it's latent; with semantic rules whose verdicts depend on subtle text, it becomes visible.
+This is a correctness bug: baseline drift can cause IronLint to miss real violations. Today it's latent; with semantic rules whose verdicts depend on subtle text, it becomes visible.
 
 **Proposed design**
 1. Bump baseline file schema. Add `line_sha256` field. Read-tolerant of old entries during a grace period.
-2. On `hector baseline`, capture the line content from the file at recording time, hash it (`sha256(line.trim_end())` — strip trailing whitespace to survive `\n` vs `\r\n`).
+2. On `ironlint baseline`, capture the line content from the file at recording time, hash it (`sha256(line.trim_end())` — strip trailing whitespace to survive `\n` vs `\r\n`).
 3. On replay, look up the current line content. If checksum matches → suppress as before. If not → re-fire the violation (it's now "new" on the new line).
-4. Add a `hector baseline refresh` command to recapture checksums after intentional reformatting.
+4. Add a `ironlint baseline refresh` command to recapture checksums after intentional reformatting.
 
 **Acceptance criteria**
 - [ ] Moving a baselined violating line preserves the suppression (file/rule still match; checksum stays valid because line content didn't change).
@@ -429,11 +429,11 @@ This is a correctness bug: baseline drift can cause Hector to miss real violatio
 **Bully reference**
 - Per-rule `output: parsed` (default) attempts JSON, then per-line `FILE:LINE:COL` regex, then falls back to whole-stdout. `output: passthrough` emits combined stdout+stderr as one violation message verbatim.
 
-**Hector current state**
-- `crates/hector-core/src/engine/script.rs` always uses the whole stderr as the violation message. No line/col extraction.
+**IronLint current state**
+- `crates/ironlint-core/src/engine/script.rs` always uses the whole stderr as the violation message. No line/col extraction.
 
 **Why it matters**
-Tools like `ruff`, `eslint --format compact`, `clippy --message-format short` emit parseable `file:line:col: msg` output. Hector throws away that structure today.
+Tools like `ruff`, `eslint --format compact`, `clippy --message-format short` emit parseable `file:line:col: msg` output. IronLint throws away that structure today.
 
 **Proposed design**
 1. Add `output: OutputMode { Parsed, Passthrough }` field on `Rule` (default `Parsed` to match bully).
@@ -464,7 +464,7 @@ Tools like `ruff`, `eslint --format compact`, `clippy --message-format short` em
   ```
   Logic: if any session file matches `when`, at least one must also match `require`; otherwise fire.
 
-**Hector current state**
+**IronLint current state**
 - `EngineKind::Session` is LLM-driven (see `engine/session.rs`). No declarative variant.
 
 **Why it matters**
@@ -472,7 +472,7 @@ The declarative form is deterministic and free. Many real-world session invarian
 
 **Proposed design**
 1. Add `EngineKind::SessionRule` (or reuse `Session` and dispatch on presence of `when`/`require` vs `description` only — recommend new variant to keep dispatch readable).
-2. New engine impl in `crates/hector-core/src/engine/session_rule.rs`:
+2. New engine impl in `crates/ironlint-core/src/engine/session_rule.rs`:
    ```rust
    pub struct SessionRuleEngine;
    impl SessionRuleEngine {
@@ -501,23 +501,23 @@ The declarative form is deterministic and free. Many real-world session invarian
 
 **Restated:**
 
-Hector's trust model stores the SHA256 fingerprint inside `.hector.yml` under `trust.fingerprint:`. The fingerprint is committed. This means trust is a *per-repo* artifact: clone the repo, get the rules, get the approval to run them. Convenient — but the approval and the rules travel together. A reviewer looking at a PR that adds a rule will *also* see a `trust.fingerprint:` line change. If they don't recognize that the fingerprint update is the only thing standing between an attacker and arbitrary `script:` execution on every contributor's machine, they'll wave it through.
+IronLint's trust model stores the SHA256 fingerprint inside `.ironlint.yml` under `trust.fingerprint:`. The fingerprint is committed. This means trust is a *per-repo* artifact: clone the repo, get the rules, get the approval to run them. Convenient — but the approval and the rules travel together. A reviewer looking at a PR that adds a rule will *also* see a `trust.fingerprint:` line change. If they don't recognize that the fingerprint update is the only thing standing between an attacker and arbitrary `script:` execution on every contributor's machine, they'll wave it through.
 
 Bully stores trust in `~/.bully-trust.json` (machine-local, never committed). A malicious config change has to be re-approved on every contributor's machine separately, and the very act of running `bully trust` is a deliberate, named ceremony — not a checkbox in a 200-line review.
 
 **Why this isn't already filed under Track A:**
 
-It's not a "bully has a feature we don't" gap — both tools have a trust gate. The disagreement is on *where the gate sits*. Hector's choice was deliberate (per [`overview.md`](./overview.md) and the 0.1 design) and trades attack surface for ergonomics. The question is whether that trade was sound.
+It's not a "bully has a feature we don't" gap — both tools have a trust gate. The disagreement is on *where the gate sits*. IronLint's choice was deliberate (per [`overview.md`](./overview.md) and the 0.1 design) and trades attack surface for ergonomics. The question is whether that trade was sound.
 
 **Three options:**
 
 1. **Keep current model.** Add a CI lint that fails any PR whose diff touches both `trust.fingerprint:` *and* `rules:`. Forces those changes into separate PRs, surfacing the trust update as its own discrete review. Cheap; doesn't break existing users.
-2. **Adopt bully's machine-local model.** Move trust to `~/.hector-trust.json`. Drop `trust.fingerprint:` from `.hector.yml`. Existing configs migrate transparently (first run becomes "untrusted, run `hector trust`"). Breaks no exit-code contract; breaks the committed-trust workflow.
-3. **Hybrid.** Keep `trust.fingerprint:` as a *project signal* (this is the fingerprint the project expects), but require machine-local concurrence (`~/.hector-trust.json`) before any `script:` rule can execute. Best of both worlds; most code to write.
+2. **Adopt bully's machine-local model.** Move trust to `~/.ironlint-trust.json`. Drop `trust.fingerprint:` from `.ironlint.yml`. Existing configs migrate transparently (first run becomes "untrusted, run `ironlint trust`"). Breaks no exit-code contract; breaks the committed-trust workflow.
+3. **Hybrid.** Keep `trust.fingerprint:` as a *project signal* (this is the fingerprint the project expects), but require machine-local concurrence (`~/.ironlint-trust.json`) before any `script:` rule can execute. Best of both worlds; most code to write.
 
 **What this spec proposes:**
 
-Don't decide here. Write a dedicated security-model spec (`specs/YYYY-MM-DD-hector-trust-model.md`) that:
+Don't decide here. Write a dedicated security-model spec (`specs/YYYY-MM-DD-ironlint-trust-model.md`) that:
 
 - Enumerates the threat model explicitly (malicious PR, compromised maintainer, supply-chain compromise of the rules repo itself via `extends:`).
 - Lists the trade-offs of each option above.
@@ -537,14 +537,14 @@ Don't decide here. Write a dedicated security-model spec (`specs/YYYY-MM-DD-hect
 
 ---
 
-## 4. Where Hector is ahead — explicit non-changes
+## 4. Where IronLint is ahead — explicit non-changes
 
-These bully-vs-Hector deltas are **wins for Hector** and should not regress:
+These bully-vs-IronLint deltas are **wins for IronLint** and should not regress:
 
 - LLM provider count (Anthropic + OpenRouter + Ollama vs Anthropic-only).
 - OpenCode adapter (no equivalent in bully).
 - Hardened Linux capability sandbox (`CLONE_NEWNET`/`CLONE_NEWNS` vs bully's env-var-only confinement).
-- `hector migrate` (bully has only a stub).
+- `ironlint migrate` (bully has only a stub).
 
 Items D1/E1 in particular must preserve forward compatibility — we don't ship a downgrade path that loses these.
 
@@ -554,15 +554,15 @@ Items D1/E1 in particular must preserve forward compatibility — we don't ship 
 0.2.0  ┬─ A1 prompt injection           (security, small)
        ├─ A2 skip patterns              (cost, medium)
        ├─ A3 diff pre-filter            (cost, medium)
-       └─ C1 hector doctor              (UX, medium)        ← user-visible 0.2.0 release
+       └─ C1 ironlint doctor              (UX, medium)        ← user-visible 0.2.0 release
 
 0.2.1  ┬─ B1 parallel execution         (perf, medium)
        ├─ C4 --rule / --explain / --print-prompt
        └─ E1 baseline checksum          (correctness)
 
 0.2.2  ┬─ D1 typed telemetry            (foundation)
-       ├─ D2 hector coverage
-       ├─ D3 hector debt
+       ├─ D2 ironlint coverage
+       ├─ D3 ironlint debt
        ├─ C2 explain / guide
        └─ C3 show-resolved-config
 
@@ -579,11 +579,11 @@ A1+A2+A3+C1 is the smallest cohesive 0.2.0 — closes the most painful gaps (sec
 
 ## 6. Per-feature plan-doc template
 
-Each numbered item above becomes a `plans/YYYY-MM-DD-hector-<id>-<slug>.md`. Plans should include:
+Each numbered item above becomes a `plans/YYYY-MM-DD-ironlint-<id>-<slug>.md`. Plans should include:
 
 1. **Goal** — one paragraph; reference back to the section here.
 2. **Files touched** — bullet list with `NEW` / `MODIFIED` tags.
-3. **Phases** — `Phase 1: …`, `Phase 2: …` with concrete tasks (mirror `plans/2026-05-12-hector-opencode-adapter.md`).
+3. **Phases** — `Phase 1: …`, `Phase 2: …` with concrete tasks (mirror `plans/2026-05-12-ironlint-opencode-adapter.md`).
 4. **Test plan** — explicit unit and integration tests; fixtures listed.
 5. **Risk / rollback** — verdict-schema impact, telemetry-schema impact, config-schema impact, performance impact. If any of these change, call it out at the top of the plan.
 
@@ -592,7 +592,7 @@ Each numbered item above becomes a `plans/YYYY-MM-DD-hector-<id>-<slug>.md`. Pla
 - **Q1 (A2):** Should `skip:` patterns be appended to or replace built-ins? Default proposal: append. Alternative is `skip.replace_builtins: true` flag.
 - **Q2 (A2):** Status enum — add `Skipped` or fold into `Pass`? Default: fold. Revisit before 0.3 verdict freeze.
 - **Q3 (B1):** Pool sizing default — `min(8, num_cpus)` or always `num_cpus`? Bully chose 8 for thread-spawn cost. With async HTTP this could be higher; with subprocess scripts, 8 is reasonable. Default: 8.
-- **Q4 (C1):** Should `hector doctor` phone home to check latest release? Default: no (privacy, offline-friendliness). Defer to 0.3 if at all.
+- **Q4 (C1):** Should `ironlint doctor` phone home to check latest release? Default: no (privacy, offline-friendliness). Defer to 0.3 if at all.
 - **Q5 (F1):** Naming — `SessionRule` vs `SessionAssert` vs reusing `Session` with a discriminator? Default: `SessionRule`.
 
 Resolve each in the corresponding per-feature plan doc.
@@ -602,6 +602,6 @@ Resolve each in the corresponding per-feature plan doc.
 **Cross-links**
 
 - Source-material comparison (this analysis): see conversation history; key Bully sources are `/Users/chrisarter/Documents/projects/bully/src/bully/{semantic,diff,config,state,runtime,cli}/`.
-- Existing 0.2 sketch: [`2026-05-11-hector-plan-and-0.1-design.md §3`](./2026-05-11-hector-plan-and-0.1-design.md).
-- Locked exit-code contract: `crates/hector-cli/src/commands/check.rs` (do not break).
-- Verdict shape: `crates/hector-core/src/verdict.rs` (locked-but-unstable until 0.3).
+- Existing 0.2 sketch: [`2026-05-11-ironlint-plan-and-0.1-design.md §3`](./2026-05-11-ironlint-plan-and-0.1-design.md).
+- Locked exit-code contract: `crates/ironlint-cli/src/commands/check.rs` (do not break).
+- Verdict shape: `crates/ironlint-core/src/verdict.rs` (locked-but-unstable until 0.3).

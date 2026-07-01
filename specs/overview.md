@@ -1,4 +1,4 @@
-# Hector — Rebuild Specification
+# IronLint — Rebuild Specification
 
 **Status:** Draft v0.1
 **Date:** May 2026
@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-Hector is a tool-agnostic policy-enforcement pipeline for AI coding agents. Every edit produced by an agent is checked against a project-local rules file (`.hector.yml`). Violations of `error` severity block the edit; violations of `warning` severity are reported. Rules can be deterministic shell scripts or natural-language descriptions evaluated by an LLM against a unified diff.
+IronLint is a tool-agnostic policy-enforcement pipeline for AI coding agents. Every edit produced by an agent is checked against a project-local rules file (`.ironlint.yml`). Violations of `error` severity block the edit; violations of `warning` severity are reported. Rules can be deterministic shell scripts or natural-language descriptions evaluated by an LLM against a unified diff.
 
 This is a ground-up rewrite of `bully` in Rust, with host integration (currently hard-coded to Claude Code) extracted into per-host adapters.
 
@@ -24,8 +24,8 @@ This is a ground-up rewrite of `bully` in Rust, with host integration (currently
 ## 3. Non-goals
 
 - Rule-authoring UI. Skills/slash-commands stay inside individual host adapters (e.g. the Claude Code adapter), not the core.
-- Auto-fix. Hector reports; it does not modify code.
-- Replacing language-native linters. Hector orchestrates; ruff/eslint/etc. remain underneath.
+- Auto-fix. IronLint reports; it does not modify code.
+- Replacing language-native linters. IronLint orchestrates; ruff/eslint/etc. remain underneath.
 - Hosted/SaaS version. CLI only.
 
 ## 4. Architecture
@@ -36,19 +36,19 @@ Three layers. The boundary between them is the stable contract; everything else 
 ┌─────────────────────────────────────────────────────────┐
 │ Adapters (Claude Code, Aider, MCP, pre-commit, watch)   │
 │  - capture edit events from a host                       │
-│  - shell out to `hector check --format json`            │
+│  - shell out to `ironlint check --format json`            │
 │  - translate verdict back into host response             │
 └─────────────────────────────────────────────────────────┘
                           │  (JSON over stdout)
 ┌─────────────────────────────────────────────────────────┐
-│ hector  (CLI binary, Rust)                              │
+│ ironlint  (CLI binary, Rust)                              │
 │  - argument parsing, I/O, formatting                     │
 │  - exit-code mapping (0 / 1 / 2)                        │
 └─────────────────────────────────────────────────────────┘
                           │  (library API)
 ┌─────────────────────────────────────────────────────────┐
-│ hector-core  (Rust crate)                               │
-│  - config loader (.hector.yml + extends)                │
+│ ironlint-core  (Rust crate)                               │
+│  - config loader (.ironlint.yml + extends)                │
 │  - script engine (shell-out + exit-code interpretation) │
 │  - semantic engine (LLM call against diff)              │
 │  - baseline manager, telemetry, disable-comments        │
@@ -56,7 +56,7 @@ Three layers. The boundary between them is the stable contract; everything else 
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 4.1 `hector-core` (library)
+### 4.1 `ironlint-core` (library)
 
 Public surface (sketch):
 
@@ -92,22 +92,22 @@ pub trait LlmClient: Send + Sync {
 
 Built-in implementations: `AnthropicClient`, `OpenAiClient`, `GeminiClient`, `OllamaClient`. Third parties implement `LlmClient` in their own crate and inject at construction.
 
-### 4.2 `hector` (CLI binary)
+### 4.2 `ironlint` (CLI binary)
 
 Thin wrapper over the core. All commands accept `--format human|json` (default: human in a TTY, JSON otherwise).
 
 | Command                         | Purpose                                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------- |
-| `hector check`                  | Run pipeline. Flags: `--file`, `--diff <path>`, `--staged`, `--rule <id>`, `--print-prompt` |
-| `hector lint <path>`            | Convenience: `check --file <path>`                                                          |
-| `hector init`                   | Detect stack, scaffold `.hector.yml`                                                        |
-| `hector validate`               | Parse + enum-check config; resolve `extends:`                                               |
-| `hector baseline`               | Record current violations to `.hector/baseline.json`                                        |
-| `hector watch [path]`           | Run as daemon, check on filesystem change                                                   |
-| `hector serve --mcp`            | Expose `check_edit` as an MCP server over stdio                                             |
-| `hector doctor`                 | Environment diagnostic                                                                      |
-| `hector adapter <name> install` | Install an official adapter into the user's host config                                     |
-| `hector migrate`                | Rewrite `.bully.yml` → `.hector.yml`                                                        |
+| `ironlint check`                  | Run pipeline. Flags: `--file`, `--diff <path>`, `--staged`, `--rule <id>`, `--print-prompt` |
+| `ironlint lint <path>`            | Convenience: `check --file <path>`                                                          |
+| `ironlint init`                   | Detect stack, scaffold `.ironlint.yml`                                                        |
+| `ironlint validate`               | Parse + enum-check config; resolve `extends:`                                               |
+| `ironlint baseline`               | Record current violations to `.ironlint/baseline.json`                                        |
+| `ironlint watch [path]`           | Run as daemon, check on filesystem change                                                   |
+| `ironlint serve --mcp`            | Expose `check_edit` as an MCP server over stdio                                             |
+| `ironlint doctor`                 | Environment diagnostic                                                                      |
+| `ironlint adapter <name> install` | Install an official adapter into the user's host config                                     |
+| `ironlint migrate`                | Rewrite `.bully.yml` → `.ironlint.yml`                                                        |
 
 **Exit codes** (stable contract):
 
@@ -119,18 +119,18 @@ Thin wrapper over the core. All commands accept `--format human|json` (default: 
 
 ### 4.3 Adapters
 
-An adapter is _not_ Rust code. It is a small set of host-specific files (manifest, hook script, install instructions) that wire `hector check` into the host's edit lifecycle. Official adapters live under `adapters/<name>/` in this repo and are installed by `hector adapter <name> install`.
+An adapter is _not_ Rust code. It is a small set of host-specific files (manifest, hook script, install instructions) that wire `ironlint check` into the host's edit lifecycle. Official adapters live under `adapters/<name>/` in this repo and are installed by `ironlint adapter <name> install`.
 
 Every adapter does the same four things:
 
 1. Capture an edit event from the host.
 2. Construct a `CheckInput` (preferring a unified diff when available).
-3. Invoke `hector check --format json`.
+3. Invoke `ironlint check --format json`.
 4. Translate the verdict into the host's expected response (exit code, error message, blocking signal).
 
 ## 5. Config schema
 
-`.hector.yml`, schema version 2:
+`.ironlint.yml`, schema version 2:
 
 ```yaml
 schema_version: 2
@@ -143,7 +143,7 @@ llm:
   base_url: null # override for proxies / Ollama
 
 extends:
-  - ../shared/hector-base.yml
+  - ../shared/ironlint-base.yml
 
 rules:
   no-console-log:
@@ -172,7 +172,7 @@ The interface every adapter depends on. Versioned via `schema_version`; will not
 ```json
 {
   "schema_version": 1,
-  "hector_version": "1.0.0",
+  "ironlint_version": "1.0.0",
   "status": "block",
   "violations": [
     {
@@ -197,25 +197,25 @@ The interface every adapter depends on. Versioned via `schema_version`; will not
 
 Recreates current Bully behavior.
 
-- **Hook:** `PostToolUse` matcher `Edit|Write`. Bash wrapper invokes `hector check --diff <stdin> --format json`, exits `2` on block, `0` otherwise.
+- **Hook:** `PostToolUse` matcher `Edit|Write`. Bash wrapper invokes `ironlint check --diff <stdin> --format json`, exits `2` on block, `0` otherwise.
 - **Plugin manifest:** `plugin.json` for the `/plugin install` flow.
-- **Skills:** `hector-init`, `hector-author`, `hector-review` (ported from Bully).
-- **Two semantic-eval paths.** Direct-API mode (default, set via `llm.provider: anthropic | openrouter | ollama`) calls the configured LLM provider directly. Subagent mode (opt-in via `llm.provider: claude-code-subagent`) routes through an in-session Claude Code subagent — required for subscription-only users since headless `claude -p` is not subscription-funded. The hook detects mode via `hector show-resolved-config` and emits a `hookSpecificOutput.additionalContext` envelope under subagent mode; the `hector` skill interprets it and dispatches the `hector-evaluator` subagent. See [`specs/2026-05-14-subagent-semantic-eval.md`](./2026-05-14-subagent-semantic-eval.md).
+- **Skills:** `ironlint-init`, `ironlint-author`, `ironlint-review` (ported from Bully).
+- **Two semantic-eval paths.** Direct-API mode (default, set via `llm.provider: anthropic | openrouter | ollama`) calls the configured LLM provider directly. Subagent mode (opt-in via `llm.provider: claude-code-subagent`) routes through an in-session Claude Code subagent — required for subscription-only users since headless `claude -p` is not subscription-funded. The hook detects mode via `ironlint show-resolved-config` and emits a `hookSpecificOutput.additionalContext` envelope under subagent mode; the `ironlint` skill interprets it and dispatches the `ironlint-evaluator` subagent. See [`specs/2026-05-14-subagent-semantic-eval.md`](./2026-05-14-subagent-semantic-eval.md).
 
 ### 7.2 Aider (`adapters/aider/`)
 
 Cheapest, highest-leverage adapter. Aider supports `--lint-cmd` natively and feeds lint output back to the LLM in a fix loop.
 
-- **Install:** `hector adapter aider install` writes `lint-cmd: hector lint --format human` into the user's `.aider.conf.yml`.
-- **Behavior:** Aider's existing lint loop drives iteration; Hector just emits violations with non-zero exit.
+- **Install:** `ironlint adapter aider install` writes `lint-cmd: ironlint lint --format human` into the user's `.aider.conf.yml`.
+- **Behavior:** Aider's existing lint loop drives iteration; IronLint just emits violations with non-zero exit.
 - **Code:** zero glue — just config.
 
 ### 7.3 MCP (built into the binary)
 
-`hector serve --mcp` exposes one tool over stdio:
+`ironlint serve --mcp` exposes one tool over stdio:
 
 ```
-hector.check_edit(file: string, diff: string) -> Verdict
+ironlint.check_edit(file: string, diff: string) -> Verdict
 ```
 
 Any MCP-capable agent (Claude Code, Cursor, Codex CLI, Continue, …) can call it. This is the universal adapter — when no host-native hook exists, ship the MCP server.
@@ -225,9 +225,9 @@ Any MCP-capable agent (Claude Code, Cursor, Codex CLI, Continue, …) can call i
 `.pre-commit-hooks.yaml`:
 
 ```yaml
-- id: hector
-  name: Hector policy check
-  entry: hector check --staged
+- id: ironlint
+  name: IronLint policy check
+  entry: ironlint check --staged
   language: system
   pass_filenames: false
 ```
@@ -236,26 +236,26 @@ Runs on `git commit`. Tool-agnostic by construction: catches edits from any agen
 
 ### 7.5 Watch mode (built into the binary)
 
-`hector watch [path]` runs as a daemon, debounces file events, runs the pipeline on changed files, prints JSON-lines to stdout. Users wire it into their editor of choice. No host integration required.
+`ironlint watch [path]` runs as a daemon, debounces file events, runs the pipeline on changed files, prints JSON-lines to stdout. Users wire it into their editor of choice. No host integration required.
 
 ## 8. Distribution
 
 Single Rust binary, multiple delivery channels, one source of truth via `cargo-dist`:
 
 - **GitHub Releases:** Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64
-- **Homebrew tap:** `brew install dynamik-dev/hector/hector`
-- **npm:** `npm install -g @hector/cli` — postinstall fetches the matching binary (the ruff pattern)
-- **PyPI:** `pip install hector-cli` — same wrapping pattern
-- **Cargo:** `cargo install hector`
-- **Install script:** `curl -fsSL https://hector.dev/install.sh | sh`
+- **Homebrew tap:** `brew install christopherarter/ironlint/ironlint`
+- **npm:** `npm install -g @ironlint/cli` — postinstall fetches the matching binary (the ruff pattern)
+- **PyPI:** `pip install ironlint-cli` — same wrapping pattern
+- **Cargo:** `cargo install ironlint`
+- **Install script:** `curl -fsSL https://ironlint.dev/install.sh | sh`
 
 ## 9. Migration from Bully
 
-1. `hector adapter claude-code install` installs the new plugin.
-2. `hector validate` accepts existing `.bully.yml`, emits a deprecation warning.
-3. `hector migrate` rewrites `.bully.yml` → `.hector.yml`, bumps `schema_version`, and inserts the `llm:` block from interactive prompts.
-4. Skill names renamed (`bully-init` → `hector-init`, etc.). Old skill names redirect with a one-line deprecation log for one minor version.
-5. Telemetry path moves from `.bully/log.jsonl` to `.hector/log.jsonl`. Migrate command moves the file.
+1. `ironlint adapter claude-code install` installs the new plugin.
+2. `ironlint validate` accepts existing `.bully.yml`, emits a deprecation warning.
+3. `ironlint migrate` rewrites `.bully.yml` → `.ironlint.yml`, bumps `schema_version`, and inserts the `llm:` block from interactive prompts.
+4. Skill names renamed (`bully-init` → `ironlint-init`, etc.). Old skill names redirect with a one-line deprecation log for one minor version.
+5. Telemetry path moves from `.bully/log.jsonl` to `.ironlint/log.jsonl`. Migrate command moves the file.
 
 Rule semantics are preserved exactly; the user-visible config change is purely cosmetic.
 
@@ -263,11 +263,11 @@ Rule semantics are preserved exactly; the user-visible config change is purely c
 
 | Phase | Deliverables                                                                                   |
 | ----- | ---------------------------------------------------------------------------------------------- |
-| 0.1   | `hector-core` crate; `hector` binary with `check`, `validate`, `init`; Anthropic provider only |
+| 0.1   | `ironlint-core` crate; `ironlint` binary with `check`, `validate`, `init`; Anthropic provider only |
 | 0.2   | Claude Code adapter at parity with current Bully; OpenAI provider; baseline + telemetry ported |
 | 0.3   | MCP server (`serve --mcp`); Aider adapter; pre-commit adapter                                  |
 | 0.4   | Gemini + Ollama providers; `watch` mode; `migrate` command                                     |
-| 1.0   | Stable verdict contract frozen; all distribution channels live; docs site at hector.dev        |
+| 1.0   | Stable verdict contract frozen; all distribution channels live; docs site at ironlint.dev        |
 
 ## 11. Open questions
 
@@ -277,7 +277,7 @@ Rule semantics are preserved exactly; the user-visible config change is purely c
 
 3. **Semantic verdict caching.** A `(rule_id, diff_hash, model)` triple is deterministic-ish. Should the core cache verdicts on disk to avoid re-evaluating on retries? Likely yes for cost, but invalidation is subtle (model versioning, prompt changes).
 
-4. **Rule packs / registry.** Should we ship `hector pack add react-strict` for curated rule sets from a registry, or keep everything user-authored as Bully does today? Defer to post-1.0; design the namespacing now so it's not painful to add later.
+4. **Rule packs / registry.** Should we ship `ironlint pack add react-strict` for curated rule sets from a registry, or keep everything user-authored as Bully does today? Defer to post-1.0; design the namespacing now so it's not painful to add later.
 
 5. **Subagent-removal impact.** ~~Existing Bully users may benefit from the Claude Code subagent's context isolation. Direct API calls have different cost/latency characteristics. Benchmark a representative repo (10–20 rules, mixed engines) before committing to the removal.~~ **Resolved (2026-05-23).** The `claude -p` allowance withdrawal made the subagent path the only viable option for Claude Code subscription users, which changed the math: rather than benchmarking direct-vs-subagent, both ship as user-selectable modes. See [`specs/2026-05-14-subagent-semantic-eval.md`](./2026-05-14-subagent-semantic-eval.md) and the §7.1 update above.
 

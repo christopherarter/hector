@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reasonix adapter for hector.
+# Reasonix adapter for ironlint.
 #
-# Wires Reasonix's PreToolUse lifecycle event to `hector check --file
+# Wires Reasonix's PreToolUse lifecycle event to `ironlint check --file
 # <path> --content -` so file edits are *blocked* against the project's
-# .hector.yml policy before they land on disk. Reasonix's PostToolUse is
+# .ironlint.yml policy before they land on disk. Reasonix's PostToolUse is
 # documented as non-gating (exit 2 = warning only); only PreToolUse can
 # physically prevent a bad edit. See
 # `specs/2026-05-25-reasonix-adapter.md` for the architectural rationale.
@@ -34,9 +34,9 @@ PROJECT_ROOT=$(echo "${EVENT}" | jq -r '.cwd // empty')
 if [[ -z "${PROJECT_ROOT}" ]]; then
   PROJECT_ROOT="$(pwd)"
 fi
-CONFIG="${PROJECT_ROOT}/.hector.yml"
+CONFIG="${PROJECT_ROOT}/.ironlint.yml"
 
-# Skip silently if hector isn't configured for this project.
+# Skip silently if ironlint isn't configured for this project.
 if [[ ! -f "${CONFIG}" ]]; then
   exit 0
 fi
@@ -49,19 +49,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Run `hector check --file <FILE> --content -` with the proposed content
-# piped on stdin. Maps the hector exit code onto Reasonix's PreToolUse
+# Run `ironlint check --file <FILE> --content -` with the proposed content
+# piped on stdin. Maps the ironlint exit code onto Reasonix's PreToolUse
 # semantics:
 #   0 → pass through (edit proceeds)
 #   2 → block (Reasonix refuses the tool call)
 #   anything else → log to stderr and pass through (fail-open on internal
 #                   errors so an agent isn't bricked by a misconfigured
-#                   hector install).
-run_hector() {
+#                   ironlint install).
+run_ironlint() {
   local file=$1
-  TMP_VERDICT=$(mktemp -t hector-verdict.XXXXXX)
+  TMP_VERDICT=$(mktemp -t ironlint-verdict.XXXXXX)
   local ec=0
-  hector check \
+  ironlint check \
     --file "${file}" \
     --content - \
     --config "${CONFIG}" \
@@ -74,7 +74,7 @@ run_hector() {
       exit 2
       ;;
     *)
-      echo "hector: internal error checking ${file} (exit ${ec})" >&2
+      echo "ironlint: internal error checking ${file} (exit ${ec})" >&2
       [[ -s "${TMP_VERDICT}" ]] && cat "${TMP_VERDICT}" >&2
       exit 0
       ;;
@@ -96,7 +96,7 @@ case "${MODE}" in
     # not match `trust:` mid-edit and would surface a misleading "internal
     # error". Match by basename to cover both relative and absolute paths.
     BASENAME="${FILE##*/}"
-    if [[ "${BASENAME}" == ".hector.yml" || "${BASENAME}" == ".bully.yml" ]]; then
+    if [[ "${BASENAME}" == ".ironlint.yml" || "${BASENAME}" == ".bully.yml" ]]; then
       exit 0
     fi
 
@@ -105,7 +105,7 @@ case "${MODE}" in
         # toolArgs.content IS the post-edit content — no synthesis needed.
         # jq -j (raw, no trailing newline) preserves the exact bytes from the
         # JSON string: jq -r would append an extra \n after the value.
-        echo "${EVENT}" | jq -j '.toolArgs.content // ""' | run_hector "${FILE}"
+        echo "${EVENT}" | jq -j '.toolArgs.content // ""' | run_ironlint "${FILE}"
         ;;
       edit_file)
         # Synthesize post-edit content by applying the unique substitution
@@ -119,24 +119,24 @@ case "${MODE}" in
           exit 0
         fi
         PROPOSED=$(
-          HECTOR_FILE="${FILE}" \
-          HECTOR_SEARCH="${SEARCH}" \
-          HECTOR_REPLACE="${REPLACE}" \
+          IRONLINT_FILE="${FILE}" \
+          IRONLINT_SEARCH="${SEARCH}" \
+          IRONLINT_REPLACE="${REPLACE}" \
           python3 -c '
 import os, sys
-path = os.environ["HECTOR_FILE"]
-search = os.environ["HECTOR_SEARCH"]
-replace = os.environ.get("HECTOR_REPLACE", "")
+path = os.environ["IRONLINT_FILE"]
+search = os.environ["IRONLINT_SEARCH"]
+replace = os.environ.get("IRONLINT_REPLACE", "")
 try:
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 except OSError as e:
-    print(f"hector: cannot read {path}: {e}", file=sys.stderr)
+    print(f"ironlint: cannot read {path}: {e}", file=sys.stderr)
     sys.exit(2)
 count = content.count(search)
 if count != 1:
     print(
-        f"hector: refusing edit_file — search string appears {count} times in {path}; "
+        f"ironlint: refusing edit_file — search string appears {count} times in {path}; "
         "Reasonix requires exactly one match",
         file=sys.stderr,
     )
@@ -149,7 +149,7 @@ sys.stdout.write(content.replace(search, replace, 1))
         # byte-exact content including any trailing newline.
         PROPOSED=${PROPOSED%X}
         # printf '%s' avoids the extra \n that `echo` would append after the value.
-        printf '%s' "${PROPOSED}" | run_hector "${FILE}"
+        printf '%s' "${PROPOSED}" | run_ironlint "${FILE}"
         ;;
       *)
         # multi_edit and any future tool: currently no-op. multi_edit

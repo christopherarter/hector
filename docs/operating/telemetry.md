@@ -1,6 +1,6 @@
-# Telemetry — `.hector/log.jsonl`
+# Telemetry — `.ironlint/log.jsonl`
 
-Hector appends one JSON record per line to `.hector/log.jsonl` for every check run it performs. The file is owner-only (`0o600`) and append-only — Hector never rewrites or truncates it. Operators rotate it themselves; downstream tools (dashboards, log greppers) read it line by line.
+IronLint appends one JSON record per line to `.ironlint/log.jsonl` for every check run it performs. The file is owner-only (`0o600`) and append-only — IronLint never rewrites or truncates it. Operators rotate it themselves; downstream tools (dashboards, log greppers) read it line by line.
 
 **Schema version:** `5`. This is a code constant (`telemetry::SCHEMA_VERSION`) that bumps when the record shape changes. It is **not** written into each line — there is no per-line version field.
 
@@ -10,7 +10,7 @@ Every line carries a `type` field. The only value is `check`. Field names are `s
 
 ## `check`
 
-Written once per `hector check` invocation. It carries the lifecycle event, the verdict status, wall-clock elapsed, and a per-check outcome list.
+Written once per `ironlint check` invocation. It carries the lifecycle event, the verdict status, wall-clock elapsed, and a per-check outcome list.
 
 ```jsonl
 {"type":"check","ts":"2026-06-28T12:00:01Z","file":"src/app.ts","event":"write","status":"block","elapsed_ms":42,"checks":[{"check":"no-console","status":"block","elapsed_ms":12},{"check":"biome","status":"pass","elapsed_ms":28}]}
@@ -32,18 +32,18 @@ Written once per `hector check` invocation. It carries the lifecycle event, the 
 
 | Field | Type | Description |
 |---|---|---|
-| `check` | string | Check id from `.hector.yml`. |
+| `check` | string | Check id from `.ironlint.yml`. |
 | `step` | string, optional | The step name, when the check uses `steps:`. Omitted for a single-`run` check. |
 | `status` | `"pass"` \| `"block"` \| `"internal_error"` | Outcome of this check. |
 | `elapsed_ms` | integer | Wall-clock for this check's run. |
 | `reason` | string, optional | Why the check crashed. Omitted on a plain pass or block; on an `internal_error` it's a stable string — `timeout`, `not_found`, `not_executable`, `signal:9`, `exit_code:137`. |
 
-There is no warn status at either level, no `engine` field, and no `rule_id` — a check owns its verdict through its exit code, and Hector logs the outcome it observed.
+There is no warn status at either level, no `engine` field, and no `rule_id` — a check owns its verdict through its exit code, and IronLint logs the outcome it observed.
 
 ## Atomicity and concurrency
 
-`telemetry::append` opens the file with `O_APPEND` and owner-only mode (`0o600`), takes an advisory `flock(LOCK_EX)`, writes one buffered line in a single `write_all`, then releases the lock. Concurrent `hector` invocations cannot interleave bytes: the kernel's `O_APPEND` atomicity covers writes below `PIPE_BUF`, and the `flock` covers larger lines.
+`telemetry::append` opens the file with `O_APPEND` and owner-only mode (`0o600`), takes an advisory `flock(LOCK_EX)`, writes one buffered line in a single `write_all`, then releases the lock. Concurrent `ironlint` invocations cannot interleave bytes: the kernel's `O_APPEND` atomicity covers writes below `PIPE_BUF`, and the `flock` covers larger lines.
 
 ## Rotation
 
-Hector does not rotate `.hector/log.jsonl` itself — operators handle rotation. The append-only contract means external rotation (e.g. `logrotate copytruncate`) is safe: a missing-or-empty file is silently re-created on the next append.
+IronLint does not rotate `.ironlint/log.jsonl` itself — operators handle rotation. The append-only contract means external rotation (e.g. `logrotate copytruncate`) is safe: a missing-or-empty file is silently re-created on the next append.

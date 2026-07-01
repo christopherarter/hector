@@ -5,8 +5,8 @@
 # host for the run.sh assertions.
 #
 # Flow: seed the harness home dirs (so detection finds the open-source, no-auth
-# harnesses) -> `hector init --yes` (bare = detect-then-install) -> capture
-# `hector doctor` output.
+# harnesses) -> `ironlint init --yes` (bare = detect-then-install) -> capture
+# `ironlint doctor` output.
 set -euo pipefail
 
 echo "== seeding harness homes for detection =="
@@ -16,13 +16,13 @@ echo "== seeding harness homes for detection =="
 # excluded from this test, so init must skip it.
 mkdir -p "$HOME/.reasonix" "$HOME/.pi" "$HOME/.config/opencode"
 
-echo "== hector init --yes (detect + confirm-skipped + install) =="
+echo "== ironlint init --yes (detect + confirm-skipped + install) =="
 cd /work
-hector init --yes
+ironlint init --yes
 
-echo "== hector doctor --format json (feature verifying itself) =="
+echo "== ironlint doctor --format json (feature verifying itself) =="
 set +e
-hector doctor --format json >/work/doctor.json 2>/work/doctor.err
+ironlint doctor --format json >/work/doctor.json 2>/work/doctor.err
 echo "$?" >/work/doctor.exit
 set -e
 

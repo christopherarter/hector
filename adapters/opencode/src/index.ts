@@ -6,16 +6,16 @@ import { basename, join } from "node:path"
 // (P2-14, deferred) — the opencode plugin SDK does not currently surface
 // an `apply_patch` tool through `tool.execute.after`, and its multi-file
 // patch format would need per-file extraction (split on `+++ b/<path>`
-// boundaries, reissue `hector check --file` per file). See
+// boundaries, reissue `ironlint check --file` per file). See
 // docs/adapters/opencode.md → "What it does NOT do" for the known-gap
 // note. Tracked until the apply_patch tool is wired through the adapter.
 const GATED_TOOLS = new Set(["edit", "write"])
 
-// R3: filenames hector recognizes as policy files. Edits to these files
-// must short-circuit both adapter hooks — running `hector check` against
+// R3: filenames ironlint recognizes as policy files. Edits to these files
+// must short-circuit both adapter hooks — running `ironlint check` against
 // a mid-edit policy file fails the trust gate (sha mismatch) and
 // surfaces a confusing "internal error" to the user.
-const POLICY_FILES = new Set([".hector.yml", ".bully.yml"])
+const POLICY_FILES = new Set([".ironlint.yml", ".bully.yml"])
 
 function isPolicyFile(filePath: string): boolean {
   return POLICY_FILES.has(basename(filePath))
@@ -45,26 +45,26 @@ function getNewString(args: FileToolArgs): string | undefined {
 }
 
 /**
- * Hector OpenCode plugin.
+ * IronLint OpenCode plugin.
  *
  *   - `tool.execute.before` on `edit`/`write` → shadow-write the proposed
- *      content to the target path, run `hector check --file <path>`, then
+ *      content to the target path, run `ironlint check --file <path>`, then
  *      always restore the pre-edit state. Throw on block so OpenCode never
  *      executes the tool (exit-code contract: 0 = pass/warn, 2 = block).
  *
- * Hector itself is invoked as a child process via Bun's `$` API. The
+ * IronLint itself is invoked as a child process via Bun's `$` API. The
  * plugin contains no rule logic — it's purely a translation layer between
- * OpenCode's lifecycle and the `hector` CLI.
+ * OpenCode's lifecycle and the `ironlint` CLI.
  */
-export const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
+export const IronLintPlugin: Plugin = async ({ $, directory, worktree }) => {
   const projectRoot = worktree || directory
-  const configPath = join(projectRoot, ".hector.yml")
+  const configPath = join(projectRoot, ".ironlint.yml")
 
   return {
     "tool.execute.before": async (input, output) => {
       // Late existence check: opencode may load this plugin once at startup,
-      // before the project is initialized as a hector project. Re-check on
-      // every invocation so that `hector init` mid-session starts gating.
+      // before the project is initialized as an ironlint project. Re-check on
+      // every invocation so that `ironlint init` mid-session starts gating.
       if (!existsSync(configPath)) return
       if (!GATED_TOOLS.has(input.tool)) return
 
@@ -88,7 +88,7 @@ export const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
       try {
         writeFileSync(filePath, proposed)
         result =
-          await $`hector check --file ${filePath} --config ${configPath} --format json`
+          await $`ironlint check --file ${filePath} --config ${configPath} --format json`
             .quiet()
             .nothrow()
       } finally {
@@ -99,28 +99,28 @@ export const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
       //   0 → pass or warn  (allow opencode to run the tool)
       //   2 → block         (throw — opencode cancels the tool call)
       //   3 → engine internal error (missing API key, spawn failure, etc.)
-      //       fail-open by default; HECTOR_FAIL_CLOSED_ON_INTERNAL=1 to block
+      //       fail-open by default; IRONLINT_FAIL_CLOSED_ON_INTERNAL=1 to block
       //   1 → config/load error (log to stderr, allow)
       if (result.exitCode === 2) {
         const verdict = result.stdout.toString().trim() || "rule violation"
-        throw new Error(`hector blocked this edit:\n${verdict}`)
+        throw new Error(`ironlint blocked this edit:\n${verdict}`)
       }
       if (result.exitCode === 3) {
         // B7: engine runtime error — the gate is broken, not the policy.
         const stderr = result.stderr.toString().trim()
-        if (process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] === "1") {
+        if (process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"] === "1") {
           console.error(
-            `hector: internal error — failing closed (HECTOR_FAIL_CLOSED_ON_INTERNAL=1)${stderr ? `: ${stderr}` : ""}`,
+            `ironlint: internal error — failing closed (IRONLINT_FAIL_CLOSED_ON_INTERNAL=1)${stderr ? `: ${stderr}` : ""}`,
           )
-          throw new Error(`hector: internal error during check — failing closed`)
+          throw new Error(`ironlint: internal error during check — failing closed`)
         }
         console.error(
-          `hector: internal error checking ${filePath} — allowing edit; see .hector/log.jsonl${stderr ? `: ${stderr}` : ""}`,
+          `ironlint: internal error checking ${filePath} — allowing edit; see .ironlint/log.jsonl${stderr ? `: ${stderr}` : ""}`,
         )
       } else if (result.exitCode !== 0) {
         const stderr = result.stderr.toString().trim()
         console.error(
-          `hector: internal error checking ${filePath} (exit ${result.exitCode})${stderr ? `: ${stderr}` : ""}`,
+          `ironlint: internal error checking ${filePath} (exit ${result.exitCode})${stderr ? `: ${stderr}` : ""}`,
         )
       }
     },
@@ -129,7 +129,7 @@ export const HectorPlugin: Plugin = async ({ $, directory, worktree }) => {
 
 /**
  * Compute the file content that opencode is about to write, so we can
- * shadow-write it and run hector against it before opencode runs the tool.
+ * shadow-write it and run ironlint against it before opencode runs the tool.
  *
  * - `write` tool → `content` (or `newString`) is the full file body.
  * - `edit` tool → replace the first occurrence of `oldString` with
@@ -178,9 +178,9 @@ function restoreFile(filePath: string, original: string | null): void {
     }
   } catch (err) {
     console.error(
-      `hector: failed to restore ${filePath} after check: ${(err as Error).message}`,
+      `ironlint: failed to restore ${filePath} after check: ${(err as Error).message}`,
     )
   }
 }
 
-export default HectorPlugin
+export default IronLintPlugin

@@ -1,20 +1,20 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "hector-marketplace",
+  "name": "ironlint-marketplace",
   "owner": {
     "name": "dynamik-dev"
   },
   "metadata": {
-    "description": "Hector — policy-enforcement pipeline for AI coding agents.",
+    "description": "IronLint — policy-enforcement pipeline for AI coding agents.",
     "version": "0.2.0"
   },
   "plugins": [
     {
-      "name": "hector",
+      "name": "ironlint",
       "source": "./adapters/claude-code",
       "description": "Policy-enforcement pipeline for AI coding agents. Hybrid script+ast rule engines, trust gate, capability sandbox. Claude Code adapter.",
       "version": "0.2.0",
-      "homepage": "https://github.com/dynamik-dev/hector",
+      "homepage": "https://github.com/christopherarter/ironlint",
       "category": "development",
       "strict": true
     }

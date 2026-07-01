@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join, delimiter } from "node:path"
 import { execFileSync } from "node:child_process"
 import { computeProposedContent } from "../src/index.ts"
-import hectorExtension from "../src/index.ts"
+import ironlintExtension from "../src/index.ts"
 
 // --- normalizeEdits -------------------------------------------------------
 
@@ -91,7 +91,7 @@ test("computeProposedContent: write with non-string content returns null", () =>
 })
 
 test("computeProposedContent: edit applies a single replacement", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "hello world\n")
@@ -105,7 +105,7 @@ test("computeProposedContent: edit applies a single replacement", () => {
 })
 
 test("computeProposedContent: edit applies a batch in order", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "alpha beta\n")
@@ -134,7 +134,7 @@ test("computeProposedContent: edit returns null when file does not exist", () =>
 })
 
 test("computeProposedContent: edit returns null when oldText is missing from file", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "hello world\n")
@@ -148,7 +148,7 @@ test("computeProposedContent: edit returns null when oldText is missing from fil
 })
 
 test("computeProposedContent: edit returns null when oldText is non-unique", () => {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-cpc-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-cpc-"))
   try {
     const file = join(dir, "a.txt")
     writeFileSync(file, "a a\n")
@@ -166,7 +166,7 @@ test("computeProposedContent: unknown tool returns null", () => {
 })
 
 // Drive the exported factory with a fake `pi` that records handlers, then
-// invoke them with synthetic pi-shaped events against the real `hector`
+// invoke them with synthetic pi-shaped events against the real `ironlint`
 // binary (PATH includes target/release).
 
 type Handler = (event: unknown, ctx?: unknown) => unknown
@@ -179,23 +179,24 @@ function loadExtension(root: string): Record<string, Handler> {
     cwd: root,
   }
   // Cast through unknown — the fake only implements the surface the factory uses.
-  hectorExtension(pi as unknown as Parameters<typeof hectorExtension>[0])
+  ironlintExtension(pi as unknown as Parameters<typeof ironlintExtension>[0])
   return handlers
 }
 
-// Gates-format (0.3) policy: one gate that greps the proposed content (piped on
-// stdin per the ABI) for `panic!` and blocks (exit 2) with a message on stdout.
-const HECTOR_YML = `gates:
+// Checks-format (0.4) policy: one check that greps the proposed content (piped
+// on stdin per the ABI) for `panic!` and blocks (any nonzero exit) with a
+// message on stdout.
+const IRONLINT_YML = `checks:
   no-panic:
     files: "*.rs"
-    run: 'if grep -q "panic!" ; then echo "no panics in source"; exit 2; fi'
+    run: 'if grep -q "panic!" ; then echo "no panics in source"; exit 1; fi'
 `
 
 // Plan 2 enforces trust at `check`: an unblessed config fails closed (exit 1).
 // Point XDG_CONFIG_HOME at one ephemeral store for the whole file so blessing
-// (execFileSync) and the adapter's own `hector check` (spawnSync — both inherit
-// process.env) share it, and the real ~/.config/hector/trust.json is untouched.
-const TRUST_STORE = mkdtempSync(join(tmpdir(), "hector-pi-xdg-"))
+// (execFileSync) and the adapter's own `ironlint check` (spawnSync — both inherit
+// process.env) share it, and the real ~/.config/ironlint/trust.json is untouched.
+const TRUST_STORE = mkdtempSync(join(tmpdir(), "ironlint-pi-xdg-"))
 const PRIOR_XDG = process.env["XDG_CONFIG_HOME"]
 process.env["XDG_CONFIG_HOME"] = TRUST_STORE
 after(() => {
@@ -206,14 +207,14 @@ after(() => {
 
 /** Bless `config` in the ephemeral trust store so `check` runs to a verdict. */
 function bless(config: string): void {
-  execFileSync("hector", ["trust", "--config", config])
+  execFileSync("ironlint", ["trust", "--config", config])
 }
 
 function makeProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-proj-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-proj-"))
   mkdirSync(join(dir, "src"), { recursive: true })
-  writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
-  bless(join(dir, ".hector.yml"))
+  writeFileSync(join(dir, ".ironlint.yml"), IRONLINT_YML)
+  bless(join(dir, ".ironlint.yml"))
   return dir
 }
 
@@ -374,9 +375,9 @@ test("tool_call: missing path is a no-op", () => {
   }
 })
 
-test("tool_call: no-op when .hector.yml is absent", () => {
+test("tool_call: no-op when .ironlint.yml is absent", () => {
   // Spec §11: a project without a config silently no-ops (safe global install).
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-noconfig-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-noconfig-"))
   mkdirSync(join(dir, "src"), { recursive: true })
   try {
     const file = join(dir, "src", "dirty.rs")
@@ -394,11 +395,11 @@ test("tool_call: no-op when .hector.yml is absent", () => {
   }
 })
 
-test("tool_call: gate activates after .hector.yml is created mid-session", () => {
+test("tool_call: gate activates after .ironlint.yml is created mid-session", () => {
   // Regression: the existence check runs per-invocation, so a project that
-  // becomes a hector project after the extension loads starts gating with
+  // becomes an ironlint project after the extension loads starts gating with
   // no restart.
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-late-"))
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-late-"))
   mkdirSync(join(dir, "src"), { recursive: true })
   try {
     const file = join(dir, "src", "dirty.rs")
@@ -412,8 +413,8 @@ test("tool_call: gate activates after .hector.yml is created mid-session", () =>
       undefined,
     )
     // Create + bless the config, re-invoke the SAME handler closure.
-    writeFileSync(join(dir, ".hector.yml"), HECTOR_YML)
-    bless(join(dir, ".hector.yml"))
+    writeFileSync(join(dir, ".ironlint.yml"), IRONLINT_YML)
+    bless(join(dir, ".ironlint.yml"))
     const result = handlers.tool_call!(
       { toolName: "write", input: { path: file, content: "fn b() { panic!(); }\n" } },
       {},
@@ -424,20 +425,20 @@ test("tool_call: gate activates after .hector.yml is created mid-session", () =>
   }
 })
 
-test("tool_call: .hector.yml self-edit short-circuits (R3) — no hector invocation", () => {
-  // Write a deliberately invalid config so ANY real hector invocation would
+test("tool_call: .ironlint.yml self-edit short-circuits (R3) — no ironlint invocation", () => {
+  // Write a deliberately invalid config so ANY real ironlint invocation would
   // exit non-zero and the adapter would log an "internal error". A clean run
-  // (no such log) proves the basename short-circuit fired before hector ran.
-  const dir = mkdtempSync(join(tmpdir(), "hector-pi-policy-"))
+  // (no such log) proves the basename short-circuit fired before ironlint ran.
+  const dir = mkdtempSync(join(tmpdir(), "ironlint-pi-policy-"))
   const errs: string[] = []
   const origErr = console.error
   console.error = (...args: unknown[]) => {
     errs.push(args.map(String).join(" "))
   }
   try {
-    writeFileSync(join(dir, ".hector.yml"), "gates: [unterminated\n")
+    writeFileSync(join(dir, ".ironlint.yml"), "checks: [unterminated\n")
     const handlers = loadExtension(dir)
-    const file = join(dir, ".hector.yml")
+    const file = join(dir, ".ironlint.yml")
     assert.equal(
       handlers.tool_call!({ toolName: "write", input: { path: file, content: "anything\n" } }, {}),
       undefined,
@@ -464,13 +465,13 @@ test("tool_call: .bully.yml self-edit short-circuits (R3)", () => {
   }
 })
 
-test("tool_call: bare relative .hector.yml self-edit short-circuits (R3)", () => {
+test("tool_call: bare relative .ironlint.yml self-edit short-circuits (R3)", () => {
   const dir = makeProject()
   try {
     const handlers = loadExtension(dir)
     assert.equal(
       handlers.tool_call!(
-        { toolName: "write", input: { path: ".hector.yml", content: "anything\n" } },
+        { toolName: "write", input: { path: ".ironlint.yml", content: "anything\n" } },
         {},
       ),
       undefined,
@@ -481,19 +482,19 @@ test("tool_call: bare relative .hector.yml self-edit short-circuits (R3)", () =>
 })
 
 // --- tool_call: exit-3 fail-open / fail-closed ----------------------------
-// A real exit 3 (engine-internal error) is forced via a fake `hector` on PATH
+// A real exit 3 (engine-internal error) is forced via a fake `ironlint` on PATH
 // that exits 3 — a semantic/session config no longer reaches the engine (it is
 // rejected at load with exit 1), so we cannot provoke exit 3 through config.
 
 test("tool_call: exit-3 fails open by default (allows the edit)", () => {
   const dir = makeProject()
-  const bin = mkdtempSync(join(tmpdir(), "hector-pi-fakebin-"))
+  const bin = mkdtempSync(join(tmpdir(), "ironlint-pi-fakebin-"))
   const origPath = process.env["PATH"] ?? ""
-  delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
+  delete process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"]
   const origErr = console.error
   console.error = () => {}
   try {
-    const fake = join(bin, "hector")
+    const fake = join(bin, "ironlint")
     writeFileSync(fake, "#!/bin/sh\necho 'engine error' 1>&2\nexit 3\n")
     chmodSync(fake, 0o755)
     process.env["PATH"] = bin + delimiter + origPath
@@ -513,16 +514,16 @@ test("tool_call: exit-3 fails open by default (allows the edit)", () => {
   }
 })
 
-test("tool_call: exit-3 fails closed under HECTOR_FAIL_CLOSED_ON_INTERNAL=1", () => {
+test("tool_call: exit-3 fails closed under IRONLINT_FAIL_CLOSED_ON_INTERNAL=1", () => {
   const dir = makeProject()
-  const bin = mkdtempSync(join(tmpdir(), "hector-pi-fakebin-"))
+  const bin = mkdtempSync(join(tmpdir(), "ironlint-pi-fakebin-"))
   const origPath = process.env["PATH"] ?? ""
-  const hadClosed = process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
-  process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] = "1"
+  const hadClosed = process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"]
+  process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"] = "1"
   const origErr = console.error
   console.error = () => {}
   try {
-    const fake = join(bin, "hector")
+    const fake = join(bin, "ironlint")
     writeFileSync(fake, "#!/bin/sh\necho 'engine error' 1>&2\nexit 3\n")
     chmodSync(fake, 0o755)
     process.env["PATH"] = bin + delimiter + origPath
@@ -537,8 +538,8 @@ test("tool_call: exit-3 fails closed under HECTOR_FAIL_CLOSED_ON_INTERNAL=1", ()
   } finally {
     console.error = origErr
     process.env["PATH"] = origPath
-    if (hadClosed === undefined) delete process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"]
-    else process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] = hadClosed
+    if (hadClosed === undefined) delete process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"]
+    else process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"] = hadClosed
     rmSync(dir, { recursive: true, force: true })
     rmSync(bin, { recursive: true, force: true })
   }

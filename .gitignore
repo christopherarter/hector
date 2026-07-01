@@ -5,8 +5,8 @@ Cargo.lock
 .vscode/
 .DS_Store
 *.swp
-# Hector runtime state (telemetry log, session state, baseline cache)
-.hector/
+# IronLint runtime state (telemetry log, session state, baseline cache)
+.ironlint/
 # Local Claude Code agent state (worktrees, settings).
 .claude/
 # cargo-mutants local report directories (current run + previous run rename).
@@ -26,7 +26,7 @@ tests/e2e/.env.e2e
 # Ignore any .env file (secrets) — matches .env at any depth.
 .env
 # Local repowise tool cache/state (multi-MB wiki.db, lancedb, run state) and
-# the machine-local MCP config that drives it — not part of hector.
+# the machine-local MCP config that drives it — not part of ironlint.
 /.repowise/
 .mcp.json
 # Node.js dependencies (adapters)

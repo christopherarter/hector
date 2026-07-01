@@ -6,7 +6,7 @@
 
 ## Why
 
-Hector's entire point is a static blocking gate: deterministic verdicts an
+IronLint's entire point is a static blocking gate: deterministic verdicts an
 agent harness can trust at PostToolUse time. The LLM-judged paths (the
 `semantic` engine, the `session` engine, and everything that exists to feed
 them) pulled in a disproportionate share of the system's complexity:
@@ -15,9 +15,9 @@ them) pulled in a disproportionate share of the system's complexity:
   clients, prompt rendering with injection sandboxing, retry/backoff),
 - API-key/provider configuration and the `doctor` checks for it,
 - two adapter dispatch strategies (direct API call vs. deferred
-  subagent payload), the `hector-evaluator` subagent, and the
+  subagent payload), the `ironlint-evaluator` subagent, and the
   `--emit-semantic-payload` / `record-verdict` round-trip protocol,
-- session edit-recording (`.hector/session.json`, `hector session
+- session edit-recording (`.ironlint/session.json`, `ironlint session
   start|record`) whose only consumer was the session engine,
 - non-determinism, network dependence, and a fail-open posture (exit 3)
   that a blocking gate should not need.
@@ -28,14 +28,14 @@ Removing the feature now is strictly cheaper than carrying it.
 ## Decisions made
 
 1. **Scope: full removal.** Both LLM engines (`semantic`, `session`) and the
-   `llm/` module go. Hector becomes `script` + `ast` only. (The alternative —
+   `llm/` module go. IronLint becomes `script` + `ast` only. (The alternative —
    removing only `semantic` — was rejected because `session` has a hard
    `LlmClient` dependency with no fallback, so all the LLM machinery would
    have survived.)
 2. **Config compat: hard error with a curated message.** Configs containing
    `type: semantic` or `type: session` fail at load (exit 1) with an
    explanation that the feature was removed, not a generic serde
-   unknown-variant error. `hector migrate` strips such rules from bully v1
+   unknown-variant error. `ironlint migrate` strips such rules from bully v1
    configs and prints the dropped rule IDs.
 3. **Uncommitted work: salvage the engine-agnostic parts, drop the rest.**
    See "Working-tree salvage" below.
@@ -49,13 +49,13 @@ Removing the feature now is strictly cheaper than carrying it.
 - Engines: `script`, `ast`. Deterministic, offline, no API keys.
 - Exit-code contract unchanged: `0` pass/warn, `1` config/internal error,
   `2` block, `3` engine runtime error (remaining causes: script spawn
-  failure, AST refusing a diff). `HECTOR_FAIL_CLOSED_ON_INTERNAL` semantics
+  failure, AST refusing a diff). `IRONLINT_FAIL_CLOSED_ON_INTERNAL` semantics
   unchanged for adapters.
 - `Engine::Trust` rename (pre-0.3 open item) stays out of scope.
 
 ## Removal inventory
 
-### hector-core
+### ironlint-core
 
 | Item | Action |
 | --- | --- |
@@ -66,7 +66,7 @@ Removing the feature now is strictly cheaper than carrying it.
 | `EngineKind::{Semantic, Session}` | replaced by curated load-time rejection (see below) |
 | `verdict.rs`: `Engine::{Semantic, Session}` | delete variants; **bump verdict `SCHEMA_VERSION`** (declared stability surface) |
 | `telemetry.rs`: `SemanticVerdict`, `SemanticSkipped`, `SessionInit` | delete variants (`SessionInit`'s only writers are the deleted `session`/`record-verdict` commands); **bump telemetry `SCHEMA_VERSION`** |
-| `reqwest` dep (hector-core), `wiremock` dev-dep (both crates) | remove from Cargo.toml / workspace deps |
+| `reqwest` dep (ironlint-core), `wiremock` dev-dep (both crates) | remove from Cargo.toml / workspace deps |
 
 ### Curated config rejection
 
@@ -74,19 +74,19 @@ Parsing recognizes the removed type names and rejects them with a message of
 the shape:
 
 ```
-rule '<id>': type '<semantic|session>' was removed in hector 0.2 — delete
+rule '<id>': type '<semantic|session>' was removed in ironlint 0.2 — delete
 this rule or rewrite it as a script or ast rule
 ```
 
-This must surface identically from `hector check` (exit 1) and
-`hector validate`. Implementation choice (custom `Deserialize` vs.
+This must surface identically from `ironlint check` (exit 1) and
+`ironlint validate`. Implementation choice (custom `Deserialize` vs.
 parse-then-validate pass) is left to the implementation plan; the
 requirement is the message, the exit code, and that the rule ID appears.
 
-`hector migrate` (bully v1 → v2) drops semantic/session rules from the
+`ironlint migrate` (bully v1 → v2) drops semantic/session rules from the
 output and prints a per-rule notice to stderr; migration still succeeds.
 
-### hector-cli
+### ironlint-cli
 
 - Remove subcommands: `session` (start/record), `record-verdict`.
 - Remove `--emit-semantic-payload` from `check` (and `CheckOptions` field).
@@ -95,14 +95,14 @@ output and prints a per-rule notice to stderr; migration still succeeds.
 ### Adapters
 
 - **claude-code:** `hook.sh` loses provider detection, semantic payload
-  emission, subagent dispatch, and `hector session record` calls. Delete
-  `agents/hector-evaluator.md`; unregister it from `plugin.json`. `SKILL.md`
+  emission, subagent dispatch, and `ironlint session record` calls. Delete
+  `agents/ironlint-evaluator.md`; unregister it from `plugin.json`. `SKILL.md`
   reduces to blocked-stderr interpretation. `synthesize_diff.sh`: keep only
-  if it feeds the gating `hector check --diff` call; delete if session
+  if it feeds the gating `ironlint check --diff` call; delete if session
   recording was its sole consumer (verify during implementation).
 - **reasonix:** `hook.sh` drops direct-API dispatch; `settings.example.json`
   drops LLM configuration.
-- **Skill docs** (`hector-author`, `hector-init`, `hector-review` sources in
+- **Skill docs** (`ironlint-author`, `ironlint-init`, `ironlint-review` sources in
   this repo): remove "convert to semantic" guidance and semantic rule-type
   references.
 
@@ -122,7 +122,7 @@ output and prints a per-rule notice to stderr; migration still succeeds.
 The pre-existing uncommitted work is split:
 
 **Keep** (engine-agnostic or unrelated):
-- `crates/hector-core/src/diff/synthesize.rs` + `tests/diff_synthesize.rs`
+- `crates/ironlint-core/src/diff/synthesize.rs` + `tests/diff_synthesize.rs`
   — general unified-diff synthesizer; gives file-content checks real diff
   evidence, which baseline line-fingerprinting needs.
 - The runner hunk that populates `diff` via `synthesize_file_diff` for
@@ -131,7 +131,7 @@ The pre-existing uncommitted work is split:
 - Non-semantic documentation edits (reviewed hunk-by-hunk).
 
 **Drop** (semantic-specific):
-- `crates/hector-core/tests/runner_content_semantic.rs`.
+- `crates/ironlint-core/tests/runner_content_semantic.rs`.
 - Runner hunks wiring content into LLM prompt construction.
 - Semantic additions to both adapter `hook.sh` files and the
   `adapter_claude_code.rs` / `adapter_reasonix.rs` test additions.

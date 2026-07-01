@@ -3,7 +3,7 @@
 Every check has a `files:` glob — the pattern that decides which files the check runs against.
 
 ```yaml
-# .hector.yml
+# .ironlint.yml
 checks:
   no-console:
     files: "**/*.ts"                       # one glob
@@ -11,7 +11,7 @@ checks:
 
   ts-style:
     files: ["src/**/*.ts", "app/**/*.ts"]  # or a list
-    run: ".hector/gates/style.sh"
+    run: ".ironlint/gates/style.sh"
 ```
 
 `files` is a single glob or a list of globs. A check runs against a file when *any* of its globs matches. A file matched by no check is checked against nothing and passes.
@@ -32,10 +32,10 @@ A bare extension glob is right-anchored so it catches the file at any depth. Thi
 
 ## Checking what matches
 
-To confirm which checks are in scope for a given file, run `hector explain`:
+To confirm which checks are in scope for a given file, run `ironlint explain`:
 
 ```bash
-hector explain src/app.ts
+ironlint explain src/app.ts
 ```
 
 See [Inspecting your config](../operating/inspecting-config.md).

@@ -4,9 +4,9 @@
 
 **Goal:** Make `engine: script` rules evaluate the caller-supplied proposed content (via `--content`) instead of the on-disk file, so pre-write gates (Reasonix, OpenCode `before`) actually check the edit that's about to land.
 
-**Architecture:** The runner already carries the proposed content in `RuleContext.content` and hands it to every engine; only the `script` engine ignores it (it shells out against the on-disk `{file}`). The fix is a single agnostic primitive — **core offers the proposed content on the script subprocess's stdin** — implemented in the subprocess spawn (`capability.rs`). The author opts in by writing their tool's stdin form (`biome check --stdin-file-path={file}`); `{file}` stays a path/extension *hint*. Lifecycle stays in the adapter, tool variability stays in `.hector.yml`, core learns nothing tool-specific. See `specs/2026-05-29-script-engine-prewrite-content.md` (esp. §9 + §9.1 investigator's amendment) for the full rationale.
+**Architecture:** The runner already carries the proposed content in `RuleContext.content` and hands it to every engine; only the `script` engine ignores it (it shells out against the on-disk `{file}`). The fix is a single agnostic primitive — **core offers the proposed content on the script subprocess's stdin** — implemented in the subprocess spawn (`capability.rs`). The author opts in by writing their tool's stdin form (`biome check --stdin-file-path={file}`); `{file}` stays a path/extension *hint*. Lifecycle stays in the adapter, tool variability stays in `.ironlint.yml`, core learns nothing tool-specific. See `specs/2026-05-29-script-engine-prewrite-content.md` (esp. §9 + §9.1 investigator's amendment) for the full rationale.
 
-**Tech Stack:** Rust (cargo workspace: `hector-core` lib + `hector-cli` bin), `std::process` + raw `clone(2)` (nix) for the sandboxed spawn, `wait_timeout`, `assert_cmd` for CLI tests, bash + jq + python3 for the Reasonix adapter hook.
+**Tech Stack:** Rust (cargo workspace: `ironlint-core` lib + `ironlint-cli` bin), `std::process` + raw `clone(2)` (nix) for the sandboxed spawn, `wait_timeout`, `assert_cmd` for CLI tests, bash + jq + python3 for the Reasonix adapter hook.
 
 ---
 
@@ -14,10 +14,10 @@
 
 - **Coverage gate:** Rust files under `crates/*/src/` must hit ≥80% **region** coverage, enforced per-file in CI (`scripts/ci-coverage.sh`). New code must bring its file to the gate. *Local caveat:* the maintainer's box (Homebrew rustc, no `llvm-tools-preview`) can't run `ci-coverage.sh` locally, and the Linux `cfg` paths in `capability.rs` can't be cross-compiled locally — **Task 3 (Linux clone path) is CI-verified only.** Don't claim local proof for it.
 - **Cognitive complexity ≤ 15 per function** (clippy). The spawn functions are already dense; the `spawn_stdin_writer` helper (Task 1) exists precisely to keep them under the cap. Refactor over `#[allow]`.
-- **TDD:** every behavior change starts with a failing test. The CLI seed tests already exist (`crates/hector-cli/tests/cli_check_content_script_prewrite.rs`, currently RED) — Task 2 turns them green.
+- **TDD:** every behavior change starts with a failing test. The CLI seed tests already exist (`crates/ironlint-cli/tests/cli_check_content_script_prewrite.rs`, currently RED) — Task 2 turns them green.
 - **Verdict JSON shape is locked** (`verdict.rs`). This change is behavior-only; no verdict/telemetry schema change. (`RuleExplain` in Task 7 is *not* part of the verdict JSON — see runner.rs:101.)
 - **Don't clobber unrelated WIP:** `commands/check.rs`, `adapters/claude-code/hooks/hook.sh`+README, and two test files have in-flight edits for a *different* feature (claude-code `--diff` gating). This plan does not touch those. Verify `git status` before committing each task — stage only the files the task names.
-- **Binary is `hector`**, not `hector-cli`. `Cargo.lock` is gitignored — never commit it.
+- **Binary is `ironlint`**, not `ironlint-cli`. `Cargo.lock` is gitignored — never commit it.
 - **Clean up build artifacts** this work produces (e.g. a stray `cargo mutants` run) per the cleanup-build-artifacts skill; the persistent `target/` stays.
 
 ## Setup (execution-time, before Task 1)
@@ -34,18 +34,18 @@ If not already in an isolated workspace, the executor should create one via the 
 
 | File | Change | Responsibility |
 |---|---|---|
-| `crates/hector-core/src/engine/capability.rs` | Modify | Add `run_with_capabilities_stdin` + `spawn_stdin_writer` helper; thread `stdin: Option<&[u8]>` through the macOS/fast path (`spawn_with_timeout`) and the Linux clone path (`run_linux`→`spawn_clone_with_timeout`→`spawn_clone`/`child_exec`/`wait_for_child`). |
-| `crates/hector-core/src/engine/script.rs` | Modify | Thread `ctx.content` from `ScriptEngine::run` → `run_script_rule` → the capability call. |
-| `crates/hector-core/tests/capability.rs` | Modify | Unit tests: content piped to a stdin-reading command (fast path); a command that ignores stdin doesn't hang/error; Linux clone-path stdin test. |
-| `crates/hector-cli/tests/cli_check_content_script_prewrite.rs` | Exists (RED) | Integration seed — goes green in Task 2. |
+| `crates/ironlint-core/src/engine/capability.rs` | Modify | Add `run_with_capabilities_stdin` + `spawn_stdin_writer` helper; thread `stdin: Option<&[u8]>` through the macOS/fast path (`spawn_with_timeout`) and the Linux clone path (`run_linux`→`spawn_clone_with_timeout`→`spawn_clone`/`child_exec`/`wait_for_child`). |
+| `crates/ironlint-core/src/engine/script.rs` | Modify | Thread `ctx.content` from `ScriptEngine::run` → `run_script_rule` → the capability call. |
+| `crates/ironlint-core/tests/capability.rs` | Modify | Unit tests: content piped to a stdin-reading command (fast path); a command that ignores stdin doesn't hang/error; Linux clone-path stdin test. |
+| `crates/ironlint-cli/tests/cli_check_content_script_prewrite.rs` | Exists (RED) | Integration seed — goes green in Task 2. |
 | `adapters/reasonix/hooks/hook.sh` | Modify | Byte-exact proposed content: `jq -j` (write_file) and the append-sentinel idiom (edit_file) so trailing newlines survive. |
-| `crates/hector-cli/tests/adapter_reasonix.rs` | Modify | Golden test: the hook pipes byte-exact content (trailing newline preserved) for write_file and edit_file. |
-| `crates/hector-cli/src/commands/init/mod.rs` | Modify | Scaffold linter rules in **stdin form** so a fresh `hector init` gates correctly pre-write. |
-| `crates/hector-cli/src/cli.rs` | Modify | `--content` help text: flip the "Limitation: script rules see on-disk content" note to the new contract. |
+| `crates/ironlint-cli/tests/adapter_reasonix.rs` | Modify | Golden test: the hook pipes byte-exact content (trailing newline preserved) for write_file and edit_file. |
+| `crates/ironlint-cli/src/commands/init/mod.rs` | Modify | Scaffold linter rules in **stdin form** so a fresh `ironlint init` gates correctly pre-write. |
+| `crates/ironlint-cli/src/cli.rs` | Modify | `--content` help text: flip the "Limitation: script rules see on-disk content" note to the new contract. |
 | `adapters/reasonix/README.md`, `specs/2026-05-25-reasonix-adapter.md`, `specs/2026-05-29-script-engine-prewrite-content.md` | Modify | Docs honesty: limitation → resolved; record the per-tool (not per-harness) boundary. |
-| `crates/hector-core/src/runner.rs`, `crates/hector-cli/src/commands/check.rs` | Modify (Task 7, optional) | `--explain` advisory note for `{file}`-referencing script rules under authoritative `--content`. |
+| `crates/ironlint-core/src/runner.rs`, `crates/ironlint-cli/src/commands/check.rs` | Modify (Task 7, optional) | `--explain` advisory note for `{file}`-referencing script rules under authoritative `--content`. |
 
-**Out of scope (explicitly deferred, YAGNI):** hoisting the edit→content synthesis (search/replace → full content) out of adapter hooks into a core `hector apply-edit`/`--edit-search` helper. Noted in spec §9.1 as a future candidate; not required for the "so what" and not in this plan.
+**Out of scope (explicitly deferred, YAGNI):** hoisting the edit→content synthesis (search/replace → full content) out of adapter hooks into a core `ironlint apply-edit`/`--edit-search` helper. Noted in spec §9.1 as a future candidate; not required for the "so what" and not in this plan.
 
 ---
 
@@ -54,14 +54,14 @@ If not already in an isolated workspace, the executor should create one via the 
 ### Task 1: stdin writer helper + fast-path piping
 
 **Files:**
-- Modify: `crates/hector-core/src/engine/capability.rs` (add `spawn_stdin_writer`; add `run_with_capabilities_stdin`; rewrite `run_with_capabilities`, `run_with_capabilities_env`, `run_best_effort_macos`, `spawn_with_timeout` to thread `stdin`)
-- Test: `crates/hector-core/tests/capability.rs`
+- Modify: `crates/ironlint-core/src/engine/capability.rs` (add `spawn_stdin_writer`; add `run_with_capabilities_stdin`; rewrite `run_with_capabilities`, `run_with_capabilities_env`, `run_best_effort_macos`, `spawn_with_timeout` to thread `stdin`)
+- Test: `crates/ironlint-core/tests/capability.rs`
 
 This task covers the macOS / no-isolation path only (the default `network: true` fast path, runnable locally). The Linux clone path is Task 3.
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `crates/hector-core/tests/capability.rs`:
+Append to `crates/ironlint-core/tests/capability.rs`:
 
 ```rust
 #[test]
@@ -109,20 +109,20 @@ fn none_stdin_preserves_legacy_behavior() {
 }
 ```
 
-Add the import at the top of `crates/hector-core/tests/capability.rs` (next to the existing `run_with_capabilities` import):
+Add the import at the top of `crates/ironlint-core/tests/capability.rs` (next to the existing `run_with_capabilities` import):
 
 ```rust
-use hector_core::engine::capability::run_with_capabilities_stdin;
+use ironlint_core::engine::capability::run_with_capabilities_stdin;
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test -p hector-core --test capability pipes_stdin_content_to_command ignored_stdin_does_not_hang_or_error none_stdin_preserves_legacy_behavior`
+Run: `cargo test -p ironlint-core --test capability pipes_stdin_content_to_command ignored_stdin_does_not_hang_or_error none_stdin_preserves_legacy_behavior`
 Expected: FAIL — compile error `cannot find function run_with_capabilities_stdin in module ... capability` (the function doesn't exist yet).
 
 - [ ] **Step 3: Add the `spawn_stdin_writer` helper**
 
-In `crates/hector-core/src/engine/capability.rs`, add this helper next to `spawn_reader` (after `join_reader`, ~line 443):
+In `crates/ironlint-core/src/engine/capability.rs`, add this helper next to `spawn_reader` (after `join_reader`, ~line 443):
 
 ```rust
 /// Feed `bytes` to a child's stdin on a dedicated thread, then close the pipe
@@ -174,7 +174,7 @@ pub fn run_with_capabilities_env(
 /// Same as [`run_with_capabilities_env`], plus optional bytes piped to the
 /// child's stdin. `Some(bytes)` is the proposed-content path the script engine
 /// uses for pre-write gating: the command's stdin carries the bytes to check,
-/// while a path/extension *hint* stays available via env (`HECTOR_FILE`/`{file}`).
+/// while a path/extension *hint* stays available via env (`IRONLINT_FILE`/`{file}`).
 /// `None` preserves the historical behavior (child inherits the parent's fd 0).
 pub fn run_with_capabilities_stdin(
     cmd: &str,
@@ -208,10 +208,10 @@ fn run_best_effort_macos(
     stdin: Option<&[u8]>,
 ) -> Result<ExecOutcome> {
     // No eprintln here. The platform-best-effort story is surfaced by
-    // `hector doctor` (see `platform_capability_status` and
+    // `ironlint doctor` (see `platform_capability_status` and
     // `commands::doctor::check_capabilities`), not by every `check`
     // invocation: a per-process AtomicBool dedup still leaks to users because
-    // the Claude Code adapter hook spawns ~3 hector processes per edit.
+    // the Claude Code adapter hook spawns ~3 ironlint processes per edit.
     spawn_with_timeout(cmd, cwd, env, stdin)
 }
 ```
@@ -272,7 +272,7 @@ fn spawn_with_timeout(
         drop(stdin_writer);
         return Ok(ExecOutcome {
             stdout: String::new(),
-            stderr: format!("hector: script killed after {TIMEOUT:?} timeout"),
+            stderr: format!("ironlint: script killed after {TIMEOUT:?} timeout"),
             exit_code: TIMEOUT_EXIT_CODE,
         });
     };
@@ -293,18 +293,18 @@ fn spawn_with_timeout(
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `cargo test -p hector-core --test capability`
+Run: `cargo test -p ironlint-core --test capability`
 Expected: PASS — all tests in the file, including the three new ones, green. (On macOS the clone path is `cfg`-excluded; on Linux it will also build — Task 3 adds its piping.)
 
 > Linux note: after this step the Linux build still compiles because `run_linux`/`spawn_clone_with_timeout` still have their **old** signatures and `run_with_capabilities_stdin` calls `run_linux(cmd, cwd, caps, env, stdin)` — which won't compile until Task 3. **If you are on Linux, do Task 1 + Task 3 together before running `cargo test`** (the `run_linux` signature must change in lockstep). On macOS, Task 1 compiles and tests independently.
 
 - [ ] **Step 7: Lint and commit**
 
-Run: `cargo clippy -p hector-core --all-targets -- -D warnings` (confirm no cognitive-complexity warning on `spawn_with_timeout`; if it trips, extract the writer-setup match into a small helper rather than `#[allow]`).
+Run: `cargo clippy -p ironlint-core --all-targets -- -D warnings` (confirm no cognitive-complexity warning on `spawn_with_timeout`; if it trips, extract the writer-setup match into a small helper rather than `#[allow]`).
 Run: `cargo fmt`
 
 ```bash
-git add crates/hector-core/src/engine/capability.rs crates/hector-core/tests/capability.rs
+git add crates/ironlint-core/src/engine/capability.rs crates/ironlint-core/tests/capability.rs
 git commit -m "feat(script): offer proposed content on subprocess stdin (fast path)
 
 Add run_with_capabilities_stdin + spawn_stdin_writer. The macOS/no-isolation
@@ -319,17 +319,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 2: thread `ctx.content` through the script engine
 
 **Files:**
-- Modify: `crates/hector-core/src/engine/script.rs:11-21` (`ScriptEngine::run`), `:31-51` (`run_script_rule`)
-- Test: `crates/hector-cli/tests/cli_check_content_script_prewrite.rs` (already exists, currently RED)
+- Modify: `crates/ironlint-core/src/engine/script.rs:11-21` (`ScriptEngine::run`), `:31-51` (`run_script_rule`)
+- Test: `crates/ironlint-cli/tests/cli_check_content_script_prewrite.rs` (already exists, currently RED)
 
 - [ ] **Step 1: Confirm the seed tests are red for the right reason**
 
-Run: `cargo test -p hector-cli --test cli_check_content_script_prewrite`
+Run: `cargo test -p ironlint-cli --test cli_check_content_script_prewrite`
 Expected: FAIL — `script_proposed_content_is_checked_not_disk_blocks` expects exit 2/`block` but gets exit 0/`pass`; `script_clean_proposed_content_passes_despite_dirty_disk` expects exit 0/`pass` but gets exit 2/`block`. (This is the §4 repro encoded; it fails because the engine still reads disk.)
 
 - [ ] **Step 2: Pass `ctx.content` into `run_script_rule`**
 
-In `crates/hector-core/src/engine/script.rs`, replace `ScriptEngine::run` (lines 11-21):
+In `crates/ironlint-core/src/engine/script.rs`, replace `ScriptEngine::run` (lines 11-21):
 
 ```rust
 impl RuleEngine for ScriptEngine {
@@ -369,12 +369,12 @@ pub fn run_script_rule(
         .script
         .as_ref()
         .ok_or_else(|| anyhow!("rule {rule_id} is engine: script but has no `script:` field"))?;
-    // `{file}` expands to the shell parameter `"$HECTOR_FILE"`. The actual path
+    // `{file}` expands to the shell parameter `"$IRONLINT_FILE"`. The actual path
     // is passed via the child environment, never spliced into the command
     // text, so shell metacharacters in the filename cannot escape into the
     // surrounding command. The double-quotes prevent word-splitting on
     // whitespace in the path.
-    let substituted = script.replace("{file}", "\"$HECTOR_FILE\"");
+    let substituted = script.replace("{file}", "\"$IRONLINT_FILE\"");
     let caps = rule.capabilities.clone().unwrap_or_default();
     let file_str = file.display().to_string();
     // Offer the proposed content on the command's stdin. A stdin-form command
@@ -385,7 +385,7 @@ pub fn run_script_rule(
         &substituted,
         cwd,
         &caps,
-        &[("HECTOR_FILE", &file_str)],
+        &[("IRONLINT_FILE", &file_str)],
         content.map(str::as_bytes),
     )?;
     if outcome.exit_code == 0 {
@@ -398,12 +398,12 @@ pub fn run_script_rule(
 
 - [ ] **Step 4: Run the seed tests to verify they pass**
 
-Run: `cargo test -p hector-cli --test cli_check_content_script_prewrite`
+Run: `cargo test -p ironlint-cli --test cli_check_content_script_prewrite`
 Expected: PASS — both tests green. The block case now blocks on piped `FORBIDDEN`; the pass case now passes on clean piped content despite the dirty disk file.
 
 - [ ] **Step 5: Run the broader engine + script tests for regressions**
 
-Run: `cargo test -p hector-core script` and `cargo test -p hector-cli`
+Run: `cargo test -p ironlint-core script` and `cargo test -p ironlint-cli`
 Expected: PASS — no regressions. (Existing post-write `--file` and `--diff` script tests still pass because `content` is `Some(disk_bytes)` in those modes, so a stdin-form rule checks the same bytes it always did.)
 
 - [ ] **Step 6: Lint and commit**
@@ -411,7 +411,7 @@ Expected: PASS — no regressions. (Existing post-write `--file` and `--diff` sc
 Run: `cargo clippy --all-targets -- -D warnings` then `cargo fmt`
 
 ```bash
-git add crates/hector-core/src/engine/script.rs
+git add crates/ironlint-core/src/engine/script.rs
 git commit -m "fix(script): evaluate proposed --content, not the on-disk file
 
 Thread ctx.content to the subprocess stdin so pre-write gates check the edit
@@ -425,14 +425,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 3: Linux clone-path stdin piping (CI-verified only)
 
 **Files:**
-- Modify: `crates/hector-core/src/engine/capability.rs` — `run_linux`, `spawn_clone_with_timeout`, `spawn_clone`, `child_exec`, `wait_for_child`
-- Test: `crates/hector-core/tests/capability.rs` (Linux-gated)
+- Modify: `crates/ironlint-core/src/engine/capability.rs` — `run_linux`, `spawn_clone_with_timeout`, `spawn_clone`, `child_exec`, `wait_for_child`
+- Test: `crates/ironlint-core/tests/capability.rs` (Linux-gated)
 
 > **You cannot verify this locally on macOS/Homebrew-rustc.** It compiles under `#[cfg(target_os = "linux")]` only and is exercised in CI. Reason carefully; the child runs after raw `clone(2)` and must stay async-signal-safe (no alloc, no locks) until `execve`. The only new child-side syscall is one `dup2`, which is async-signal-safe.
 
 - [ ] **Step 1: Write the failing (Linux-gated) test**
 
-Append to `crates/hector-core/tests/capability.rs`:
+Append to `crates/ironlint-core/tests/capability.rs`:
 
 ```rust
 #[cfg(target_os = "linux")]
@@ -459,7 +459,7 @@ fn pipes_stdin_on_clone_path_with_network_isolation() {
 
 - [ ] **Step 2: (CI) Verify it fails to compile / fails**
 
-This won't build locally on macOS. On a Linux checkout: `cargo test -p hector-core --test capability pipes_stdin_on_clone_path_with_network_isolation`
+This won't build locally on macOS. On a Linux checkout: `cargo test -p ironlint-core --test capability pipes_stdin_on_clone_path_with_network_isolation`
 Expected: FAIL — `run_linux`/`spawn_clone*` signatures don't yet accept `stdin` (compile error), or after Step 3 partial edits, a behavioral failure until the child dup2 lands.
 
 - [ ] **Step 3: Thread `stdin` through `run_linux` and `spawn_clone_with_timeout`**
@@ -510,7 +510,7 @@ fn spawn_clone_with_timeout(
             Err(err) => {
                 if !WARNED.swap(true, Ordering::Relaxed) {
                     eprintln!(
-                        "hector: capability sandbox unavailable for unprivileged user ({err}); \
+                        "ironlint: capability sandbox unavailable for unprivileged user ({err}); \
                          running command without isolation. See docs/security/capabilities.md."
                     );
                 }
@@ -667,7 +667,7 @@ fn wait_for_child(
                     drop(stdin_writer);
                     return Ok(ExecOutcome {
                         stdout: String::new(),
-                        stderr: format!("hector: script killed after {TIMEOUT:?} timeout"),
+                        stderr: format!("ironlint: script killed after {TIMEOUT:?} timeout"),
                         exit_code: TIMEOUT_EXIT_CODE,
                     });
                 }
@@ -690,13 +690,13 @@ fn wait_for_child(
 
 - [ ] **Step 7: (CI) Verify the test passes and clippy is clean**
 
-On a Linux checkout / in CI: `cargo test -p hector-core --test capability` and `cargo clippy -p hector-core --all-targets -- -D warnings`.
+On a Linux checkout / in CI: `cargo test -p ironlint-core --test capability` and `cargo clippy -p ironlint-core --all-targets -- -D warnings`.
 Expected: PASS, including `pipes_stdin_on_clone_path_with_network_isolation`. Watch the cognitive-complexity cap on `spawn_clone`/`wait_for_child`; if either trips, extract a helper rather than `#[allow]`.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/hector-core/src/engine/capability.rs crates/hector-core/tests/capability.rs
+git add crates/ironlint-core/src/engine/capability.rs crates/ironlint-core/tests/capability.rs
 git commit -m "feat(script): pipe proposed content on the Linux clone(2) path
 
 Conditional O_CLOEXEC stdin pipe + one async-signal-safe dup2(stdin,0) in the
@@ -714,13 +714,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `adapters/reasonix/hooks/hook.sh:106` (write_file), `:119-144` (edit_file)
-- Test: `crates/hector-cli/tests/adapter_reasonix.rs`
+- Test: `crates/ironlint-cli/tests/adapter_reasonix.rs`
 
 **Why:** With Phase 1 live, the hook's synthesized content finally reaches the tool — so its byte errors become live diagnostics. `jq -r` (write_file) *appends* a trailing newline; `$(python3 …)` (edit_file) *strips* trailing newlines. Both must preserve bytes exactly, or biome/eslint emit spurious "missing/extra final newline" findings.
 
 - [ ] **Step 1: Write the failing golden test**
 
-Read `crates/hector-cli/tests/adapter_reasonix.rs` first to match its existing harness (how it invokes `hook.sh`, sets `PATH`/cwd, and builds the JSON payload). Then add a test that puts a **stub `hector`** on `PATH` which copies its stdin to a capture file, runs the hook with a `write_file` payload whose `content` ends in a trailing newline, and asserts the captured bytes equal the payload content **exactly** (including the trailing `\n`). Add a sibling test for `edit_file` (search/replace producing content that ends in `\n`).
+Read `crates/ironlint-cli/tests/adapter_reasonix.rs` first to match its existing harness (how it invokes `hook.sh`, sets `PATH`/cwd, and builds the JSON payload). Then add a test that puts a **stub `ironlint`** on `PATH` which copies its stdin to a capture file, runs the hook with a `write_file` payload whose `content` ends in a trailing newline, and asserts the captured bytes equal the payload content **exactly** (including the trailing `\n`). Add a sibling test for `edit_file` (search/replace producing content that ends in `\n`).
 
 Concrete shape (adapt names/paths to the file's existing helpers):
 
@@ -729,21 +729,21 @@ Concrete shape (adapt names/paths to the file's existing helpers):
 fn write_file_pipes_byte_exact_content_including_trailing_newline() {
     let tmp = tempfile::tempdir().unwrap();
     let capture = tmp.path().join("captured_stdin");
-    // Stub `hector`: copy stdin to the capture file, exit 0 (pass).
+    // Stub `ironlint`: copy stdin to the capture file, exit 0 (pass).
     let bin = tmp.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::write(
-        bin.join("hector"),
+        bin.join("ironlint"),
         format!("#!/usr/bin/env bash\ncat > \"{}\"\nexit 0\n", capture.display()),
     )
     .unwrap();
     // chmod +x
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(bin.join("hector"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(bin.join("ironlint"), std::fs::Permissions::from_mode(0o755)).unwrap();
 
-    // Minimal trusted .hector.yml so the hook doesn't early-exit on a missing config.
+    // Minimal trusted .ironlint.yml so the hook doesn't early-exit on a missing config.
     std::fs::write(
-        tmp.path().join(".hector.yml"),
+        tmp.path().join(".ironlint.yml"),
         "schema_version: 2\nrules: {}\n",
     )
     .unwrap();
@@ -757,7 +757,7 @@ fn write_file_pipes_byte_exact_content_including_trailing_newline() {
     })
     .to_string();
 
-    // Run the hook with the stub `hector` first on PATH, writing the payload
+    // Run the hook with the stub `ironlint` first on PATH, writing the payload
     // to its stdin (the hook reads the event JSON from stdin via `cat`).
     let hook = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../adapters/reasonix/hooks/hook.sh");
@@ -786,7 +786,7 @@ fn write_file_pipes_byte_exact_content_including_trailing_newline() {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cargo test -p hector-cli --test adapter_reasonix write_file_pipes_byte_exact`
+Run: `cargo test -p ironlint-cli --test adapter_reasonix write_file_pipes_byte_exact`
 Expected: FAIL — `jq -r` appended a `\n`, so `captured` is `"...1;\n\n"` ≠ `"...1;\n"`. (The edit_file test fails the other way: `$()` stripped the trailing `\n`.)
 
 - [ ] **Step 3: Fix write_file — use `jq -j` (raw, no trailing newline)**
@@ -794,7 +794,7 @@ Expected: FAIL — `jq -r` appended a `\n`, so `captured` is `"...1;\n\n"` ≠ `
 In `adapters/reasonix/hooks/hook.sh`, line 106, change `jq -r` to `jq -j`:
 
 ```bash
-        echo "${EVENT}" | jq -j '.toolArgs.content // ""' | run_hector "${FILE}"
+        echo "${EVENT}" | jq -j '.toolArgs.content // ""' | run_ironlint "${FILE}"
 ```
 
 - [ ] **Step 4: Fix edit_file — preserve trailing newlines through command substitution**
@@ -803,24 +803,24 @@ Replace the `PROPOSED=$( … ) || exit 2` block and the `printf` line (lines ~11
 
 ```bash
         PROPOSED=$(
-          HECTOR_FILE="${FILE}" \
-          HECTOR_SEARCH="${SEARCH}" \
-          HECTOR_REPLACE="${REPLACE}" \
+          IRONLINT_FILE="${FILE}" \
+          IRONLINT_SEARCH="${SEARCH}" \
+          IRONLINT_REPLACE="${REPLACE}" \
           python3 -c '
 import os, sys
-path = os.environ["HECTOR_FILE"]
-search = os.environ["HECTOR_SEARCH"]
-replace = os.environ.get("HECTOR_REPLACE", "")
+path = os.environ["IRONLINT_FILE"]
+search = os.environ["IRONLINT_SEARCH"]
+replace = os.environ.get("IRONLINT_REPLACE", "")
 try:
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 except OSError as e:
-    print(f"hector: cannot read {path}: {e}", file=sys.stderr)
+    print(f"ironlint: cannot read {path}: {e}", file=sys.stderr)
     sys.exit(2)
 count = content.count(search)
 if count != 1:
     print(
-        f"hector: refusing edit_file — search string appears {count} times in {path}; "
+        f"ironlint: refusing edit_file — search string appears {count} times in {path}; "
         "Reasonix requires exactly one match",
         file=sys.stderr,
     )
@@ -832,18 +832,18 @@ sys.stdout.write(content.replace(search, replace, 1))
         # python success via &&) preserves them. Strip the sentinel to recover
         # byte-exact content including any trailing newline.
         PROPOSED=${PROPOSED%X}
-        printf '%s' "${PROPOSED}" | run_hector "${FILE}"
+        printf '%s' "${PROPOSED}" | run_ironlint "${FILE}"
 ```
 
 - [ ] **Step 5: Run to verify both tests pass**
 
-Run: `cargo test -p hector-cli --test adapter_reasonix`
+Run: `cargo test -p ironlint-cli --test adapter_reasonix`
 Expected: PASS — captured bytes equal the expected content exactly for both write_file and edit_file.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add adapters/reasonix/hooks/hook.sh crates/hector-cli/tests/adapter_reasonix.rs
+git add adapters/reasonix/hooks/hook.sh crates/ironlint-cli/tests/adapter_reasonix.rs
 git commit -m "fix(reasonix): pipe byte-exact proposed content (preserve trailing newline)
 
 jq -j (write_file) and an append-sentinel around \$() (edit_file) stop the hook
@@ -857,11 +857,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Phase 3 — Make it reach users + stay honest
 
-### Task 5: scaffold stdin-form linter rules in `hector init`
+### Task 5: scaffold stdin-form linter rules in `ironlint init`
 
 **Files:**
-- Modify: `crates/hector-cli/src/commands/init/mod.rs` (biome ~113-117, eslint ~128, ruff ~150, and the grep example rules ~92/135/158)
-- Test: `crates/hector-cli/src/commands/init/mod.rs` tests (or `init/detect.rs` test module — match where init's generation tests live)
+- Modify: `crates/ironlint-cli/src/commands/init/mod.rs` (biome ~113-117, eslint ~128, ruff ~150, and the grep example rules ~92/135/158)
+- Test: `crates/ironlint-cli/src/commands/init/mod.rs` tests (or `init/detect.rs` test module — match where init's generation tests live)
 
 **Why:** init currently emits disk-reading `{file}` rules, so a freshly-init'd project still under-gates pre-write even after Phase 1. Scaffold the stdin forms.
 
@@ -887,12 +887,12 @@ fn scaffolded_biome_rule_uses_stdin_form() {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cargo test -p hector-cli scaffolded_biome_rule_uses_stdin_form`
+Run: `cargo test -p ironlint-cli scaffolded_biome_rule_uses_stdin_form`
 Expected: FAIL — current template is `biome check --no-errors-on-unmatched {file}`.
 
 - [ ] **Step 3: Switch the linter templates to stdin forms**
 
-In `crates/hector-cli/src/commands/init/mod.rs`:
+In `crates/ironlint-cli/src/commands/init/mod.rs`:
 
 - biome (line ~117): `"{} biome check --no-errors-on-unmatched {{file}}"` → `"{} biome check --stdin-file-path={{file}}"`
 - eslint (line ~128): `"{} eslint --no-error-on-unmatched-pattern {{file}}"` → `"{} eslint --stdin --stdin-filename {{file}}"`
@@ -906,13 +906,13 @@ script: "grep -nE 'console\\.log\\(' ; case $? in 0) exit 1;; 1) exit 0;; *) exi
 
 - [ ] **Step 4: Run to verify pass + re-trust note**
 
-Run: `cargo test -p hector-cli` (init tests + the new one).
+Run: `cargo test -p ironlint-cli` (init tests + the new one).
 Expected: PASS. If any init snapshot/golden test asserts the old rule text, update it intentionally (`cargo insta review` if `insta` is used) — these are expected, intended changes.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/hector-cli/src/commands/init/mod.rs
+git add crates/ironlint-cli/src/commands/init/mod.rs
 git commit -m "feat(init): scaffold stdin-form linter rules
 
 biome --stdin-file-path, eslint --stdin, ruff --stdin-filename, and stdin grep
@@ -927,14 +927,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 6: documentation honesty — limitation resolved, boundary recorded
 
 **Files:**
-- Modify: `crates/hector-cli/src/cli.rs:34-39` (the `--content` help text)
+- Modify: `crates/ironlint-cli/src/cli.rs:34-39` (the `--content` help text)
 - Modify: `adapters/reasonix/README.md` (the "Limitation: engine: script rules" section)
 - Modify: `specs/2026-05-25-reasonix-adapter.md` (§5A known-limitation note, lines ~114-119)
 - Modify: `specs/2026-05-29-script-engine-prewrite-content.md` (mark the brief resolved by this plan)
 
 - [ ] **Step 1: Update the `--content` help text**
 
-In `crates/hector-cli/src/cli.rs`, replace the "Limitation" paragraph (lines ~34-39) with the new contract:
+In `crates/ironlint-cli/src/cli.rs`, replace the "Limitation" paragraph (lines ~34-39) with the new contract:
 
 ```rust
         /// `engine: script` rules receive this content on the command's
@@ -944,7 +944,7 @@ In `crates/hector-cli/src/cli.rs`, replace the "Limitation" paragraph (lines ~34
         /// --stdin-filename {file}`. A path-only command (`biome check
         /// {file}`) still reads the on-disk file. Whole-program tools (tsc,
         /// cargo, test runners) can't gate a single proposed file — run those
-        /// post-write / in CI. AST, semantic, and `hector-disable:` directives
+        /// post-write / in CI. AST, semantic, and `ironlint-disable:` directives
         /// already read `--content`.
 ```
 
@@ -954,10 +954,10 @@ In `adapters/reasonix/README.md`, rewrite the "Limitation: engine: script rules"
 
 - [ ] **Step 3: Verify the binary's help renders and commit**
 
-Run: `cargo run -p hector-cli -- check --help` — confirm the new `--content` text renders without panics.
+Run: `cargo run -p ironlint-cli -- check --help` — confirm the new `--content` text renders without panics.
 
 ```bash
-git add crates/hector-cli/src/cli.rs adapters/reasonix/README.md specs/2026-05-25-reasonix-adapter.md specs/2026-05-29-script-engine-prewrite-content.md
+git add crates/ironlint-cli/src/cli.rs adapters/reasonix/README.md specs/2026-05-25-reasonix-adapter.md specs/2026-05-29-script-engine-prewrite-content.md
 git commit -m "docs: script rules gate pre-write via stdin; record the per-tool boundary
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -968,14 +968,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ### Task 7 (OPTIONAL — fast-follow): `--explain` advisory for `{file}`-form script rules
 
 **Files:**
-- Modify: `crates/hector-core/src/runner.rs` (`RuleExplain` struct ~103-107; the row built in `evaluate_one_rule` ~797; the other `RuleExplain` literals at ~698 and ~1082)
-- Modify: `crates/hector-cli/src/commands/check.rs` (`print_explain` ~240-256)
+- Modify: `crates/ironlint-core/src/runner.rs` (`RuleExplain` struct ~103-107; the row built in `evaluate_one_rule` ~797; the other `RuleExplain` literals at ~698 and ~1082)
+- Modify: `crates/ironlint-cli/src/commands/check.rs` (`print_explain` ~240-256)
 
 **Why:** runtime detectability of under-gating. When `--content` is authoritative and a `script` rule's command references `{file}` (so it *may* be reading disk rather than stdin), surface a one-line note in the `--explain` report. Advisory, not an assertion — `--stdin-file-path={file}` also references `{file}` and is correct, so phrasing must not claim the rule is wrong.
 
 - [ ] **Step 1: Write the failing test**
 
-Add a `hector-cli` integration test (new file `crates/hector-cli/tests/cli_explain_script_stdin_hint.rs`) that runs `hector check --file foo.txt --content - --explain` with a `{file}`-form script rule and asserts stderr contains a hint substring like `reads stdin only if your command consumes it`.
+Add a `ironlint-cli` integration test (new file `crates/ironlint-cli/tests/cli_explain_script_stdin_hint.rs`) that runs `ironlint check --file foo.txt --content - --explain` with a `{file}`-form script rule and asserts stderr contains a hint substring like `reads stdin only if your command consumes it`.
 
 ```rust
 // (Use the assert_cmd + write_trusted idioms from cli_check_content.rs.)
@@ -985,12 +985,12 @@ Add a `hector-cli` integration test (new file `crates/hector-cli/tests/cli_expla
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cargo test -p hector-cli --test cli_explain_script_stdin_hint`
+Run: `cargo test -p ironlint-cli --test cli_explain_script_stdin_hint`
 Expected: FAIL — no such note emitted yet.
 
 - [ ] **Step 3: Add an optional `note` to `RuleExplain` and populate it**
 
-In `crates/hector-core/src/runner.rs`, add the field (struct ~103-107):
+In `crates/ironlint-core/src/runner.rs`, add the field (struct ~103-107):
 ```rust
 pub struct RuleExplain {
     pub rule_id: String,
@@ -1018,7 +1018,7 @@ let note = (rule.engine == EngineKind::Script
 
 - [ ] **Step 4: Render the note in `print_explain`**
 
-In `crates/hector-cli/src/commands/check.rs`, after the `eprintln!("{} {} {}", …)` (line ~254), add:
+In `crates/ironlint-cli/src/commands/check.rs`, after the `eprintln!("{} {} {}", …)` (line ~254), add:
 ```rust
         if let Some(note) = &row.note {
             eprintln!("    note: {note}");
@@ -1027,10 +1027,10 @@ In `crates/hector-cli/src/commands/check.rs`, after the `eprintln!("{} {} {}", �
 
 - [ ] **Step 5: Run tests + clippy, then commit**
 
-Run: `cargo test -p hector-cli --test cli_explain_script_stdin_hint` (PASS) and `cargo test -p hector-core` (no regressions from the struct change) and `cargo clippy --all-targets -- -D warnings`.
+Run: `cargo test -p ironlint-cli --test cli_explain_script_stdin_hint` (PASS) and `cargo test -p ironlint-core` (no regressions from the struct change) and `cargo clippy --all-targets -- -D warnings`.
 
 ```bash
-git add crates/hector-core/src/runner.rs crates/hector-cli/src/commands/check.rs crates/hector-cli/tests/cli_explain_script_stdin_hint.rs
+git add crates/ironlint-core/src/runner.rs crates/ironlint-cli/src/commands/check.rs crates/ironlint-cli/tests/cli_explain_script_stdin_hint.rs
 git commit -m "feat(explain): hint when a script rule may read disk under --content
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
@@ -1044,7 +1044,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - [ ] `cargo clippy --all-targets -- -D warnings` — clean (watch cognitive complexity on the spawn fns).
 - [ ] `cargo fmt --check` — clean.
 - [ ] Coverage: in CI, confirm `scripts/ci-coverage.sh` keeps `capability.rs` and `script.rs` ≥80% region (the new tests should cover the stdin branches; if a branch is uncovered — e.g. the timeout-with-writer path — add a targeted test).
-- [ ] Manual smoke (the "so what"): in a scratch dir, a stdin-form biome/grep rule + `hector check --file X --content -` blocks forbidden proposed content and passes clean proposed content, regardless of on-disk state.
+- [ ] Manual smoke (the "so what"): in a scratch dir, a stdin-form biome/grep rule + `ironlint check --file X --content -` blocks forbidden proposed content and passes clean proposed content, regardless of on-disk state.
 - [ ] `git status` — only this plan's files changed; the unrelated claude-code `--diff` WIP is untouched.
 
 ## Spec coverage self-check (author's review against §9 + §9.1)

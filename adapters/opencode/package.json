@@ -1,7 +1,7 @@
 {
-  "name": "@dynamik-dev/hector-opencode",
+  "name": "@christopherarter/ironlint-opencode",
   "version": "0.1.0",
-  "description": "OpenCode plugin for Hector — policy enforcement for AI coding agents. tool.execute.before pre-write gate.",
+  "description": "OpenCode plugin for IronLint — policy enforcement for AI coding agents. tool.execute.before pre-write gate.",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -27,7 +27,7 @@
   "keywords": [
     "opencode",
     "opencode-plugin",
-    "hector",
+    "ironlint",
     "lint",
     "policy",
     "ai-agents"
@@ -35,9 +35,9 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dynamik-dev/hector.git",
+    "url": "https://github.com/christopherarter/ironlint.git",
     "directory": "adapters/opencode"
   },
-  "homepage": "https://github.com/dynamik-dev/hector#readme",
-  "bugs": "https://github.com/dynamik-dev/hector/issues"
+  "homepage": "https://github.com/christopherarter/ironlint#readme",
+  "bugs": "https://github.com/christopherarter/ironlint/issues"
 }

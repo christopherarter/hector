@@ -1,16 +1,16 @@
-# Hector — adapter-drift-audit skill (harness contract maintenance)
+# IronLint — adapter-drift-audit skill (harness contract maintenance)
 
 **Status:** Designed 2026-05-28. Not yet scaffolded.
 **Date:** 2026-05-28
 **Owner:** dynamik-dev
 **Companion to:** [`overview.md`](../../../specs/overview.md), the shipped adapters under [`adapters/`](../../../adapters/), and the [pi-adapter design](2026-05-28-pi-adapter-design.md).
-**Scaffold (to build):** `.claude/skills/adapter-drift-audit/` — a repo-local, maintainer-facing skill that loads a harness's contract intel into context and audits the corresponding Hector adapter for drift.
+**Scaffold (to build):** `.claude/skills/adapter-drift-audit/` — a repo-local, maintainer-facing skill that loads a harness's contract intel into context and audits the corresponding IronLint adapter for drift.
 
 ---
 
 ## 1. Summary
 
-Each Hector adapter (`adapters/claude-code/`, `adapters/opencode/`, `adapters/reasonix/`, and the designed `adapters/pi/`) is a thin translation layer between a coding harness's lifecycle/plugin contract and the `hector` CLI. Those harness contracts move — hook payload field names change, new lifecycle events appear, plugin manifest schemas gain fields, new file-mutating tools ship. When that happens, an adapter silently rots: it keeps running but stops gating what it used to gate.
+Each IronLint adapter (`adapters/claude-code/`, `adapters/opencode/`, `adapters/reasonix/`, and the designed `adapters/pi/`) is a thin translation layer between a coding harness's lifecycle/plugin contract and the `ironlint` CLI. Those harness contracts move — hook payload field names change, new lifecycle events appear, plugin manifest schemas gain fields, new file-mutating tools ship. When that happens, an adapter silently rots: it keeps running but stops gating what it used to gate.
 
 `adapter-drift-audit` is a **maintainer tool** that closes that gap. Invoked with a harness name, it:
 
@@ -18,18 +18,18 @@ Each Hector adapter (`adapters/claude-code/`, `adapters/opencode/`, `adapters/re
 2. Fetches the harness's **current truth** from those sources (Context7, GitHub changelog, web docs).
 3. **Compares** current truth against what the adapter actually does and emits a **drift report**.
 
-It is **read-only**: it produces findings and recommendations but applies no edits to the adapter, and it does not audit `hector` core. The maintainer reads the report and decides what to change.
+It is **read-only**: it produces findings and recommendations but applies no edits to the adapter, and it does not audit `ironlint` core. The maintainer reads the report and decides what to change.
 
 ## 2. Audience and placement
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Audience | **Hector maintainers** (you / dynamik-dev) | Keeping adapters in sync with harnesses is a maintenance concern, not a consumer concern. |
+| Audience | **IronLint maintainers** (you / dynamik-dev) | Keeping adapters in sync with harnesses is a maintenance concern, not a consumer concern. |
 | Location | **`.agents/skills/adapter-drift-audit/`** (tracked canonical) + a local mirror at `.claude/skills/adapter-drift-audit/` for Claude Code discovery | Versioned alongside the adapter code it audits; a contract-map row points at a real `file:line` in this repo. `.claude/` is gitignored in this repo, so the committed copy lives under `.agents/skills/` — matching the `cleanup-build-artifacts` skill. A global or plugin-bundled skill would decouple the map from the code. |
 | Behavior | **Load intel → audit → report** (read-only) | The maintainer decides fixes; the skill never edits adapter files. Keeps the tool safe to run anytime. |
 | Structure | **Shared procedure + per-harness reference files** | One audit procedure, written once; adding a harness = adding one reference file. Four harnesses already exist, so the abstraction pays for itself immediately. |
 
-This skill is distinct from — and does **not** replace — the consumer-facing skills shipped *inside* each adapter (e.g. `adapters/claude-code/skills/{hector-config,hector-init,hector-review}`). Those help an adapter's users author and run policy; this audits the adapter itself.
+This skill is distinct from — and does **not** replace — the consumer-facing skills shipped *inside* each adapter (e.g. `adapters/claude-code/skills/{ironlint-config,ironlint-init,ironlint-review}`). Those help an adapter's users author and run policy; this audits the adapter itself.
 
 ## 3. Layout
 
@@ -56,7 +56,7 @@ The committed copy lives under `.agents/skills/` because `.claude/` is gitignore
 ```yaml
 ---
 name: adapter-drift-audit
-description: Use when checking whether a Hector adapter still matches its coding
+description: Use when checking whether an IronLint adapter still matches its coding
   harness's current contract — auditing adapter/harness drift, verifying hook
   payload shapes, plugin manifest schemas, lifecycle events, or tool names are up
   to date, or doing periodic adapter maintenance. Takes a harness name
@@ -145,7 +145,7 @@ Grounded in the adapter as it stands on 2026-05-28.
 | 6 | Output envelope `hookSpecificOutput.{hookEventName,additionalContext}` | `hooks/hook.sh:68-73,190-195` | hooks reference (`Stop` + `PostToolUse` JSON output) |
 | 7 | Plugin manifest schema + location `.claude-plugin/plugin.json` | `.claude-plugin/plugin.json` | plugins reference |
 | 8 | Skill `SKILL.md` frontmatter + description-based activation | `skills/*/SKILL.md` | skills reference |
-| 9 | Subagent frontmatter (`name`/`description`/`model`/`tools`/`color`) | `agents/hector-evaluator.md:1-7` | sub-agents reference |
+| 9 | Subagent frontmatter (`name`/`description`/`model`/`tools`/`color`) | `agents/ironlint-evaluator.md:1-7` | sub-agents reference |
 | 10 | Per-dispatch subagent model override (does inline override exist yet?) | `adapters/claude-code/README.md:55-65` (flagged unresolved) | sub-agents reference |
 
 The `hook.sh` line numbers are anchors as of this spec; the procedure re-reads the file, so a shifted line still audits — the number just speeds location.
@@ -170,8 +170,8 @@ The first real run replaces this with the version/changelog entry it observed.
 ## 6. Out of scope
 
 - **Applying fixes.** Read-only by design; the report recommends, the maintainer edits.
-- **Auditing `hector` core.** This skill audits adapter ↔ harness contract only.
-- **Replacing consumer-facing adapter skills.** `hector-config`, `hector-init`, `hector-review` remain the user-facing surface.
+- **Auditing `ironlint` core.** This skill audits adapter ↔ harness contract only.
+- **Replacing consumer-facing adapter skills.** `ironlint-config`, `ironlint-init`, `ironlint-review` remain the user-facing surface.
 - **Other harness references.** `pi.md` / `opencode.md` / `reasonix.md` are deferred; each follows the §5 template when built.
 
 ## 7. Testing / validation

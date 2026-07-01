@@ -8,7 +8,7 @@
 # Two correctness concerns:
 #
 # 1. **Hunk-header counts (P1-8).** A literal `@@ -1 +1 @@` is wrong as
-#    soon as either side has more than one line — hector's diff parser
+#    soon as either side has more than one line — ironlint's diff parser
 #    uses the header's `new_start` to number added lines, so wrong
 #    counts produce wrong line numbers downstream. We emit `1,N` form
 #    whenever N > 1.
@@ -16,7 +16,7 @@
 # 2. **Injection scrub (P1-9).** OLD and NEW are arbitrary user content.
 #    Without escaping, a NEW value containing `\n+++ b/SECRET\n` becomes
 #    a real `+++ b/SECRET` header in the synthesized diff, fooling
-#    hector's parser into thinking the edit targets a different file.
+#    ironlint's parser into thinking the edit targets a different file.
 #    Any line in the user-provided blocks that *looks* like a diff
 #    header gets prefixed with a backslash so the parser ignores it.
 #
@@ -62,7 +62,7 @@ HUNK_OLD=$(hunk_part "${OLD_LINES}")
 HUNK_NEW=$(hunk_part "${NEW_LINES}")
 
 # Prefix each line with `-` (old) or `+` (new), then scrub any line that
-# would look like a diff header to hector's parser. We use awk because it
+# would look like a diff header to ironlint's parser. We use awk because it
 # handles embedded newlines without choking on shell quoting edge cases.
 prefix_and_scrub() {
   local prefix="$1"

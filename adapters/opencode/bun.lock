@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@dynamik-dev/hector-opencode",
+      "name": "@christopherarter/ironlint-opencode",
       "devDependencies": {
         "@opencode-ai/plugin": "*",
         "@types/bun": "*",

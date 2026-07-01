@@ -1,0 +1,12 @@
+schema_version: 2
+
+extends:
+  - ./base.ironlint.yml
+
+rules:
+  child-rule:
+    description: "Local rule."
+    engine: script
+    scope: ["*"]
+    severity: error
+    script: "true"

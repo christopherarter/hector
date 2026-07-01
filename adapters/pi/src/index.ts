@@ -1,5 +1,5 @@
-// pi adapter for Hector. A pure translation layer between pi's extension
-// lifecycle and the `hector` CLI — it contains no rule logic. See
+// pi adapter for IronLint. A pure translation layer between pi's extension
+// lifecycle and the `ironlint` CLI — it contains no rule logic. See
 // docs/superpowers/specs/2026-05-28-pi-adapter-design.md.
 
 import { spawnSync } from "node:child_process"
@@ -58,7 +58,7 @@ export function normalizeEdits(input: PiToolInput): Edit[] | null {
 
 /**
  * Compute the file body pi is about to write, so the gate can pipe it to
- * `hector check --content -`. See spec §5.1.
+ * `ironlint check --content -`. See spec §5.1.
  *
  *   - `write` -> `input.content` (the full body), even for a new file.
  *     Non-string content (malformed call) -> null; pi would reject it too.
@@ -68,7 +68,7 @@ export function normalizeEdits(input: PiToolInput): Edit[] | null {
  *     A non-existent file -> null.
  *
  * We deliberately do NOT reproduce pi's fuzzy-match fallback — diverging
- * there would feed hector content pi won't actually write, risking false
+ * there would feed ironlint content pi won't actually write, risking false
  * blocks. Returning null skips the gate (fail-open on simulate-failure).
  */
 export function computeProposedContent(
@@ -101,10 +101,10 @@ export function computeProposedContent(
 // like `cat > foo` are too brittle to parse — universal adapter gap).
 const GATED_TOOLS = new Set(["write", "edit"])
 
-// R3: filenames hector treats as policy files. Edits to these short-circuit
+// R3: filenames ironlint treats as policy files. Edits to these short-circuit
 // the gate — checking a mid-edit policy file fails the trust gate (sha
 // mismatch) and surfaces a confusing internal error.
-const POLICY_FILES = new Set([".hector.yml", ".bully.yml"])
+const POLICY_FILES = new Set([".ironlint.yml", ".bully.yml"])
 
 /** R3: basename match covers both relative and absolute paths. */
 export function isPolicyFile(filePath: string): boolean {
@@ -119,13 +119,13 @@ export function getPath(input: PiToolInput): string | undefined {
 type ExecResult = { exitCode: number; stdout: string; stderr: string }
 
 /**
- * Invoke the `hector` binary (must be on PATH). Uses node:child_process
+ * Invoke the `ironlint` binary (must be on PATH). Uses node:child_process
  * spawnSync for deterministic stdin (`input`) + exit code (`status`). `status`
  * is null only when the process was killed by a signal; map that to -1 so it
  * falls through to fail-open.
  */
-export function runHector(args: string[], input = ""): ExecResult {
-  const res = spawnSync("hector", args, { input, encoding: "utf8" })
+export function runIronLint(args: string[], input = ""): ExecResult {
+  const res = spawnSync("ironlint", args, { input, encoding: "utf8" })
   return {
     exitCode: typeof res.status === "number" ? res.status : -1,
     stdout: res.stdout ?? "",
@@ -135,28 +135,28 @@ export function runHector(args: string[], input = ""): ExecResult {
 
 /**
  * Shared exit-3 (engine-internal-error) policy: fail-open (log + allow) by
- * default; fail-closed (return a block) under HECTOR_FAIL_CLOSED_ON_INTERNAL=1.
- * A misconfigured hector must never brick the agent.
+ * default; fail-closed (return a block) under IRONLINT_FAIL_CLOSED_ON_INTERNAL=1.
+ * A misconfigured ironlint must never brick the agent.
  */
 function failOpenOrClosed(
   kind: string,
   stderr: string,
 ): { block: true; reason: string } | undefined {
   const suffix = stderr ? `: ${stderr}` : ""
-  if (process.env["HECTOR_FAIL_CLOSED_ON_INTERNAL"] === "1") {
+  if (process.env["IRONLINT_FAIL_CLOSED_ON_INTERNAL"] === "1") {
     console.error(
-      `hector: internal error during ${kind} — failing closed (HECTOR_FAIL_CLOSED_ON_INTERNAL=1)${suffix}`,
+      `ironlint: internal error during ${kind} — failing closed (IRONLINT_FAIL_CLOSED_ON_INTERNAL=1)${suffix}`,
     )
-    return { block: true, reason: `hector: internal error during ${kind} — failing closed` }
+    return { block: true, reason: `ironlint: internal error during ${kind} — failing closed` }
   }
   console.error(
-    `hector: internal error during ${kind} — allowing; see .hector/log.jsonl${suffix}`,
+    `ironlint: internal error during ${kind} — allowing; see .ironlint/log.jsonl${suffix}`,
   )
   return undefined
 }
 
 /**
- * Translate a `hector check --format json` verdict into the user-facing block
+ * Translate a `ironlint check --format json` verdict into the user-facing block
  * reason pi surfaces. The CLI prints a Verdict JSON (schema_version 4) on
  * stdout; the human message lives in `blocks[].message` — surfacing raw stdout
  * would dump the whole JSON blob at the user. Falls back to a generic string
@@ -194,16 +194,16 @@ function resolveRoot(pi: PiExtensionAPI): string {
 }
 
 /**
- * Hector pi extension. Registers one lifecycle handler: the `tool_call`
+ * IronLint pi extension. Registers one lifecycle handler: the `tool_call`
  * pre-write gate that checks proposed `write` / `edit` content against the
- * project's `.hector.yml` policy before the tool executes.
+ * project's `.ironlint.yml` policy before the tool executes.
  */
-export default function hectorExtension(pi: PiExtensionAPI): void {
+export default function ironlintExtension(pi: PiExtensionAPI): void {
   const projectRoot = resolveRoot(pi)
-  const configPath = join(projectRoot, ".hector.yml")
+  const configPath = join(projectRoot, ".ironlint.yml")
 
   pi.on("tool_call", (event: ToolCallEvent) => {
-    // Late existence check: the extension may load before `hector init`.
+    // Late existence check: the extension may load before `ironlint init`.
     // Re-checking here means mid-session init starts gating with no restart.
     if (!existsSync(configPath)) return
     const toolName = event?.toolName
@@ -216,7 +216,7 @@ export default function hectorExtension(pi: PiExtensionAPI): void {
     const proposed = computeProposedContent(toolName, filePath, input)
     if (proposed === null) return // can't faithfully simulate — skip the gate
 
-    const res = runHector(
+    const res = runIronLint(
       ["check", "--file", filePath, "--content", "-", "--config", configPath, "--format", "json"],
       proposed,
     )
@@ -229,7 +229,7 @@ export default function hectorExtension(pi: PiExtensionAPI): void {
     }
     // exit 1 / other -> config error: log + allow.
     const suffix = res.stderr.trim() ? `: ${res.stderr.trim()}` : ""
-    console.error(`hector: internal error checking ${filePath} (exit ${res.exitCode})${suffix}`)
+    console.error(`ironlint: internal error checking ${filePath} (exit ${res.exitCode})${suffix}`)
     return
   })
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Opt-in onboarding feature test for `hector init`.
+# Opt-in onboarding feature test for `ironlint init`.
 #
-# Builds a Linux `hector` in Docker, runs a bare `hector init --yes` in a clean
+# Builds a Linux `ironlint` in Docker, runs a bare `ironlint init --yes` in a clean
 # container against seeded harness homes, and asserts the materialized hook
 # artifacts + settings patches appear in the gitignored, bind-mounted output
 # dirs. Targets the open-source, no-auth harnesses only (reasonix, pi, opencode);
@@ -10,12 +10,12 @@
 #
 # Usage:   bash tests/e2e/init/run.sh
 # Requires Docker. NOT part of `cargo test` and NOT run in PR CI — the first
-# build compiles hector inside the image (slow); later runs cache.
+# build compiles ironlint inside the image (slow); later runs cache.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
-IMAGE="hector-init-e2e:latest"
+IMAGE="ironlint-init-e2e:latest"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$$"
 OUT="$HERE/runs/$RUN_ID"
 HOME_DIR="$OUT/home"
@@ -29,7 +29,7 @@ fi
 mkdir -p "$HOME_DIR" "$PROJ_DIR"
 echo "run dir: $OUT"
 
-echo "== building image (compiles a linux hector; first run is slow) =="
+echo "== building image (compiles a linux ironlint; first run is slow) =="
 docker build -f "$HERE/Dockerfile" -t "$IMAGE" "$REPO_ROOT"
 
 echo "== running container =="
@@ -58,39 +58,39 @@ contains() {
 
 echo "== assertions =="
 
-# reasonix: user-global settings patch + materialized hook under the hector dir.
+# reasonix: user-global settings patch + materialized hook under the ironlint dir.
 exists "$HOME_DIR/.reasonix/settings.json" "reasonix settings.json present"
 contains "$HOME_DIR/.reasonix/settings.json" "PreToolUse" "reasonix PreToolUse entry"
 contains "$HOME_DIR/.reasonix/settings.json" "adapters/reasonix/hook.sh" "reasonix hook command path"
 contains "$HOME_DIR/.reasonix/settings.json" "pre-tool-use" "reasonix entry arg"
-exists "$HOME_DIR/.config/hector/adapters/reasonix/hook.sh" "reasonix hook.sh materialized"
-executable "$HOME_DIR/.config/hector/adapters/reasonix/hook.sh" "reasonix hook.sh is executable"
-exists "$HOME_DIR/.config/hector/adapters/reasonix/.hector-adapter.json" "reasonix sidecar present"
-contains "$HOME_DIR/.config/hector/adapters/reasonix/.hector-adapter.json" "sha256:" "reasonix sidecar has sha256"
+exists "$HOME_DIR/.config/ironlint/adapters/reasonix/hook.sh" "reasonix hook.sh materialized"
+executable "$HOME_DIR/.config/ironlint/adapters/reasonix/hook.sh" "reasonix hook.sh is executable"
+exists "$HOME_DIR/.config/ironlint/adapters/reasonix/.ironlint-adapter.json" "reasonix sidecar present"
+contains "$HOME_DIR/.config/ironlint/adapters/reasonix/.ironlint-adapter.json" "sha256:" "reasonix sidecar has sha256"
 
 # pi: project-local plugin drop-in.
-exists "$PROJ_DIR/.pi/extensions/hector.ts" "pi plugin hector.ts"
-exists "$PROJ_DIR/.pi/extensions/.hector-adapter.json" "pi sidecar present"
+exists "$PROJ_DIR/.pi/extensions/ironlint.ts" "pi plugin ironlint.ts"
+exists "$PROJ_DIR/.pi/extensions/.ironlint-adapter.json" "pi sidecar present"
 
 # opencode: project-local plugin drop-in.
-exists "$PROJ_DIR/.opencode/plugins/hector.ts" "opencode plugin hector.ts"
-exists "$PROJ_DIR/.opencode/plugins/.hector-adapter.json" "opencode sidecar present"
+exists "$PROJ_DIR/.opencode/plugins/ironlint.ts" "opencode plugin ironlint.ts"
+exists "$PROJ_DIR/.opencode/plugins/.ironlint-adapter.json" "opencode sidecar present"
 
-# Authoring skill: hector init installs hector-config/SKILL.md into each wired
+# Authoring skill: ironlint init installs ironlint-config/SKILL.md into each wired
 # agent's skills dir (project-local; claude-code excluded so opencode is not
 # deduped here).
-exists "$PROJ_DIR/.reasonix/skills/hector-config/SKILL.md" "reasonix authoring skill"
-exists "$PROJ_DIR/.pi/skills/hector-config/SKILL.md" "pi authoring skill"
-exists "$PROJ_DIR/.opencode/skills/hector-config/SKILL.md" "opencode authoring skill"
-contains "$PROJ_DIR/.pi/skills/hector-config/SKILL.md" "name: hector-config" "pi skill has frontmatter"
-exists "$PROJ_DIR/.pi/skills/hector-config/.hector-adapter.json" "pi skill sidecar"
+exists "$PROJ_DIR/.reasonix/skills/ironlint-config/SKILL.md" "reasonix authoring skill"
+exists "$PROJ_DIR/.pi/skills/ironlint-config/SKILL.md" "pi authoring skill"
+exists "$PROJ_DIR/.opencode/skills/ironlint-config/SKILL.md" "opencode authoring skill"
+contains "$PROJ_DIR/.pi/skills/ironlint-config/SKILL.md" "name: ironlint-config" "pi skill has frontmatter"
+exists "$PROJ_DIR/.pi/skills/ironlint-config/.ironlint-adapter.json" "pi skill sidecar"
 
 # init itself: scaffolded + blessed config.
-exists "$PROJ_DIR/.hector.yml" "scaffolded .hector.yml"
-exists "$HOME_DIR/.config/hector/trust.json" "blessed trust.json"
+exists "$PROJ_DIR/.ironlint.yml" "scaffolded .ironlint.yml"
+exists "$HOME_DIR/.config/ironlint/trust.json" "blessed trust.json"
 
 # claude-code must NOT have been installed (no ~/.claude was seeded).
-if [ -e "$HOME_DIR/.config/hector/adapters/claude-code" ]; then
+if [ -e "$HOME_DIR/.config/ironlint/adapters/claude-code" ]; then
   miss "claude-code must be excluded (open-source-only) but an artifact exists"
 else
   pass "claude-code excluded (no artifact)"
