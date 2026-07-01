@@ -449,8 +449,7 @@ mod tests {
             .into_iter()
             .find(|h| h.name == "reasonix")
             .unwrap();
-        hector_core::adapter::install(&h, &env, hector_core::adapter::Scope::Global, false)
-            .unwrap();
+        hector_core::adapter::install(&h, &env, hector_core::adapter::Scope::Global).unwrap();
         let checks = check_adapters(&env);
         let r = checks
             .iter()
@@ -468,8 +467,7 @@ mod tests {
             .into_iter()
             .find(|h| h.name == "reasonix")
             .unwrap();
-        hector_core::adapter::install(&h, &env, hector_core::adapter::Scope::Global, false)
-            .unwrap();
+        hector_core::adapter::install(&h, &env, hector_core::adapter::Scope::Global).unwrap();
         // Delete the materialized artifact dir but leave the settings entry → broken.
         std::fs::remove_dir_all(env.config_home.join("hector/adapters/reasonix")).unwrap();
         let checks = check_adapters(&env);

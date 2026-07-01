@@ -1,7 +1,3 @@
-// TEMPORARY: render_plan is wired into onboard.rs in Task 3; until then the
-// binary target sees these pub items as unused. Remove this allow in Task 3.
-#![allow(dead_code)]
-
 //! Pretty-printer for the `hector init` onboarding plan. Pure: takes structured
 //! `PlanStep`s and returns the tree string. Color is TTY-gated by the caller and
 //! passed in as `color`; when false, output contains no ANSI escapes.

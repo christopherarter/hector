@@ -20,7 +20,6 @@ pub enum InstallResult {
     Updated,
     Skipped(String),
     Failed(String),
-    DryRun(Vec<String>),
 }
 
 pub struct InstallOutcome {
@@ -72,15 +71,10 @@ fn plugin_dir(spec: &PluginSpec, env: &AdapterEnv, scope: Scope) -> PathBuf {
 
 // --- install -----------------------------------------------------------------
 
-pub fn install(
-    h: &Harness,
-    env: &AdapterEnv,
-    scope: Scope,
-    dry_run: bool,
-) -> Result<InstallOutcome> {
+pub fn install(h: &Harness, env: &AdapterEnv, scope: Scope) -> Result<InstallOutcome> {
     let result = match &h.kind {
-        HarnessKind::JsonHook(spec) => install_jsonhook(h.name, spec, env, scope, dry_run)?,
-        HarnessKind::Plugin(spec) => install_plugin(spec, env, scope, dry_run)?,
+        HarnessKind::JsonHook(spec) => install_jsonhook(h.name, spec, env, scope)?,
+        HarnessKind::Plugin(spec) => install_plugin(spec, env, scope)?,
     };
     Ok(InstallOutcome {
         harness: h.name,
@@ -94,23 +88,12 @@ fn install_jsonhook(
     spec: &JsonHookSpec,
     env: &AdapterEnv,
     scope: Scope,
-    dry_run: bool,
 ) -> Result<InstallResult> {
     let dir = adapters_dir(env).join(name);
     let primary_path = dir.join(spec.primary);
     let command = format!("\"{}\" {}", primary_path.display(), spec.entry_arg);
     let marker = format!("{}", dir.display());
     let settings = settings_path(spec, env, scope);
-
-    if dry_run {
-        let mut plan: Vec<String> = spec
-            .files
-            .iter()
-            .map(|(f, _)| format!("write {}", dir.join(f).display()))
-            .collect();
-        plan.push(format!("patch {} [{}]", settings.display(), spec.array_key));
-        return Ok(InstallResult::DryRun(plan));
-    }
 
     let mut files = BTreeMap::new();
     for (fname, bytes) in spec.files {
@@ -139,20 +122,9 @@ fn install_jsonhook(
     })
 }
 
-fn install_plugin(
-    spec: &PluginSpec,
-    env: &AdapterEnv,
-    scope: Scope,
-    dry_run: bool,
-) -> Result<InstallResult> {
+fn install_plugin(spec: &PluginSpec, env: &AdapterEnv, scope: Scope) -> Result<InstallResult> {
     let dir = plugin_dir(spec, env, scope);
     let file = dir.join(spec.filename);
-    if dry_run {
-        return Ok(InstallResult::DryRun(vec![format!(
-            "write {}",
-            file.display()
-        )]));
-    }
     let new_bytes = spec.source.as_bytes();
     let existed = file.exists();
     if existed {
@@ -186,15 +158,10 @@ fn skill_base(spec: &SkillSpec, env: &AdapterEnv, scope: Scope) -> PathBuf {
     }
 }
 
-pub fn install_skill(
-    h: &Harness,
-    env: &AdapterEnv,
-    scope: Scope,
-    dry_run: bool,
-) -> Result<InstallOutcome> {
+pub fn install_skill(h: &Harness, env: &AdapterEnv, scope: Scope) -> Result<InstallOutcome> {
     let dir = skill_base(&h.skill, env, scope).join(SKILL_NAME);
     let file = dir.join("SKILL.md");
-    let result = install_skill_file(&file, &dir, h.skill.source.as_bytes(), dry_run)?;
+    let result = install_skill_file(&file, &dir, h.skill.source.as_bytes())?;
     Ok(InstallOutcome {
         harness: h.name,
         result,
@@ -202,18 +169,7 @@ pub fn install_skill(
     })
 }
 
-fn install_skill_file(
-    file: &Path,
-    dir: &Path,
-    bytes: &[u8],
-    dry_run: bool,
-) -> Result<InstallResult> {
-    if dry_run {
-        return Ok(InstallResult::DryRun(vec![format!(
-            "write {}",
-            file.display()
-        )]));
-    }
+fn install_skill_file(file: &Path, dir: &Path, bytes: &[u8]) -> Result<InstallResult> {
     let existed = file.exists();
     if existed {
         if let Ok(cur) = std::fs::read(file) {
@@ -239,22 +195,12 @@ fn install_skill_file(
     })
 }
 
-pub fn uninstall_skill(
-    h: &Harness,
-    env: &AdapterEnv,
-    scope: Scope,
-    dry_run: bool,
-) -> Result<InstallOutcome> {
+pub fn uninstall_skill(h: &Harness, env: &AdapterEnv, scope: Scope) -> Result<InstallOutcome> {
     let dir = skill_base(&h.skill, env, scope).join(SKILL_NAME);
-    let result = if dry_run {
-        InstallResult::DryRun(vec![format!("remove {}", dir.display())])
-    } else {
-        let _ = std::fs::remove_dir_all(&dir);
-        InstallResult::Installed
-    };
+    let _ = std::fs::remove_dir_all(&dir);
     Ok(InstallOutcome {
         harness: h.name,
-        result,
+        result: InstallResult::Installed,
         hint: h.restart_hint,
     })
 }
@@ -327,15 +273,10 @@ fn set_executable(_path: &Path) -> Result<()> {
 
 // --- uninstall ---------------------------------------------------------------
 
-pub fn uninstall(
-    h: &Harness,
-    env: &AdapterEnv,
-    scope: Scope,
-    dry_run: bool,
-) -> Result<InstallOutcome> {
+pub fn uninstall(h: &Harness, env: &AdapterEnv, scope: Scope) -> Result<InstallOutcome> {
     let result = match &h.kind {
-        HarnessKind::JsonHook(spec) => uninstall_jsonhook(h.name, spec, env, scope, dry_run)?,
-        HarnessKind::Plugin(spec) => uninstall_plugin(h.name, spec, env, scope, dry_run)?,
+        HarnessKind::JsonHook(spec) => uninstall_jsonhook(h.name, spec, env, scope)?,
+        HarnessKind::Plugin(spec) => uninstall_plugin(h.name, spec, env, scope)?,
     };
     Ok(InstallOutcome {
         harness: h.name,
@@ -349,16 +290,9 @@ fn uninstall_jsonhook(
     spec: &JsonHookSpec,
     env: &AdapterEnv,
     scope: Scope,
-    dry_run: bool,
 ) -> Result<InstallResult> {
     let dir = adapters_dir(env).join(name);
     let settings = settings_path(spec, env, scope);
-    if dry_run {
-        return Ok(InstallResult::DryRun(vec![
-            format!("remove {}", dir.display()),
-            format!("unpatch {} [{}]", settings.display(), spec.array_key),
-        ]));
-    }
     if settings.exists() {
         let mut value = load_settings(&settings)?;
         if remove_from_hook_array(&mut value, spec.array_key, &format!("{}", dir.display())) {
@@ -374,16 +308,9 @@ fn uninstall_plugin(
     spec: &PluginSpec,
     env: &AdapterEnv,
     scope: Scope,
-    dry_run: bool,
 ) -> Result<InstallResult> {
     let dir = plugin_dir(spec, env, scope);
     let file = dir.join(spec.filename);
-    if dry_run {
-        return Ok(InstallResult::DryRun(vec![
-            format!("remove {}", file.display()),
-            format!("remove {}", crate::adapter::sidecar_path(&dir).display()),
-        ]));
-    }
     let _ = std::fs::remove_file(&file);
     let _ = std::fs::remove_file(crate::adapter::sidecar_path(&dir));
     Ok(InstallResult::Installed)
@@ -504,7 +431,7 @@ mod tests {
     fn install_reasonix_writes_artifact_sidecar_and_patches_settings() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        let out = install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        let out = install(&harness("reasonix"), &e, Scope::Global).unwrap();
         assert!(matches!(out.result, InstallResult::Installed));
         let hook = e.config_home.join("hector/adapters/reasonix/hook.sh");
         assert!(hook.exists());
@@ -526,29 +453,16 @@ mod tests {
     fn install_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
-        let again = install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        install(&harness("reasonix"), &e, Scope::Global).unwrap();
+        let again = install(&harness("reasonix"), &e, Scope::Global).unwrap();
         assert!(matches!(again.result, InstallResult::AlreadyPresent));
-    }
-
-    #[test]
-    fn dry_run_writes_nothing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let e = env(tmp.path());
-        let out = install(&harness("reasonix"), &e, Scope::Global, true).unwrap();
-        assert!(matches!(out.result, InstallResult::DryRun(_)));
-        assert!(!tmp.path().join(".reasonix/settings.json").exists());
-        assert!(!e
-            .config_home
-            .join("hector/adapters/reasonix/hook.sh")
-            .exists());
     }
 
     #[test]
     fn install_plugin_drops_file_in_project_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        let out = install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        let out = install(&harness("opencode"), &e, Scope::Local).unwrap();
         assert!(matches!(out.result, InstallResult::Installed));
         assert!(e.project_root.join(".opencode/plugins/hector.ts").exists());
     }
@@ -557,8 +471,8 @@ mod tests {
     fn uninstall_removes_artifact_and_entry() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
-        let out = uninstall(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        install(&harness("reasonix"), &e, Scope::Global).unwrap();
+        let out = uninstall(&harness("reasonix"), &e, Scope::Global).unwrap();
         assert!(matches!(out.result, InstallResult::Installed)); // "removed" reuses Installed-style ok
         assert!(!e
             .config_home
@@ -576,7 +490,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
         std::fs::create_dir_all(tmp.path().join(".reasonix")).unwrap();
-        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        install(&harness("reasonix"), &e, Scope::Global).unwrap();
         let st = status(&harness("reasonix"), &e, Scope::Global).unwrap();
         assert!(st.detected && st.installed && st.registered);
         assert_eq!(st.intact, Some(true));
@@ -587,10 +501,10 @@ mod tests {
     fn install_jsonhook_idempotent_leaves_settings_byte_identical() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        install(&harness("reasonix"), &e, Scope::Global).unwrap();
         let settings_path = tmp.path().join(".reasonix/settings.json");
         let before = std::fs::read_to_string(&settings_path).unwrap();
-        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
+        install(&harness("reasonix"), &e, Scope::Global).unwrap();
         let after = std::fs::read_to_string(&settings_path).unwrap();
         assert_eq!(
             before, after,
@@ -602,8 +516,8 @@ mod tests {
     fn install_plugin_identical_content_is_already_present() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install(&harness("opencode"), &e, Scope::Local, false).unwrap();
-        let again = install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        install(&harness("opencode"), &e, Scope::Local).unwrap();
+        let again = install(&harness("opencode"), &e, Scope::Local).unwrap();
         assert!(
             matches!(again.result, InstallResult::AlreadyPresent),
             "identical re-install must return AlreadyPresent"
@@ -614,31 +528,13 @@ mod tests {
     fn install_plugin_changed_content_is_updated() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        install(&harness("opencode"), &e, Scope::Local).unwrap();
         let file = e.project_root.join(".opencode/plugins/hector.ts");
         std::fs::write(&file, b"// changed").unwrap();
-        let again = install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        let again = install(&harness("opencode"), &e, Scope::Local).unwrap();
         assert!(
             matches!(again.result, InstallResult::Updated),
             "changed content must return Updated"
-        );
-    }
-
-    #[test]
-    fn uninstall_dry_run_removes_nothing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let e = env(tmp.path());
-        install(&harness("reasonix"), &e, Scope::Global, false).unwrap();
-        let hook = e.config_home.join("hector/adapters/reasonix/hook.sh");
-        uninstall(&harness("reasonix"), &e, Scope::Global, true).unwrap();
-        assert!(hook.exists(), "dry-run must not remove the hook artifact");
-        let settings_path = tmp.path().join(".reasonix/settings.json");
-        let val: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-        let arr = val["hooks"]["PreToolUse"].as_array().unwrap();
-        assert!(
-            !arr.is_empty(),
-            "dry-run must not remove the settings entry"
         );
     }
 
@@ -658,7 +554,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
         let h = harness("reasonix");
-        install(&h, &e, Scope::Global, false).unwrap();
+        install(&h, &e, Scope::Global).unwrap();
         // Tamper with the installed artifact, leaving the sidecar untouched.
         let hook = e.config_home.join("hector/adapters/reasonix/hook.sh");
         let mut bytes = std::fs::read(&hook).unwrap();
@@ -676,10 +572,10 @@ mod tests {
     fn uninstall_plugin_removes_file() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        install(&harness("opencode"), &e, Scope::Local).unwrap();
         let file = e.project_root.join(".opencode/plugins/hector.ts");
         assert!(file.exists());
-        uninstall(&harness("opencode"), &e, Scope::Local, false).unwrap();
+        uninstall(&harness("opencode"), &e, Scope::Local).unwrap();
         assert!(!file.exists(), "uninstall must remove the plugin file");
     }
 
@@ -687,7 +583,7 @@ mod tests {
     fn install_skill_writes_skill_md_and_sidecar() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        let out = install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
+        let out = install_skill(&harness("pi"), &e, Scope::Local).unwrap();
         assert!(matches!(out.result, InstallResult::Installed));
         let skill = e.project_root.join(".pi/skills/hector-config/SKILL.md");
         assert!(skill.exists(), "SKILL.md must land at {}", skill.display());
@@ -700,8 +596,8 @@ mod tests {
     fn install_skill_is_idempotent() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
-        let again = install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
+        install_skill(&harness("pi"), &e, Scope::Local).unwrap();
+        let again = install_skill(&harness("pi"), &e, Scope::Local).unwrap();
         assert!(matches!(again.result, InstallResult::AlreadyPresent));
     }
 
@@ -709,53 +605,29 @@ mod tests {
     fn install_skill_changed_content_is_updated() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
+        install_skill(&harness("pi"), &e, Scope::Local).unwrap();
         let f = e.project_root.join(".pi/skills/hector-config/SKILL.md");
         std::fs::write(&f, b"// tampered").unwrap();
-        let again = install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
+        let again = install_skill(&harness("pi"), &e, Scope::Local).unwrap();
         assert!(matches!(again.result, InstallResult::Updated));
-    }
-
-    #[test]
-    fn install_skill_dry_run_writes_nothing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let e = env(tmp.path());
-        let out = install_skill(&harness("pi"), &e, Scope::Local, true).unwrap();
-        assert!(matches!(out.result, InstallResult::DryRun(_)));
-        assert!(!e
-            .project_root
-            .join(".pi/skills/hector-config/SKILL.md")
-            .exists());
     }
 
     #[test]
     fn uninstall_skill_removes_the_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
+        install_skill(&harness("pi"), &e, Scope::Local).unwrap();
         let dir = e.project_root.join(".pi/skills/hector-config");
         assert!(dir.exists());
-        uninstall_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
+        uninstall_skill(&harness("pi"), &e, Scope::Local).unwrap();
         assert!(!dir.exists(), "uninstall must remove the skill dir");
-    }
-
-    #[test]
-    fn uninstall_skill_dry_run_removes_nothing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let e = env(tmp.path());
-        install_skill(&harness("pi"), &e, Scope::Local, false).unwrap();
-        let dir = e.project_root.join(".pi/skills/hector-config");
-        assert!(dir.exists());
-        let out = uninstall_skill(&harness("pi"), &e, Scope::Local, true).unwrap();
-        assert!(matches!(out.result, InstallResult::DryRun(_)));
-        assert!(dir.exists(), "dry-run uninstall must leave the skill dir");
     }
 
     #[test]
     fn install_skill_global_uses_home_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let e = env(tmp.path());
-        install_skill(&harness("pi"), &e, Scope::Global, false).unwrap();
+        install_skill(&harness("pi"), &e, Scope::Global).unwrap();
         // pi global skills dir is ~/.pi/agent/skills
         assert!(e
             .home

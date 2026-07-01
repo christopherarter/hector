@@ -1,8 +1,9 @@
+use super::render::{render_plan, HarnessPlan, Source};
 use super::Options;
 use anyhow::{anyhow, Result};
 use hector_core::adapter::{
-    all_harnesses, detect, install, install_skill, uninstall, uninstall_skill, AdapterEnv, Harness,
-    InstallResult, Scope,
+    all_harnesses, detect, install, install_skill, plan_install, plan_uninstall, uninstall,
+    uninstall_skill, AdapterEnv, Harness, InstallResult, PlanStep, Scope,
 };
 use std::io::{IsTerminal, Write};
 
@@ -12,24 +13,113 @@ pub fn run_hook_phase(env: &AdapterEnv, opts: &Options) -> Result<i32> {
     } else {
         Scope::Local
     };
-    let names = choose_harnesses(env, opts)?;
-    if names.is_empty() {
+    let selected = resolve_harnesses(env, opts)?;
+    if selected.is_empty() {
+        println!(
+            "no supported harnesses detected; run `hector init --harness all` to wire all four"
+        );
         return Ok(0);
     }
-    let registry = all_harnesses();
-    let selected: Vec<&Harness> = names
-        .iter()
-        .filter_map(|n| registry.iter().find(|h| h.name == n))
-        .collect();
+    let plans = build_plans(&selected, env, scope, opts.uninstall);
+    print!(
+        "{}",
+        render_plan(&plans, opts.uninstall, env, std::io::stdout().is_terminal())
+    );
+    if opts.dry_run {
+        return Ok(0);
+    }
+    if !confirm_gate(opts, &selected)? {
+        return Ok(0);
+    }
+    Ok(apply(&selected, env, scope, opts))
+}
 
+/// Resolve the harness set and tag each with why it is present. Explicit
+/// `--harness` → `requested`; auto-detect → `detected`. No prompting here.
+fn resolve_harnesses(env: &AdapterEnv, opts: &Options) -> Result<Vec<(String, Source)>> {
+    if !opts.harnesses.is_empty() {
+        let names = select_harness_names(&opts.harnesses)?;
+        return Ok(names.into_iter().map(|n| (n, Source::Requested)).collect());
+    }
+    Ok(detect(env)
+        .into_iter()
+        .filter(|(_, found)| *found)
+        .map(|(n, _)| (n.to_string(), Source::Detected))
+        .collect())
+}
+
+/// Build the render-ready plan, honoring the opencode-skill dedup for install
+/// (opencode reads claude-code's `.claude/skills/` copy).
+fn build_plans(
+    selected: &[(String, Source)],
+    env: &AdapterEnv,
+    scope: Scope,
+    uninstall_mode: bool,
+) -> Vec<HarnessPlan> {
+    let registry = all_harnesses();
+    let names: Vec<String> = selected.iter().map(|(n, _)| n.clone()).collect();
+    selected
+        .iter()
+        .filter_map(|(name, source)| {
+            let h = registry.iter().find(|h| h.name == *name)?;
+            let mut steps = if uninstall_mode {
+                plan_uninstall(h, env, scope)
+            } else {
+                plan_install(h, env, scope)
+            };
+            if !uninstall_mode && !should_install_skill(h.name, &names) {
+                steps.retain(|s| !matches!(s, PlanStep::Skill { .. }));
+            }
+            Some(HarnessPlan {
+                name: h.name,
+                source: *source,
+                steps,
+            })
+        })
+        .collect()
+}
+
+/// Decide whether to proceed past the plan. `--yes` and explicit non-TTY
+/// proceed; auto-detect non-TTY prints a hint and stops; TTY prompts.
+fn confirm_gate(opts: &Options, selected: &[(String, Source)]) -> Result<bool> {
+    if opts.yes {
+        return Ok(true);
+    }
+    let explicit = !opts.harnesses.is_empty();
+    if !std::io::stdin().is_terminal() {
+        if explicit {
+            return Ok(true);
+        }
+        let names = selected
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("detected: {names} — re-run with `--yes` or `--harness <name>` to proceed");
+        return Ok(false);
+    }
+    print!("  Proceed? [Y/n] ");
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(parse_confirm(&line))
+}
+
+/// Install or uninstall the resolved set, printing per-harness result lines.
+/// Returns the phase exit code: 3 only if every harness failed.
+fn apply(selected: &[(String, Source)], env: &AdapterEnv, scope: Scope, opts: &Options) -> i32 {
+    let registry = all_harnesses();
+    let names: Vec<String> = selected.iter().map(|(n, _)| n.clone()).collect();
     let mut any_ok = false;
     let mut any_fail = false;
-    for h in selected {
-        // 1. Hook.
+    for name in &names {
+        let Some(h) = registry.iter().find(|h| h.name == *name) else {
+            continue;
+        };
         let outcome = if opts.uninstall {
-            uninstall(h, env, scope, opts.dry_run)
+            uninstall(h, env, scope)
         } else {
-            install(h, env, scope, opts.dry_run)
+            install(h, env, scope)
         };
         match outcome {
             Ok(o) => {
@@ -41,54 +131,15 @@ pub fn run_hook_phase(env: &AdapterEnv, opts: &Options) -> Result<i32> {
                 println!("  {:<12} failed: {e:#}", h.name);
             }
         }
-        // 2. Authoring skill. Uninstall removes every harness's own dir; install
-        //    dedups opencode against claude-code's copy.
         let (skill_ok, skill_fail) = run_skill_step(h, env, scope, opts, &names);
-        if skill_ok {
-            any_ok = true;
-        }
-        if skill_fail {
-            any_fail = true;
-        }
+        any_ok |= skill_ok;
+        any_fail |= skill_fail;
     }
-    Ok(if any_fail && !any_ok { 3 } else { 0 })
-}
-
-/// Resolve the harness set: explicit `--harness`, else detect+confirm.
-fn choose_harnesses(env: &AdapterEnv, opts: &Options) -> Result<Vec<String>> {
-    if !opts.harnesses.is_empty() {
-        return select_harness_names(&opts.harnesses);
-    }
-    let detected: Vec<String> = detect(env)
-        .into_iter()
-        .filter(|(_, found)| *found)
-        .map(|(n, _)| n.to_string())
-        .collect();
-    if detected.is_empty() {
-        println!(
-            "no supported harnesses detected; run `hector init --harness all` to wire all four"
-        );
-        return Ok(vec![]);
-    }
-    if opts.yes {
-        return Ok(detected);
-    }
-    if !std::io::stdin().is_terminal() {
-        println!(
-            "detected: {} — re-run with `--yes` or `--harness <name>` to install",
-            detected.join(", ")
-        );
-        return Ok(vec![]);
-    }
-    print!("Install hector hooks into {}? [Y/n] ", detected.join(", "));
-    std::io::stdout().flush()?;
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    Ok(if parse_confirm(&line) {
-        detected
+    if any_fail && !any_ok {
+        3
     } else {
-        vec![]
-    })
+        0
+    }
 }
 
 /// Validate explicit `--harness` names; `all` expands to the full registry.
@@ -131,11 +182,6 @@ fn format_outcome(
         InstallResult::AlreadyPresent => vec![format!("  {harness:<12} already present")],
         InstallResult::Skipped(why) => vec![format!("  {harness:<12} skipped: {why}")],
         InstallResult::Failed(why) => vec![format!("  {harness:<12} failed: {why}")],
-        InstallResult::DryRun(plan) => {
-            let mut lines = vec![format!("  {harness:<12} dry-run:")];
-            lines.extend(plan.iter().map(|l| format!("      {l}")));
-            lines
-        }
     }
 }
 
@@ -161,11 +207,6 @@ fn format_skill_outcome(harness: &str, result: &InstallResult, uninstalling: boo
         InstallResult::AlreadyPresent => vec![format!("  {harness:<12} skill already present")],
         InstallResult::Skipped(why) => vec![format!("  {harness:<12} skill skipped: {why}")],
         InstallResult::Failed(why) => vec![format!("  {harness:<12} skill failed: {why}")],
-        InstallResult::DryRun(plan) => {
-            let mut lines = vec![format!("  {harness:<12} skill dry-run:")];
-            lines.extend(plan.iter().map(|l| format!("      {l}")));
-            lines
-        }
     }
 }
 
@@ -190,9 +231,9 @@ fn run_skill_step(
         return (false, false);
     }
     let s = if opts.uninstall {
-        uninstall_skill(h, env, scope, opts.dry_run)
+        uninstall_skill(h, env, scope)
     } else {
-        install_skill(h, env, scope, opts.dry_run)
+        install_skill(h, env, scope)
     };
     match s {
         Ok(o) => {
@@ -252,10 +293,6 @@ mod tests {
         assert!(
             format_outcome("pi", &Failed("y".to_string()), "h", false)[0].contains("failed: y")
         );
-        let dr = format_outcome("pi", &DryRun(vec!["write a".to_string()]), "h", false);
-        assert_eq!(dr.len(), 2);
-        assert!(dr[0].contains("dry-run"));
-        assert!(dr[1].contains("write a"));
     }
 
     #[test]
@@ -289,9 +326,5 @@ mod tests {
             format_skill_outcome("pi", &Failed("y".to_string()), false)[0]
                 .contains("skill failed: y")
         );
-        let dr = format_skill_outcome("pi", &DryRun(vec!["write a".to_string()]), false);
-        assert_eq!(dr.len(), 2);
-        assert!(dr[0].contains("skill dry-run"));
-        assert!(dr[1].contains("write a"));
     }
 }
