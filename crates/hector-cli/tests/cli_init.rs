@@ -229,6 +229,46 @@ fn init_dedups_opencode_skill_when_claude_also_selected() {
     );
 }
 
+/// Install-side counterpart to `init_dedups_opencode_skill_when_claude_also_selected`:
+/// a REAL (non-dry-run) install must actually write claude-code's skill to
+/// disk while actually skipping opencode's own skill dir (it reads claude's
+/// copy), not just omit it from the printed plan.
+#[test]
+fn init_real_install_dedups_opencode_skill_against_claude() {
+    let dir = tempfile::tempdir().unwrap();
+    let xdg = tempfile::tempdir().unwrap();
+    Command::cargo_bin("hector")
+        .unwrap()
+        .env("XDG_CONFIG_HOME", xdg.path())
+        .args([
+            "init",
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--harness",
+            "claude-code",
+            "--harness",
+            "opencode",
+            "--yes",
+        ])
+        .assert()
+        .success();
+
+    let claude_skill = dir.path().join(".claude/skills/hector-config/SKILL.md");
+    assert!(
+        claude_skill.exists(),
+        "claude-code skill must be installed to disk at {}",
+        claude_skill.display()
+    );
+
+    let opencode_skill = dir.path().join(".opencode/skills/hector-config");
+    assert!(
+        !opencode_skill.exists(),
+        "opencode's own skill dir must be deduped (not written) when claude-code \
+         is also installed, since opencode reads claude's copy: {}",
+        opencode_skill.display()
+    );
+}
+
 /// `init` auto-blesses, so a `check` against the scaffolded config runs
 /// without a separate `hector trust` step (it is not rejected as untrusted).
 #[test]
