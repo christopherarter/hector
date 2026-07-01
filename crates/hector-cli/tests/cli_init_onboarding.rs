@@ -136,3 +136,83 @@ fn no_tty_without_yes_or_harness_skips_hooks() {
     );
     assert!(!home.join(".reasonix/settings.json").exists());
 }
+
+#[test]
+fn explicit_harness_renders_plan_with_requested_tag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = tmp.path().join("proj");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let out = hector(&home, &project)
+        .args(["init", "--hook-only", "--harness", "reasonix", "--yes"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(s.contains("hector · onboarding"), "header:\n{s}");
+    assert!(s.contains("reasonix"), "harness:\n{s}");
+    assert!(s.contains("requested"), "explicit → requested tag:\n{s}");
+    assert!(s.contains("hook"), "hook step listed:\n{s}");
+    // --yes still installs
+    assert!(home
+        .join(".config/hector/adapters/reasonix/hook.sh")
+        .exists());
+}
+
+#[test]
+fn dry_run_renders_plan_but_installs_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = tmp.path().join("proj");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let out = hector(&home, &project)
+        .args(["init", "--hook-only", "--harness", "reasonix", "--dry-run"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(
+        s.contains("hector · onboarding"),
+        "dry-run still renders plan:\n{s}"
+    );
+    assert!(
+        !home
+            .join(".config/hector/adapters/reasonix/hook.sh")
+            .exists(),
+        "dry-run writes nothing"
+    );
+}
+
+#[test]
+fn uninstall_renders_removal_plan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = tmp.path().join("proj");
+    std::fs::create_dir_all(&project).unwrap();
+
+    hector(&home, &project)
+        .args(["init", "--hook-only", "--harness", "reasonix", "--yes"])
+        .assert()
+        .success();
+    let out = hector(&home, &project)
+        .args(["init", "--uninstall", "--harness", "reasonix", "--yes"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = String::from_utf8(out).unwrap();
+    assert!(s.contains("hector · uninstall"), "uninstall header:\n{s}");
+    assert!(
+        !home
+            .join(".config/hector/adapters/reasonix/hook.sh")
+            .exists(),
+        "uninstall removes the hook"
+    );
+}
