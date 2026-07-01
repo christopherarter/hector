@@ -7,6 +7,7 @@
 //! pi, opencode, reasonix) is a separate phase handled by `onboard.rs`.
 
 mod onboard;
+mod render;
 
 use anyhow::{anyhow, Result};
 use std::path::Path;
